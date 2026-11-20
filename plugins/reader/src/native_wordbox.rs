@@ -38,6 +38,18 @@ pub fn word_boxes<M: Measure>(
 ) -> Result<Vec<WordBox>, Error> {
     let (left, top) = (f32::from(area.x), f32::from(area.y));
     let mut words: Vec<WordBox> = Vec::new();
+    // Room for the page's words at once, not by doubling (#400): a page of 45
+    // words took a table of 64 rows of 80 bytes, 1.9 KB kept all the time the
+    // page is on show. A word the layout did not count grows it by one.
+    let bound: usize = page
+        .lines
+        .iter()
+        .filter(|l| !l.inserted)
+        .map(|l| l.words.len())
+        .sum();
+    words
+        .try_reserve_exact(bound.min(MAX_WORDS))
+        .map_err(|_| Error::NoMemory)?;
     // The last word of the line before, where it ended with a hyphen the
     // layout put there: its word goes on with the first of this line.
     let mut broken: Option<usize> = None;
@@ -71,7 +83,7 @@ pub fn word_boxes<M: Measure>(
                     }
                     _ => {
                         if words.len() >= MAX_WORDS {
-                            return Ok(words);
+                            return Ok(kept(words));
                         }
                         let (start, end) = line.words.get(ordinal).copied().unwrap_or_default();
                         ordinal += 1;
@@ -100,7 +112,16 @@ pub fn word_boxes<M: Measure>(
         // in the next line (not in a page of its own: a page ends with it).
         broken = (line.hyphen && words.len() > first).then(|| words.len() - 1);
     }
-    Ok(words)
+    Ok(kept(words))
+}
+
+/// `words` without the room a joined word left over (a word is one box where
+/// the layout counted its parts).
+fn kept(mut words: Vec<WordBox>) -> Vec<WordBox> {
+    if words.capacity() > words.len() {
+        words.shrink_to_fit();
+    }
+    words
 }
 
 /// The word at `head`, which ends a line with a hyphen the layout put there,

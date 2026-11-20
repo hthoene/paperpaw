@@ -97,6 +97,16 @@ fn the_words_of_a_line_are_boxed_where_they_are_drawn() {
 }
 
 #[test]
+fn the_boxes_of_a_page_keep_no_room_they_do_not_use() {
+    // 45 words: doubling would have kept a table of 64 (#400).
+    let text = vec!["word"; 45].join(" ");
+    let (page, faces) = plain(&text);
+    let words = word_boxes(&faces, &page, BOX).unwrap();
+    assert_eq!(words.len(), 45);
+    assert_eq!(words.capacity(), 45);
+}
+
+#[test]
 fn a_word_in_two_runs_is_one_box() {
     // `bold` in bold and `face rest` after it: the word `boldface` goes on across runs.
     let (page, faces) = page(
