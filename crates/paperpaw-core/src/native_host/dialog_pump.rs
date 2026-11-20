@@ -116,6 +116,14 @@ impl crate::Kernel {
             // locals are not on the stack while those commands run (#250).
             self.run_commands();
         }
+        // The dialog closed itself with its answer (`close` staged after the
+        // commit, still in the outbox): that close applies before the asker
+        // hears of the answer, so the asker's own `close` finds its screen on
+        // top (#433).
+        if store.any_delivery() {
+            self.native_outbox_run();
+            self.run_commands();
+        }
         // Answers: one callback each; what a callback staged runs before the
         // next is called.
         let mut index = 0;
@@ -177,7 +185,7 @@ impl crate::Kernel {
         };
         let mut bytes = [0u8; 64];
         let len = codec::encode_batch(&[wire::Record::EventAnswered(record)], &mut bytes).ok()?;
-        Some(self.native_event_call(owner, lease, &bytes[..len]))
+        Some(self.native_answer_call(owner, lease, &bytes[..len]))
     }
 
     /// Asks a text question as a plugin's `ui.ask` does, for the tools and
