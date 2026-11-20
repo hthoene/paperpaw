@@ -27,6 +27,21 @@ fn files(dir: &Path, prefix: &str, found: &mut Vec<String>) -> Result<(), Box<dy
     Ok(())
 }
 
+/// `bytes` raw-deflated with a history of `WINDOW_BITS` bits, which the
+/// program's inflating (`lib.rs`) holds.
+fn deflate(bytes: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    const WINDOW_BITS: u8 = 12;
+    let mut compress =
+        flate2::Compress::new_with_window_bits(flate2::Compression::best(), false, WINDOW_BITS);
+    // Room for what does not compress, too.
+    let mut out = Vec::with_capacity(bytes.len() + 1024);
+    let status = compress.compress_vec(bytes, &mut out, flate2::FlushCompress::Finish)?;
+    if status != flate2::Status::StreamEnd {
+        return Err("a file of the English package was not deflated whole".into());
+    }
+    Ok(out)
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
     let root = manifest.join("../..");
@@ -48,12 +63,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let mut found = Vec::new();
     files(&dir, "", &mut found)?;
+    // Each file deflated (the table is half its size, #428): the program
+    // carries them so and inflates them as they are written to the card.
+    let deflated = out.join("deflated");
+    let _ = fs::remove_dir_all(&deflated);
+    fs::create_dir_all(&deflated)?;
     let mut source = String::from("&[\n");
-    for path in &found {
-        let file = dir.join(path);
+    for (at, path) in found.iter().enumerate() {
+        let bytes = fs::read(dir.join(path))?;
+        let file = deflated.join(format!("{at}.deflate"));
+        fs::write(&file, deflate(&bytes)?)?;
         writeln!(
             source,
-            "    ({path:?}, include_bytes!({:?})),",
+            "    ({path:?}, {}, include_bytes!({:?})),",
+            bytes.len(),
             file.display().to_string()
         )?;
     }

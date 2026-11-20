@@ -128,9 +128,9 @@ fn reading(name: &str, book: &[u8], ini: &str) -> Device {
         .with("paperpaw.ini", format!("[help]\nshow = false\n{ini}"));
     // English is hyphenated as on a fresh install (the firmware seeds the pack).
     let files = paperpaw_default_packs::english()
-        .iter()
+        .into_iter()
         .fold(files, |files, (path, bytes)| {
-            files.with(&format!("plugins/hyphenation/{path}"), *bytes)
+            files.with(&format!("plugins/hyphenation/{path}"), bytes)
         });
     paperpaw_emulator::budget::override_limit(None);
     let profile = profiles::find("xteink-x4").unwrap();
