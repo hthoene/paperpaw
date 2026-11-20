@@ -5,10 +5,12 @@
 use super::{
     Asker, Row,
     fixed::{Fixed, caps, clip, translated},
-    native_extra::{self, Shown},
+    menu_native::Native,
+    native_extra::{self, ExtraLookup, Shown},
     schema,
     sources::Sources,
 };
+use crate::native_host::declaration_store::{DeclKey, DeclarationStore};
 use crate::{
     abi7::{
         settings_visibility::{Visibility, visibility_of},
@@ -16,8 +18,9 @@ use crate::{
     },
     native_host::registrations::{self as wire, Record},
 };
-use alloc::vec::Vec;
+use alloc::{rc::Rc, vec::Vec};
 use core::{cell::OnceCell, mem::MaybeUninit, ops::ControlFlow};
+use paperpaw_digest::fnv1a64;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::Pick;
 use paperpaw_sdk::{
@@ -165,13 +168,27 @@ fn source(sources: &Sources<'_>, spec: &SettingSpec) -> u32 {
     }
 }
 
+/// The hash [`governing`] keeps of a setting id.
+pub(super) fn id_hash(id: &str) -> u64 {
+    fnv1a64(id.as_bytes())
+}
+
 /// The ids of the settings whose value another setting's showing depends on
-/// ([`Settings::governs`], and a native plugin's declared `shown_if`), sorted
-/// and each once: one pass over the specs
-/// for a whole list instead of one per row (a list of every setting was
-/// quadratic, #248). Freed when the list ends; `None` where there is no room
-/// for it, and each row then asks `governs` itself.
-pub(super) fn governing<'s>(sources: &Sources<'_>, all: &'s Settings) -> Option<Vec<&'s str>> {
+/// ([`Settings::governs`], and a native plugin's declared `shown_if`), as
+/// [`id_hash`]es, sorted and each once: one pass over the specs for every
+/// list of the generation instead of one per row (a list of every setting
+/// was quadratic, #248) or one per page (#422). A hash that two ids share
+/// marks the other one as governing too, which only has its plugin read the
+/// list again after a change. `None` where there is no room for it, and each
+/// row then asks `governs` itself.
+pub(super) fn governing(sources: &Sources<'_>, all: &Settings) -> Option<Rc<[u64]>> {
+    if let Some(kept) = sources
+        .generation
+        .memo()
+        .and_then(|memo| memo.governing.clone())
+    {
+        return Some(kept);
+    }
     let mut declared = 0_usize;
     native_extra::each_governing(sources, all, None, &mut |_| declared += 1);
     // An extra is of a spec kept as it is: none a plugin describes is made.
@@ -184,28 +201,76 @@ pub(super) fn governing<'s>(sources: &Sources<'_>, all: &'s Settings) -> Option<
     ids.extend(
         all.kept_specs()
             .filter_map(|spec| spec.extra().shown_if.as_ref())
-            .map(|(of, _)| of.as_str()),
+            .map(|(of, _)| id_hash(of.as_str())),
     );
     // Within the room counted: the store is changed by the kernel alone,
     // never during a call.
     native_extra::each_governing(sources, all, None, &mut |of| {
         if ids.len() < ids.capacity() {
-            ids.push(of);
+            ids.push(id_hash(of));
         }
     });
     paperpaw_sort::sort_unstable(&mut ids);
     ids.dedup();
+    let ids: Rc<[u64]> = Rc::from(ids);
+    if let Some(mut memo) = sources.generation.memo() {
+        memo.governing = Some(Rc::clone(&ids));
+    }
     Some(ids)
 }
 
+/// What the rows of one op call look up in the declaration store (#422:
+/// looked up afresh for every row, opening the settings screen read the
+/// whole store hundreds of times): whether the device meets the `menu.need`
+/// rows a native plugin declared for a setting, from one store borrow and
+/// with the items that have such rows kept for the generation (a store that
+/// is busy or absent asks nothing), and their declared extras.
+struct Lookups<'s> {
+    native: Option<Native<'s>>,
+    /// [`Native::need_keys`], from the memo; `None`: no room, each row then
+    /// reads them as [`Native::need_met`] does.
+    needs: Option<Rc<[(u32, DeclKey)]>>,
+    extras: ExtraLookup,
+}
+
+impl<'s> Lookups<'s> {
+    /// `fill`: read what the memo lacks (a list); else only what a list of
+    /// the round read is used, and one row reads no more than its own.
+    fn new(sources: &Sources<'_>, store: Option<&'s DeclarationStore>, fill: bool) -> Self {
+        let native = store.map(|store| Native::new(store, sources.env.caps()));
+        let needs = native.as_ref().and_then(|native| {
+            let mut memo = sources.generation.memo()?;
+            if memo.needs.is_none() && fill {
+                memo.needs = native.need_keys().map(Rc::from);
+            }
+            memo.needs.clone()
+        });
+        let extras = ExtraLookup::new(sources, native.as_ref(), fill);
+        Self {
+            native,
+            needs,
+            extras,
+        }
+    }
+
+    fn met(&self, id: &str) -> bool {
+        match (&self.native, &self.needs) {
+            (None, _) => true,
+            (Some(native), Some(needs)) => native.need_met_keyed(needs, id, false),
+            (Some(native), None) => native.need_met(id, false),
+        }
+    }
+}
+
 /// The `reg_setting` row of `spec`, handed to `f` (its strings live on this
-/// stack). `governing` is what [`governing`] found for a list, `None` for one
-/// row alone.
+/// stack). `governing` is what [`governing`] found, `None` where there was
+/// no room for it (the row then asks `governs` itself).
 fn with_row<R>(
     sources: &Sources<'_>,
     asker: &Asker<'_>,
     spec: &SettingSpec,
-    governing: Option<&[&str]>,
+    governing: Option<&[u64]>,
+    lookups: &Lookups<'_>,
     f: impl FnOnce(&Record<'_>) -> R,
 ) -> R {
     #[cfg(test)]
@@ -216,13 +281,13 @@ fn with_row<R>(
     let extra = spec.extra();
     // A native plugin's declared extra is read from the store, never busy
     // here: the op checked it first ([`native_extra::ready`]).
-    let (slider, shown) = native_extra::with_extra(sources, spec, |shown| {
+    let (slider, shown) = native_extra::with_extra(sources, spec, &lookups.extras, |shown| {
         (shown.slider, native_extra::shows(settings, shown))
     })
     .unwrap_or_else(|_| (extra.slider, settings.shows(spec)));
     // Not for this device (a front light it lacks): as the settings screen of
     // interface 6 left it out, so does this row say it is not shown.
-    let shown = shown && env.menus().available(id) && native_need_met(sources, id);
+    let shown = shown && env.menus().available(id) && lookups.met(id);
     // A reading app to choose where only one reads the books (#260).
     let shown = shown && !crate::reading_apps::nothing_to_choose(spec);
     let mut flags = 0;
@@ -236,7 +301,7 @@ fn with_row<R>(
         (
             governing.map_or_else(
                 || settings.governs(id) || native_extra::governs(sources, settings, id),
-                |ids| ids.binary_search(&id).is_ok(),
+                |ids| ids.binary_search(&id_hash(id)).is_ok(),
             ),
             GOVERNS,
         ),
@@ -303,7 +368,8 @@ struct Listed<'a, 's> {
     all: &'s Settings,
     spec: &'a SettingSpec,
     /// What [`governing`] finds, asked for by the first row built.
-    governing: &'a OnceCell<Option<Vec<&'s str>>>,
+    governing: &'a OnceCell<Option<Rc<[u64]>>>,
+    lookups: &'a Lookups<'a>,
 }
 
 impl Listed<'_, '_> {
@@ -311,7 +377,14 @@ impl Listed<'_, '_> {
         let governing = self
             .governing
             .get_or_init(|| governing(self.sources, self.all));
-        with_row(self.sources, self.asker, self.spec, governing.as_deref(), f)
+        with_row(
+            self.sources,
+            self.asker,
+            self.spec,
+            governing.as_deref(),
+            self.lookups,
+            f,
+        )
     }
 }
 
@@ -376,6 +449,11 @@ fn settings(
     let all = sources.env.settings();
     let is_group = scope == OTHER.static_str() || all.groups().any(|g| g.id.as_str() == scope);
     let governing = OnceCell::new();
+    // Changed by the kernel alone, never during a call.
+    let store = sources
+        .directory
+        .and_then(|directory| directory.store.try_borrow().ok());
+    let lookups = Lookups::new(sources, store.as_deref(), true);
     // One spec at a time (#248): what a plugin describes of its settings is
     // made for its row and let go, and only that of the plugin asked for.
     let pick = if scope.is_empty() || is_group {
@@ -392,6 +470,7 @@ fn settings(
                 all,
                 spec,
                 governing: &governing,
+                lookups: &lookups,
             })
         } else {
             ControlFlow::Continue(())
@@ -490,9 +569,29 @@ pub(super) fn detail(
 ) -> Result<(), i32> {
     let spec = exact(sources, key)?.ok_or(ERR_NOT_FOUND)?;
     native_extra::ready(sources)?;
-    with_row(sources, asker, spec, None, |row| visit(row))?;
+    let store = sources
+        .directory
+        .and_then(|directory| directory.store.try_borrow().ok());
+    let lookups = Lookups::new(sources, store.as_deref(), false);
+    // What a list of the round found, else the row asks itself.
+    let governing = sources
+        .generation
+        .memo()
+        .and_then(|memo| memo.governing.clone());
+    with_row(
+        sources,
+        asker,
+        spec,
+        governing.as_deref(),
+        &lookups,
+        |row| visit(row),
+    )?;
     let i18n = sources.env.i18n();
-    native_extra::with_extra(sources, spec, |shown| extra_row(spec, shown, i18n, visit))??;
+    native_extra::with_extra(sources, spec, &lookups.extras, |shown| {
+        extra_row(spec, shown, i18n, visit)
+    })??;
+    drop(lookups);
+    drop(store);
     let help = spec.description.as_deref().unwrap_or("");
     if help.is_empty() {
         return Ok(());
@@ -539,18 +638,6 @@ fn extra_row(
             choices: choice_count(spec, i18n),
         },
     ))
-}
-
-/// Whether the device meets the `menu.need` rows a native plugin declared for
-/// the setting `id`; a store that is busy or absent asks nothing of it.
-fn native_need_met(sources: &Sources<'_>, id: &str) -> bool {
-    let Some(directory) = sources.directory else {
-        return true;
-    };
-    let Ok(store) = directory.store.try_borrow() else {
-        return true;
-    };
-    super::menu_native::Native::new(&store, sources.env.caps()).need_met(id, false)
 }
 
 /// How many rows [`with_row`] built on this thread, for the tests that hold
