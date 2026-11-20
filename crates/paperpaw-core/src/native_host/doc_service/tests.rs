@@ -691,7 +691,7 @@ fn a_failed_or_malformed_format_open_leaves_no_id_behind() {
             state: 0,
             progress_ppm: 0,
             status: 0,
-            flags: 0x80,
+            flags: 0x100,
             conversion: 0,
             format: "",
         })]),
@@ -704,6 +704,24 @@ fn a_failed_or_malformed_format_open_leaves_no_id_behind() {
         );
         assert_eq!(fake.table.len(), 0);
     }
+}
+
+/// A book whose sections differ (#242): `doc_state.flags` bit 7 reaches the
+/// opener, who reads `doc_section` bit 0 per section.
+#[test]
+fn some_whole_pages_reach_the_opener() {
+    let fake = Fake::new(Limits::X4);
+    *fake.answer.borrow_mut() = stream(&[Record::ServiceDocState(State {
+        document: 0,
+        state: 0,
+        progress_ppm: 0,
+        status: 0,
+        flags: 0x80,
+        conversion: 0,
+        format: "",
+    })]);
+    let reply = call(&fake, 1, &[Record::ServiceDocOpen(open_record())]).unwrap();
+    assert_eq!(state_of(&reply).flags & 0x80, 0x80);
 }
 
 #[test]

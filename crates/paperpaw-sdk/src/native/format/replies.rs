@@ -92,6 +92,14 @@ impl FormatFeatures {
     pub const fn cache_made(self) -> Self {
         Self(self.0 | 64)
     }
+    /// Some sections are whole-page pictures and others are not (a book of
+    /// picture pages and text chapters, #242): each section's row says which
+    /// ([`FormatRows::section`](super::FormatRows::section)'s `whole_page`).
+    /// [`Self::whole_pages`] is for a document whose every section is one.
+    #[must_use]
+    pub const fn some_whole_pages(self) -> Self {
+        Self(self.0 | 128)
+    }
 }
 impl FormatCall<'_> {
     pub(super) fn require(&self, ops: &[FormatOp]) -> Result<(), Error> {

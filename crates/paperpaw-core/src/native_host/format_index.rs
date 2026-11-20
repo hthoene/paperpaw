@@ -26,6 +26,9 @@ pub(crate) const READERS_PER_PLUGIN: usize = 4;
 pub(crate) const READERS_DEVICE: usize = 16;
 /// `format.spec.flags` bit 1: the format can tell its files by their start.
 pub(crate) const SNIFFS: u32 = 1 << 1;
+/// `format.spec.flags` bit 5: the format is asked whether it reads a book of
+/// its extensions before it opens one (#242).
+pub(crate) const ASKS: u32 = 1 << 5;
 
 fn text(from: &str) -> Result<Box<str>, i32> {
     let mut bytes = Vec::new();
@@ -300,14 +303,7 @@ impl FormatIndex {
         if !requested.is_empty() {
             return self.by_id(requested).map(Some).ok_or(ERR_STATE);
         }
-        let mut longest = "";
-        for format in &self.formats {
-            for extension in extensions_of(&format.extensions) {
-                if extension.len() > longest.len() && has_extension(path, extension) {
-                    longest = extension;
-                }
-            }
-        }
+        let longest = self.longest(path);
         if longest.is_empty() {
             return Ok(None);
         }
@@ -332,6 +328,39 @@ impl FormatIndex {
             }
         }
         Ok(best.map(|f| f.reference))
+    }
+
+    /// The longest extension of `path` a format claims (`""`: none).
+    fn longest(&self, path: &str) -> &str {
+        let mut longest = "";
+        for format in &self.formats {
+            for extension in extensions_of(&format.extensions) {
+                if extension.len() > longest.len() && has_extension(path, extension) {
+                    longest = extension;
+                }
+            }
+        }
+        longest
+    }
+
+    /// The format that reads `path` after those of `passed` passed it on
+    /// (#242): of the formats that claim its extension, the one of the
+    /// highest priority (the first loaded among equals) that is not in
+    /// `passed`. `None` where every one passed, or no extension is claimed.
+    pub(crate) fn next_claimant(&self, path: &str, passed: &[FormatRef]) -> Option<FormatRef> {
+        let longest = self.longest(path);
+        if longest.is_empty() {
+            return None;
+        }
+        let mut best: Option<&Format> = None;
+        for format in self.formats.iter().filter(|f| {
+            !passed.contains(&f.reference) && extensions_of(&f.extensions).any(|e| e == longest)
+        }) {
+            if best.is_none_or(|b| format.priority > b.priority) {
+                best = Some(format);
+            }
+        }
+        best.map(|f| f.reference)
     }
 
     /// The `sniffs` formats in priority order (higher first, the first loaded

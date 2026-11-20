@@ -647,3 +647,50 @@ mod gate {
         );
     }
 }
+
+/// A service that gained an op (#242): the echo schema at revision 1, op 2
+/// appended. A caller of revision 0 (an older plugin) keeps op 1 and gets a
+/// clean `ERR_UNSUPPORTED` for op 2; one that opened revision 1 has both.
+#[test]
+fn an_appended_op_is_unsupported_below_its_revision() {
+    use crate::abi7::services_wire::{ServiceOp, ServiceSchema};
+    let echo = services_wire::service_schema("core.test-echo", 1).unwrap();
+    let first = echo.ops[0];
+    let ops: &'static [ServiceOp] = alloc::boxed::Box::leak(alloc::boxed::Box::new([
+        first,
+        ServiceOp {
+            id: 2,
+            name: "echo_again",
+            since: 1,
+            ..first
+        },
+    ]));
+    let grown: &'static ServiceSchema =
+        alloc::boxed::Box::leak(alloc::boxed::Box::new(ServiceSchema {
+            revision: 1,
+            ops,
+            ..*echo
+        }));
+    let at = |minor| ServiceKey {
+        schema: grown,
+        minor,
+        features: crate::native_host::admitted_features::AdmittedFeatures::NONE,
+    };
+    let mut input = std::vec![0; 512];
+    let len = registrations::records_encode(
+        &[Record::ServiceEcho(registrations::ServiceEcho {
+            text: "hi",
+        })],
+        &mut input,
+    )
+    .unwrap();
+    input.truncate(len);
+    let reply = first.max_reply;
+    assert!(validate_op(at(0), 1, &input, reply).is_ok());
+    assert_eq!(
+        validate_op(at(0), 2, &input, reply).unwrap_err(),
+        ERR_UNSUPPORTED
+    );
+    assert!(validate_op(at(1), 1, &input, reply).is_ok());
+    assert!(validate_op(at(1), 2, &input, reply).is_ok());
+}

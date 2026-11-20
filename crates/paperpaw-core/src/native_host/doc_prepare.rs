@@ -247,7 +247,12 @@ impl DocState {
 
     /// The document's preparation failed with `status`: it is `state` 2 and
     /// its opener hears of it.
-    fn fail_prepared(&self, hosts: &HostServices, document: &doc_service::Document, status: i32) {
+    pub(super) fn fail_prepared(
+        &self,
+        hosts: &HostServices,
+        document: &doc_service::Document,
+        status: i32,
+    ) {
         // A status that cannot say "failed" is the format's malformed answer.
         let status = if status < 0 { status } else { ERR_INVALID };
         if self

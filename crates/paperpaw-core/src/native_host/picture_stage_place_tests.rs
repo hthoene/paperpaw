@@ -115,6 +115,23 @@ fn a_comics_page_is_asked_for_once_and_its_panels_take_the_pages_answer() {
     }
 }
 
+/// A book whose sections differ (#242): its picture pages (`fmt.image`
+/// bit 1) are a comic's pages, its other pictures a book's.
+#[test]
+fn a_page_picture_of_a_mixed_book_is_asked_for_as_a_comics_page() {
+    let storage = MemoryStorage::new();
+    file(&storage, "page.gray");
+    file(&storage, "figure.gray");
+    let t = ImageTable::new();
+    let page = FmtImage::new("page.gray", 3, 8, 4, 2, &[]);
+    t.map_fmt_image(&storage, A, 7, "c", &page, true, true)
+        .unwrap()
+        .unwrap();
+    mapped(&t, &storage, "figure.gray", 4, &[]);
+    assert_eq!(t.tone_wanted().unwrap().place(SCREEN), tone::PLACE_COMIC);
+    assert_eq!(t.tone_wanted().unwrap().place(SCREEN), tone::PLACE_READER);
+}
+
 #[test]
 fn a_cover_is_asked_for_as_a_cover_and_a_small_one_as_a_thumbnail() {
     let storage = MemoryStorage::new();

@@ -14,6 +14,8 @@ const FOLDER: u32 = 1 << 2;
 const WHOLE_PAGES: u32 = 1 << 3;
 /// `siblings`: root 3 is the book's folder and below, read only.
 const SIBLINGS: u32 = 1 << 4;
+/// `asks`: the format is asked whether it reads a book of its extensions.
+const ASKS: u32 = 1 << 5;
 
 /// A file format a plugin reads through the stage `core.format`: the name the
 /// format id `<plugin>.<name>` is made from, the title the user sees, the file
@@ -89,6 +91,18 @@ impl<'a> FormatDecl<'a> {
     #[must_use]
     pub const fn siblings(mut self) -> Self {
         self.flags |= SIBLINGS;
+        self
+    }
+
+    /// The format reads only some books of its extensions (#242, e.g. only
+    /// picture books of `epub`): before it opens one, the host asks it with a
+    /// `sniff` call that is [`claimed`](crate::native::format::FormatCall::claimed)
+    /// (root 3 the book, read only). Accepting it takes the book; declining
+    /// it hands the book to the next format of the extension, by priority.
+    /// A host before it refuses the declaration (`Invalid`).
+    #[must_use]
+    pub const fn asks(mut self) -> Self {
+        self.flags |= ASKS;
         self
     }
 }

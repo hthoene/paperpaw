@@ -61,6 +61,8 @@ pub(crate) struct Fake {
     pub(crate) started: RefCell<Vec<u32>>,
     /// The `foreground` of each started request, in order.
     pub(crate) foreground: RefCell<Vec<bool>>,
+    /// The `lean` of each started request, in order.
+    pub(crate) lean: RefCell<Vec<bool>>,
     pub(crate) aborted: RefCell<Vec<u32>>,
     pub(crate) start_fails: Cell<Option<i32>>,
     pub(crate) demand: RefCell<Vec<bool>>,
@@ -105,6 +107,7 @@ impl Fake {
             released: RefCell::new(Vec::new()),
             started: RefCell::new(Vec::new()),
             foreground: RefCell::new(Vec::new()),
+            lean: RefCell::new(Vec::new()),
             aborted: RefCell::new(Vec::new()),
             start_fails: Cell::new(None),
             demand: RefCell::new(Vec::new()),
@@ -145,6 +148,7 @@ impl NetTransport for Fake {
         }
         self.started.borrow_mut().push(id);
         self.foreground.borrow_mut().push(start.foreground);
+        self.lean.borrow_mut().push(start.lean);
         Ok(())
     }
     fn abort(&self, id: u32) {

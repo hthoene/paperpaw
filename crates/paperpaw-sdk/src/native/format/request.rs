@@ -204,6 +204,16 @@ impl<'a> FormatCall<'a> {
     pub const fn sniff_bytes(&self) -> &'a [u8] {
         self.row.arg
     }
+    /// A `sniff` of a format that
+    /// [`asks`](crate::native::declare::FormatDecl::asks) (#242): the book is
+    /// of its extensions and is its root 3 (read only) for this call,
+    /// [`Self::document`] the document it would read; [`Self::sniff_bytes`]
+    /// are empty. [`Self::reply_accept`] takes the book,
+    /// [`Self::reply_decline`] hands it to the next format.
+    #[must_use]
+    pub const fn claimed(&self) -> bool {
+        matches!(self.operation(), FormatOp::Sniff) && self.row.flags & 1 != 0
+    }
     /// Whether open asks to apply publisher styles.
     #[must_use]
     pub const fn publisher_styles(&self) -> bool {

@@ -68,6 +68,8 @@ struct Req {
     /// Asked for in the foreground (flags bit 1) from a screen of the plugin
     /// that shows, outside a work run: the shell gives it the larger window.
     foreground: bool,
+    /// Never boosted (flags bit 2): the shell keeps its base window.
+    lean: bool,
     max_body: u32,
     max_file: u64,
     timeout_ms: u32,
@@ -443,6 +445,7 @@ impl Inner {
             max_file: r.max_file,
             timeout_ms: r.timeout_ms,
             foreground: r.foreground,
+            lean: r.lean,
         };
         host.transport().start(r.id, &start)
     }
@@ -557,6 +560,7 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         foreground: parsed.head.flags & args::FLAG_FOREGROUND != 0
             && run.is_none()
             && host.showing_screen(who.owner).is_some(),
+        lean: parsed.head.flags & args::FLAG_LEAN != 0,
         max_body,
         max_file: if parsed.head.max_file == 0 {
             args::MAX_FILE

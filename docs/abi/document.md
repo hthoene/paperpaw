@@ -56,7 +56,8 @@ owner decision 125). Records: `abi/services/core.document@1.def`.
   their first 512 bytes, interface 6 `sniff`), bit 2 `folder` (a book is a folder, format-images),
   bit 3 `whole_pages` (each section is a whole-page picture: comics, XTC), bit 4 `siblings` (root 3
   is the book's folder and below, read only, not the file alone: format-images shows the pictures
-  beside the one opened). Other bits `ERR_INVALID`. At most 8 formats per plugin (format-epub has
+  beside the one opened), bit 5 `asks` (#242: the format reads only some books of its extensions,
+  and is asked before it opens one, below). Other bits `ERR_INVALID`. At most 8 formats per plugin (format-epub has
   five), 32 device-wide (`ERR_FULL`). A format that must read more of the card than its book's
   folder (notes-vault resolving links across a vault) declares `uses.storage` and reads root 1
   itself (decision 125); the store page shows it.
@@ -65,6 +66,17 @@ owner decision 125). Records: `abi/services/core.document@1.def`.
   claiming formats, REG-visible) wins, else the higher `priority`, else the first loaded. A file
   whose extension no format has is offered to the `sniffs` formats in priority order (section 3,
   op 1). The host never guesses from the path beyond that.
+- [D] **Handing a book on** (#242, a format of picture books only). Before a format with bit 5
+  `asks` opens a book (op 2), the host asks it: op 1 `sniff` with `flags` bit 0 `claimed`,
+  `document` the document it would read, `arg` empty, and root 3 the book (read only, as in op 2;
+  no root 4 or 6). `fmt.yes` takes the book; no row, or a failed call, hands it to the next format
+  of the extension: the highest `priority` of those not asked yet, the first loaded among equals,
+  whether it was the user's choice or not. A format that does not ask takes it as before. At most
+  4 formats pass one book on; where every one passed, the open answers a failed `doc_state`
+  (`status` `ERR_UNSUPPORTED`). A format plugin that is not made yet is asked at depth 0 by the
+  host's loop while the document waits preparing, as a pending open does (`event.document_changed`
+  follows); the format that passed keeps nothing of the document and gets no `close`. Nothing is
+  kept: the next open asks again. A format without bit 5 is never asked with `claimed`.
 - [D] `reader.spec` (interface 6 `ReaderSpec`): a reading app `<plugin>.<name>` whose `screen` (one
   of its own screens, `ERR_INVALID` otherwise) shows books of `formats` (format ids, one per line,
   at most 8; empty: every format). `flags` reserved, 0. At most 4 readers per plugin (a fifth is
@@ -224,7 +236,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 - [D] `doc_state`: `document`, `state` (0 ready, 1 preparing, 2 failed), `progress_ppm` while
   preparing, `status` (an `ERR_*` when failed), `format` (the format id), `flags` (bit 0 whole
   pages, bit 1 has a table of contents, bit 2 has XPointers, bit 3 has embedded fonts, bit 4 has
-  page labels, bit 5 right-to-left pages, bit 6 the cache was made now). A failed open still has an
+  page labels, bit 5 right-to-left pages, bit 6 the cache was made now, bit 7 some sections are
+  whole-page pictures and others are not, #242: each `doc_section` says which; bit 0 stays "every
+  section"). A failed open still has an
   id until closed, so the opener can read `status` (and the reader can say "this book is damaged").
 - [D] **Preparing** (interface 6 `prepared`): while `state` is 1, the host calls the format's op 3
   `prepare` again and again from its main loop, between inputs, each call for at most 50 ms of work
@@ -323,7 +337,8 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   N5 locator's ordinal belongs to the reader's inserted content). `section` past the end
   `ERR_NOT_FOUND`; an offset past a section's end is the end.
 - [D] `sections` rows `doc_section` (`index`, `length` in source units for progress, `flags` bit 0 a
-  whole-page picture). Op 17 `progress` answers `progress_ppm` (0-1,000,000) where the format
+  whole-page picture: a reader shows that section as a page picture, the others reflowed, where
+  `doc_state` bit 7 says the sections differ, #242). Op 17 `progress` answers `progress_ppm` (0-1,000,000) where the format
   computes it itself (interface 6 `Document::progress`, EPUB and TXT); elsewhere `ERR_UNSUPPORTED`
   and the reader computes it from the section lengths (N5 rule 1).
 - [D] `toc` rows `doc_toc` (`index`, `level` 0-15, `section`, `offset`, `flags` bit 0 approximate:
@@ -417,7 +432,7 @@ host passes them on after checking them.
 
 | Op | Name and input | Rows of the reply | Roots |
 | --- | --- | --- | --- |
-| 1 | `sniff` (`arg`: the file's first at most 512 bytes) | `fmt.yes` (or none: not mine) | none |
+| 1 | `sniff` (`arg`: the file's first at most 512 bytes; with `flags` bit 0 `claimed`, section 1's handing on: `arg` empty, `document` set) | `fmt.yes` (or none: not mine) | none (`claimed`: 3) |
 | 2 | `open` (`flags`, sides, `conversion`; `fmt.option`*) | `doc_state` | 2, 3, 4 |
 | 3 | `prepare` | `doc_state` (`progress_ppm`; `state` 0 done, 1 more, 2 failed) | 2, 3, 4 |
 | 4 | `close` | none | none |
@@ -598,7 +613,8 @@ and the SDK answers `Unsupported` there.
   their first 512 bytes, interface 6 `sniff`), bit 2 `folder` (a book is a folder, format-images),
   bit 3 `whole_pages` (each section is a whole-page picture: comics, XTC), bit 4 `siblings` (root 3
   is the book's folder and below, read only, not the file alone: format-images shows the pictures
-  beside the one opened). Other bits `ERR_INVALID`. At most 8 formats per plugin (format-epub has
+  beside the one opened), bit 5 `asks` (#242: the format reads only some books of its extensions,
+  and is asked before it opens one, below). Other bits `ERR_INVALID`. At most 8 formats per plugin (format-epub has
   five), 32 device-wide (`ERR_FULL`). A format that must read more of the card than its book's
   folder (notes-vault resolving links across a vault) declares `uses.storage` and reads root 1
   itself (decision 125); the store page shows it.
@@ -607,6 +623,17 @@ and the SDK answers `Unsupported` there.
   claiming formats, REG-visible) wins, else the higher `priority`, else the first loaded. A file
   whose extension no format has is offered to the `sniffs` formats in priority order (section 3,
   op 1). The host never guesses from the path beyond that.
+- [D] **Handing a book on** (#242, a format of picture books only). Before a format with bit 5
+  `asks` opens a book (op 2), the host asks it: op 1 `sniff` with `flags` bit 0 `claimed`,
+  `document` the document it would read, `arg` empty, and root 3 the book (read only, as in op 2;
+  no root 4 or 6). `fmt.yes` takes the book; no row, or a failed call, hands it to the next format
+  of the extension: the highest `priority` of those not asked yet, the first loaded among equals,
+  whether it was the user's choice or not. A format that does not ask takes it as before. At most
+  4 formats pass one book on; where every one passed, the open answers a failed `doc_state`
+  (`status` `ERR_UNSUPPORTED`). A format plugin that is not made yet is asked at depth 0 by the
+  host's loop while the document waits preparing, as a pending open does (`event.document_changed`
+  follows); the format that passed keeps nothing of the document and gets no `close`. Nothing is
+  kept: the next open asks again. A format without bit 5 is never asked with `claimed`.
 - [D] `reader.spec` (interface 6 `ReaderSpec`): a reading app `<plugin>.<name>` whose `screen` (one
   of its own screens, `ERR_INVALID` otherwise) shows books of `formats` (format ids, one per line,
   at most 8; empty: every format). `flags` reserved, 0. At most 4 readers per plugin (a fifth is
@@ -757,7 +784,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 - [D] `doc_state`: `document`, `state` (0 ready, 1 preparing, 2 failed), `progress_ppm` while
   preparing, `status` (an `ERR_*` when failed), `format` (the format id), `flags` (bit 0 whole
   pages, bit 1 has a table of contents, bit 2 has XPointers, bit 3 has embedded fonts, bit 4 has
-  page labels, bit 5 right-to-left pages, bit 6 the cache was made now). A failed open still has an
+  page labels, bit 5 right-to-left pages, bit 6 the cache was made now, bit 7 some sections are
+  whole-page pictures and others are not, #242: each `doc_section` says which; bit 0 stays "every
+  section"). A failed open still has an
   id until closed, so the opener can read `status` (and the reader can say "this book is damaged").
 - [D] **Preparing** (interface 6 `prepared`): while `state` is 1, the host calls the format's op 3
   `prepare` again and again from its main loop, between inputs, each call for at most 50 ms of work
@@ -856,7 +885,8 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   N5 locator's ordinal belongs to the reader's inserted content). `section` past the end
   `ERR_NOT_FOUND`; an offset past a section's end is the end.
 - [D] `sections` rows `doc_section` (`index`, `length` in source units for progress, `flags` bit 0 a
-  whole-page picture). Op 17 `progress` answers `progress_ppm` (0-1,000,000) where the format
+  whole-page picture: a reader shows that section as a page picture, the others reflowed, where
+  `doc_state` bit 7 says the sections differ, #242). Op 17 `progress` answers `progress_ppm` (0-1,000,000) where the format
   computes it itself (interface 6 `Document::progress`, EPUB and TXT); elsewhere `ERR_UNSUPPORTED`
   and the reader computes it from the section lengths (N5 rule 1).
 - [D] `toc` rows `doc_toc` (`index`, `level` 0-15, `section`, `offset`, `flags` bit 0 approximate:
@@ -945,7 +975,7 @@ host passes them on after checking them.
 
 | Op | Name and input | Rows of the reply | Roots |
 | --- | --- | --- | --- |
-| 1 | `sniff` (`arg`: the file's first at most 512 bytes) | `fmt.yes` (or none: not mine) | none |
+| 1 | `sniff` (`arg`: the file's first at most 512 bytes; with `flags` bit 0 `claimed`, section 1's handing on: `arg` empty, `document` set) | `fmt.yes` (or none: not mine) | none (`claimed`: 3) |
 | 2 | `open` (`flags`, sides, `conversion`; `fmt.option`*) | `doc_state` | 2, 3, 4 |
 | 3 | `prepare` | `doc_state` (`progress_ppm`; `state` 0 done, 1 more, 2 failed) | 2, 3, 4 |
 | 4 | `close` | none | none |
@@ -1139,7 +1169,9 @@ and the SDK answers `Unsupported` there.
   and end with the document; a plugin's own come from `image_prepare` and end with `image_release`
   or when the plugin stops. Image ids are per plugin: another plugin's id is `ERR_NOT_FOUND`.
 - [D] A format answers a picture as its cache path (stage-local `fmt.image`: `path: str 256` in root
-  6, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
+  6, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet, bit 1 a whole page: the
+  picture of a whole-page section of a book whose sections differ, which the picture stage is
+  asked about as a comic's page, place 1, #242); the host turns it into an
   image id for the opener. **Two names:** the image id is only a drawing handle and may end; `index`
   is the format's own number of the picture in the document (op 18's `index`; `u32::MAX` the cover),
   stable for the document's life, and `doc_image` carries it on, so the reader can always ask again.

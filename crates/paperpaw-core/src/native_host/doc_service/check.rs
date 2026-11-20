@@ -6,8 +6,9 @@ use super::super::codec::Row;
 use super::super::registrations::{self as wire, RawRecord};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
 
-/// `doc_state.flags`: bits 0-6 are defined.
-const STATE_FLAGS: u32 = 0x7f;
+/// `doc_state.flags`: bits 0-7 are defined (bit 7 some sections are whole
+/// pages, #242).
+const STATE_FLAGS: u32 = 0xff;
 /// `doc_block.flags`: bit 0 continues, bit 1 continued; a table row's bits 8-10
 /// say header, first, last row (`document.md` 4).
 const BLOCK_FLAGS: u32 = 0b11 | (0b111 << 8);

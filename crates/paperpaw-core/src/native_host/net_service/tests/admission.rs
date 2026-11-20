@@ -51,6 +51,23 @@ fn foreground_is_honoured_only_from_a_screen_that_shows() {
     assert_eq!(started(0, Some(7)), [false]);
 }
 
+/// Download priority (#242): bit 2 `lean` reaches the shell from anywhere
+/// (a work run too); lean and foreground at once is `ERR_INVALID`.
+#[test]
+fn lean_reaches_the_shell_and_never_with_foreground() {
+    let started = |flags| {
+        let fake = Fake::x4();
+        fake.screen.set(None);
+        let mut h = head(1, "http://a.b/");
+        h.flags = flags;
+        request(&fake, OWNER, &with_head(h)).map(|_| fake.lean.borrow().clone())
+    };
+    assert_eq!(started(4), Ok(std::vec![true]));
+    assert_eq!(started(0), Ok(std::vec![false]));
+    assert_eq!(started(2 | 4), Err(ERR_INVALID));
+    assert_eq!(started(8), Err(ERR_UNSUPPORTED));
+}
+
 #[test]
 fn the_records_must_come_in_their_order_and_once() {
     let h = || rec(head(1, "https://example.org/"));

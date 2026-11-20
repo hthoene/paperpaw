@@ -15,6 +15,8 @@ pub(super) const ROLE_SAVE: u32 = 1;
 pub(super) const FLAG_PROGRESS: u32 = 1;
 /// `net_request.flags` bit 1: the user waits for this download (#369 H).
 pub(super) const FLAG_FOREGROUND: u32 = 2;
+/// `net_request.flags` bit 2: never boosted, whatever its size (#242, #419).
+pub(super) const FLAG_LEAN: u32 = 4;
 /// The largest file a request saves (2.1).
 pub(super) const MAX_FILE: u64 = 64 * 1024 * 1024;
 /// A server's default and largest request body (5.1).
@@ -116,8 +118,12 @@ pub(crate) fn parse_request(input: &[u8]) -> Result<Request<'_>, i32> {
 /// The fields of `net_request` that need no device: method, URL, flags and
 /// `timeout_ms`. The caps `max_body` / `max_file` are the device's (profile).
 fn check_head(head: &wire::ServiceNetRequest<'_>) -> Result<(), i32> {
-    if head.flags & !(FLAG_PROGRESS | FLAG_FOREGROUND) != 0 {
+    if head.flags & !(FLAG_PROGRESS | FLAG_FOREGROUND | FLAG_LEAN) != 0 {
         return Err(ERR_UNSUPPORTED);
+    }
+    // Boosted and lean at once says two things.
+    if head.flags & (FLAG_FOREGROUND | FLAG_LEAN) == FLAG_FOREGROUND | FLAG_LEAN {
+        return Err(ERR_INVALID);
     }
     if !is_token(head.method, 16) || !url_ok(head.url) {
         return Err(ERR_INVALID);

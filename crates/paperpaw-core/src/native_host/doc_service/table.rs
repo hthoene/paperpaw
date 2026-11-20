@@ -19,6 +19,8 @@ pub(crate) const FAILED: u32 = 2;
 /// A preparation that answers "more" this many times in a row without
 /// rising above its best progress has failed (`ERR_TIMEOUT`).
 pub(crate) const STALL_CAP: u8 = 32;
+/// The most formats that pass one book on before none reads it (#242).
+pub(crate) const PASSES: usize = 4;
 
 /// How many taken documents are remembered as `ERR_CANCELLED` (48 bytes).
 const EVICTED: usize = 4;
@@ -162,6 +164,12 @@ pub(crate) struct Document {
     /// the open once (`doc_open_pending`), and until then the format has
     /// nothing of it (no `close` is sent for it).
     pub(crate) open_pending: bool,
+    /// Its format asks before it reads a book (`format.spec.flags` bit 5,
+    /// #242) and its plugin was not made when the open came: the answer is
+    /// asked for at depth 0 (`asked::resume`) before the open is sent.
+    pub(crate) asking: bool,
+    /// The formats that passed the book on, in order (`FormatRef(0)`: none).
+    pub(crate) passed: [FormatRef; PASSES],
     /// The block whose fragments are being read: what the earlier ones said.
     pub(crate) block: Option<Pending>,
     /// The state or the progress moved since the opener last heard of it:
@@ -370,6 +378,8 @@ impl DocumentTable {
             reader_held: false,
             format_gone: false,
             open_pending: false,
+            asking: false,
+            passed: [FormatRef(0); PASSES],
             block: None,
             changed: false,
             best_ppm: 0,
@@ -572,9 +582,12 @@ impl DocumentTable {
         // The cover job waits while a book is open for reading.
         let held = self.list_hold.get() || Self::reading(&rows);
         // A pending open is sent by the loop, a `details` document's too.
+        // A document whose format is still to answer whether it reads the
+        // book is not opened yet (`asked`).
         let preparing = |d: &&Document| {
             d.state == PREPARING
                 && d.closed_by_host == 0
+                && !d.asking
                 && (d.open_pending || !d.details)
                 && !(d.cover_job && held)
         };
@@ -615,6 +628,74 @@ impl DocumentTable {
         let mut rows = self.rows()?;
         let document = rows.iter_mut().find(|d| d.id == id).ok_or(ERR_NOT_FOUND)?;
         document.open_pending = true;
+        document.conversion = conversion;
+        Ok(())
+    }
+
+    /// The document's open waits for its format to say whether it reads the
+    /// book (`asking`), as a pending open does.
+    pub(crate) fn set_asking(&self, id: u32, asking: bool) -> Result<(), i32> {
+        let mut rows = self.rows()?;
+        let document = rows.iter_mut().find(|d| d.id == id).ok_or(ERR_NOT_FOUND)?;
+        document.asking = asking;
+        document.open_pending |= asking;
+        Ok(())
+    }
+
+    /// The conversion of `id`'s open, before its format answers.
+    ///
+    /// # Errors
+    /// `ERR_NOT_FOUND`, `ERR_BUSY`.
+    pub(crate) fn set_conversion(&self, id: u32, conversion: u64) -> Result<(), i32> {
+        let mut rows = self.rows()?;
+        let document = rows.iter_mut().find(|d| d.id == id).ok_or(ERR_NOT_FOUND)?;
+        document.conversion = conversion;
+        Ok(())
+    }
+
+    /// The formats that passed `id`'s book on so far.
+    ///
+    /// # Errors
+    /// `ERR_NOT_FOUND`, `ERR_BUSY`.
+    pub(crate) fn passed(&self, id: u32) -> Result<[FormatRef; PASSES], i32> {
+        let rows = self.documents.try_borrow().map_err(|_| ERR_BUSY)?;
+        rows.iter()
+            .find(|d| d.id == id)
+            .map(|d| d.passed)
+            .ok_or(ERR_NOT_FOUND)
+    }
+
+    /// The first document whose format is still to be asked.
+    pub(crate) fn next_asking(&self) -> Option<Document> {
+        let rows = self.documents.try_borrow().ok()?;
+        rows.iter()
+            .find(|d| d.asking && d.closed_by_host == 0 && d.state == PREPARING)
+            .copied()
+    }
+
+    /// The format of the document passed it on: `format` reads it now, with
+    /// the open's `flags` and the `conversion` of that format (#242).
+    ///
+    /// # Errors
+    /// `ERR_FULL` past [`PASSES`] formats; `ERR_NOT_FOUND`, `ERR_BUSY`.
+    pub(crate) fn retarget(
+        &self,
+        id: u32,
+        format: FormatRef,
+        flags: u32,
+        conversion: u64,
+    ) -> Result<(), i32> {
+        let mut rows = self.rows()?;
+        let document = rows.iter_mut().find(|d| d.id == id).ok_or(ERR_NOT_FOUND)?;
+        let slot = document
+            .passed
+            .iter_mut()
+            .find(|slot| slot.0 == 0)
+            .ok_or(ERR_FULL)?;
+        *slot = document.format;
+        document.format = format;
+        document.flags = flags;
+        document.details = flags & DETAILS != 0;
         document.conversion = conversion;
         Ok(())
     }
