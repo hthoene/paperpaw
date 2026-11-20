@@ -8,7 +8,7 @@ use super::{
     menu_native::Native,
     native_extra::{self, ExtraLookup, Shown},
     schema,
-    sources::Sources,
+    sources::{Sources, scope_hash},
 };
 use crate::native_host::declaration_store::{DeclKey, DeclarationStore};
 use crate::{
@@ -21,7 +21,7 @@ use crate::{
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::OnceCell, mem::MaybeUninit, ops::ControlFlow};
 use paperpaw_digest::fnv1a64;
-use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED};
 use paperpaw_sdk::Pick;
 use paperpaw_sdk::{
     Level, SettingKind, SettingSpec, SettingValue, Settings,
@@ -445,6 +445,47 @@ fn settings(
     asker: &Asker<'_>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
+    settings_walk(sources, scope, asker, (0, 0), visit)
+}
+
+/// Where row `from` of op 1 for `scope` is in the settings' order, from the
+/// last row a walk of the round visited: that row or the one after it (#422:
+/// each page walked every row before its cursor again).
+pub(super) fn resume_place(sources: &Sources<'_>, scope: &str, from: u32) -> Option<usize> {
+    let (of, at, place) = sources.generation.memo()?.last_row?;
+    if of != scope_hash(scope) {
+        None
+    } else if from == at {
+        Some(place)
+    } else if Some(from) == at.checked_add(1) {
+        place.checked_add(1)
+    } else {
+        None
+    }
+}
+
+/// Op 1 from row `from` on, which [`resume_place`] finds (`ERR_STATE` where
+/// it does not: the caller asked it first).
+pub(super) fn settings_from(
+    sources: &Sources<'_>,
+    scope: &str,
+    asker: &Asker<'_>,
+    from: u32,
+    visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
+) -> Result<(), i32> {
+    let place = resume_place(sources, scope, from).ok_or(ERR_STATE)?;
+    settings_walk(sources, scope, asker, (from, place), visit)
+}
+
+/// Op 1's rows from `start` (the row's index and its place in the settings'
+/// order) on; the last row visited is kept for the next page.
+fn settings_walk(
+    sources: &Sources<'_>,
+    scope: &str,
+    asker: &Asker<'_>,
+    start: (u32, usize),
+    visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
+) -> Result<(), i32> {
     native_extra::ready(sources)?;
     let all = sources.env.settings();
     let is_group = scope == OTHER.static_str() || all.groups().any(|g| g.id.as_str() == scope);
@@ -461,9 +502,13 @@ fn settings(
     } else {
         Pick::Of(scope)
     };
-    let walked = all.walk(pick, &mut |spec| {
+    let (mut index, from) = start;
+    let mut last = None;
+    let walked = all.walk_from(pick, from, &mut |place, spec| {
         let hit = !is_group || scope.is_empty() || group_of(sources, spec) == scope;
         if hit {
+            last = Some((index, place));
+            index = index.saturating_add(1);
             visit(&Listed {
                 sources,
                 asker,
@@ -476,6 +521,9 @@ fn settings(
             ControlFlow::Continue(())
         }
     });
+    if let (Some((at, place)), Some(mut memo)) = (last, sources.generation.memo()) {
+        memo.last_row = Some((scope_hash(scope), at, place));
+    }
     // No room for a spec: the rows given are not all, and the caller is told.
     walked.map_err(|_| ERR_NO_MEMORY)
 }

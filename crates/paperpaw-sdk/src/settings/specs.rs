@@ -352,15 +352,26 @@ impl Specs {
         pick: Pick<'_>,
         visit: &mut dyn FnMut(&SettingSpec) -> ControlFlow<()>,
     ) -> Result<(), SettingError> {
-        for &place in &self.order {
+        self.walk_from(pick, 0, &mut |_, spec| visit(spec))
+    }
+
+    /// [`Specs::walk`] from place `from` in registration order on, `visit`
+    /// told the place of each spec.
+    pub(super) fn walk_from(
+        &self,
+        pick: Pick<'_>,
+        from: usize,
+        visit: &mut dyn FnMut(usize, &SettingSpec) -> ControlFlow<()>,
+    ) -> Result<(), SettingError> {
+        for (at_place, &place) in self.order.iter().enumerate().skip(from) {
             let went = match self.place(place) {
-                At::Spec(spec) if pick.takes(spec) => visit(spec),
+                At::Spec(spec) if pick.takes(spec) => visit(at_place, spec),
                 At::Described(found) if pick.takes_described(found) => {
                     let (block, at) = found;
                     match block.kept(at) {
-                        Some(spec) => visit(spec),
+                        Some(spec) => visit(at_place, spec),
                         None => match full(block.make(at))? {
-                            Some(spec) => visit(&spec),
+                            Some(spec) => visit(at_place, &spec),
                             None => ControlFlow::Continue(()),
                         },
                     }

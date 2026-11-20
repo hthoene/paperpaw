@@ -709,6 +709,23 @@ impl Settings {
         self.specs.walk(pick, visit)
     }
 
+    /// [`Settings::walk`] from place `from` of the registration order on,
+    /// `visit` told the place of each spec: a walk that goes on where an
+    /// earlier one stopped (a list read a page at a time).
+    ///
+    /// # Errors
+    /// As [`Settings::walk`].
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn walk_from(
+        &self,
+        pick: super::Pick<'_>,
+        from: usize,
+        visit: &mut dyn FnMut(usize, &SettingSpec) -> ControlFlow<()>,
+    ) -> Result<(), SettingError> {
+        self.specs.walk_from(pick, from, visit)
+    }
+
     /// [`Settings::walk`] over all `pick` takes.
     ///
     /// # Errors

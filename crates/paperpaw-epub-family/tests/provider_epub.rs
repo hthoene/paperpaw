@@ -918,17 +918,14 @@ fn read_every_block(
     pictures
 }
 
-/// Asks for the picture `index` of `section` (op 18): width, height, flags.
+/// Asks for the picture `index` (op 18): width, height, flags. The host's
+/// question names the picture by its number only, not its section (#427).
 fn ask_picture(
     p: &mut paperpaw_epub_family::provider::FormatProvider,
     io: &dyn Storage,
-    section: u32,
     index: u32,
 ) -> (u32, u32, u32) {
-    let input = call(18, |c| {
-        c.section = section;
-        c.index = index;
-    });
+    let input = call(18, |c| c.index = index);
     let reply = run(p, io, &input).unwrap();
     let stage::Record::FmtImage(image) = rows(&reply)[0] else {
         panic!("image")
@@ -965,7 +962,7 @@ fn a_picture_asked_for_is_decoded_once_at_the_size_its_block_said() {
     let io = Roots::new("pictures.epub", &picture_book());
     let mut p = open_picture_book(&io);
     let (section, index, width, height, _) = read_every_block(&mut p, &io)[1];
-    assert_eq!(ask_picture(&mut p, &io, section, index), (width, height, 0));
+    assert_eq!(ask_picture(&mut p, &io, index), (width, height, 0));
     // Only the one asked for, and whole.
     let made = io.pictures.borrow().clone();
     assert_eq!(made.len(), 1, "{made:?}");
@@ -974,7 +971,7 @@ fn a_picture_asked_for_is_decoded_once_at_the_size_its_block_said() {
     let appends = io.picture_appends.get();
     assert!(appends > 0);
     // Asked for again and read again: served from its file, decoded (flags 0).
-    assert_eq!(ask_picture(&mut p, &io, section, index), (width, height, 0));
+    assert_eq!(ask_picture(&mut p, &io, index), (width, height, 0));
     let again = read_every_block(&mut p, &io);
     assert_eq!(again[1], (section, index, width, height, 0));
     assert_eq!(again[0].4, 1, "the other one is still not decoded");
@@ -987,7 +984,7 @@ fn a_picture_file_cut_short_is_decoded_again_when_asked_for() {
     let io = Roots::new("pictures.epub", &picture_book());
     let mut p = open_picture_book(&io);
     let (section, index, width, height, _) = read_every_block(&mut p, &io)[0];
-    ask_picture(&mut p, &io, section, index);
+    ask_picture(&mut p, &io, index);
     let path = io.pictures.borrow()[0].clone();
     let whole = 12 + u64::from(width) * u64::from(height);
     // A decode the power cut: the header and half the rows.
@@ -1000,6 +997,6 @@ fn a_picture_file_cut_short_is_decoded_again_when_asked_for() {
         (section, index, width, height, 1)
     );
     assert_eq!(io.mem.size(&path).unwrap(), whole / 2);
-    assert_eq!(ask_picture(&mut p, &io, section, index), (width, height, 0));
+    assert_eq!(ask_picture(&mut p, &io, index), (width, height, 0));
     assert_eq!(io.mem.size(&path).unwrap(), whole);
 }

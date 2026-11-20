@@ -15,11 +15,12 @@ use super::{
     ordered::{self, Sort},
     rules,
 };
+use crate::native_host::registry_generation::RegistryGeneration;
 use crate::native_host::{
     declaration_store::{DeclKey, DeclarationStore, Kind},
     registrations::Record,
 };
-use alloc::vec::Vec;
+use alloc::{rc::Rc, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_digest::fnv1a64;
 use paperpaw_sdk::Capabilities;
@@ -55,6 +56,9 @@ pub(super) struct Native<'a> {
     store: &'a DeclarationStore,
     caps: Capabilities,
     memo: RefCell<Memo>,
+    /// Where the icons read for one op call are kept for the next of the
+    /// round ([`Native::sharing`]).
+    round: Option<&'a RegistryGeneration>,
 }
 
 /// What [`Native`] read once for its op call: hashes of names, sorted (a
@@ -75,7 +79,7 @@ struct Memo {
     /// The `icon.spec` rows: the hash of the item, the place in the order
     /// read and the record's key, sorted by hash then place. The icon of an
     /// item is then one record read, not a scan of every icon (#403).
-    icons: Option<Vec<(u32, u16, DeclKey)>>,
+    icons: Option<Rc<[(u32, u16, DeclKey)]>>,
     /// The menu whose rows `rows` holds, and its rows by sort key.
     order: Option<(u32, Vec<(Sort, DeclKey)>)>,
 }
@@ -134,7 +138,16 @@ impl<'a> Native<'a> {
             store,
             caps,
             memo: RefCell::new(Memo::default()),
+            round: None,
         }
+    }
+
+    /// Shares the icons it reads with the op calls of the round
+    /// (`ListMemo::icons`): the settings screen asks for the groups under
+    /// each group, one call each, and each read every `icon.spec` (#422).
+    pub(super) fn sharing(mut self, round: &'a RegistryGeneration) -> Self {
+        self.round = Some(round);
+        self
     }
 
     /// The hashes `name` gives the records of `kinds` (`None` to leave one
@@ -475,7 +488,14 @@ impl<'a> Native<'a> {
     pub(super) fn icon(&self, item: &str) -> Option<Fixed<64>> {
         let mut memo = self.memo.borrow_mut();
         if memo.icons.is_none() {
-            memo.icons = self.icon_keys();
+            let mut kept = self.round.and_then(RegistryGeneration::memo);
+            memo.icons = match kept.as_ref().and_then(|kept| kept.icons.clone()) {
+                Some(icons) => Some(icons),
+                None => self.icon_keys().map(Rc::from),
+            };
+            if let Some(kept) = kept.as_mut() {
+                kept.icons.clone_from(&memo.icons);
+            }
         }
         if let Some(icons) = memo.icons.as_deref() {
             let wanted = hash(&[item]);
