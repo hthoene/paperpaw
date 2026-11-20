@@ -57,3 +57,8 @@ fn news() {
 fn smart_home() {
     check("smart-home");
 }
+
+#[test]
+fn sleep() {
+    check("sleep");
+}

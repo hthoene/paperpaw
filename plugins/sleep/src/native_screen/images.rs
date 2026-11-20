@@ -372,7 +372,7 @@ impl Sleeping {
         let side = self.side_of(host, kind)?;
         *cookie = cookie.wrapping_add(1).max(1);
         let mut scratch = [0; 640];
-        let request = prepare(kind, root, &path, *cookie, side);
+        let request = prepare(kind, root, &path, *cookie, side, self.invert_cat);
         match CommandSender::new(host, &mut scratch).image_prepare(&request) {
             Ok(()) => {
                 self.pics.asked = Some((*cookie, kind));
@@ -682,14 +682,35 @@ fn read_folder(host: &Host<'_>, files: &Files, folder: &str) -> Result<Pictures,
 /// The request for the picture of `kind`: the picture over the page keeps the
 /// clear parts of a PNG or GIF, so the page shows through them, as Beta 3
 /// decoded it (`AlphaFile`); the others are opaque.
-fn prepare(kind: Kind, root: PrepareRoot, path: &str, cookie: u32, side: u32) -> PrepareImage<'_> {
+fn prepare(
+    kind: Kind,
+    root: PrepareRoot,
+    path: &str,
+    cookie: u32,
+    side: u32,
+    invert: bool,
+) -> PrepareImage<'_> {
     let request = PrepareImage::new(root, path, cookie).side(side);
     if kind == Kind::Over {
         request.see_through()
+    } else if kind == Kind::Cat && invert {
+        // White on black, for a dark screen where pictures stay as they are.
+        request.tone(&INVERTED)
     } else {
         request
     }
 }
+
+/// Every gray the other way round.
+static INVERTED: [u8; 256] = {
+    let mut table = [0; 256];
+    let mut at = 0;
+    while at < 256 {
+        table[at] = 255 - at as u8;
+        at += 1;
+    }
+    table
+};
 
 #[cfg(test)]
 #[path = "images_cover_tests.rs"]
@@ -706,13 +727,16 @@ mod tests {
         for path in ["pictures/owl.gif", "pictures/ring.png"] {
             let over = format!(
                 "{:?}",
-                prepare(Kind::Over, PrepareRoot::Library, path, 1, 0)
+                prepare(Kind::Over, PrepareRoot::Library, path, 1, 0, false)
             );
             assert!(over.contains("see_through: true"), "{over}");
         }
         // The cat, the logo and a picture of the folder fill the screen: opaque.
         for kind in [Kind::Cat, Kind::Logo, Kind::Picture] {
-            let opaque = format!("{:?}", prepare(kind, PrepareRoot::Data, "cat.png", 1, 0));
+            let opaque = format!(
+                "{:?}",
+                prepare(kind, PrepareRoot::Data, "cat.png", 1, 0, false)
+            );
             assert!(opaque.contains("see_through: false"), "{kind:?}: {opaque}");
         }
     }
