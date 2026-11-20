@@ -44,9 +44,10 @@ use mbedtls_rs::sys::{
     mbedtls_ssl_close_notify, mbedtls_ssl_conf_authmode, mbedtls_ssl_conf_ca_chain,
     mbedtls_ssl_conf_rng, mbedtls_ssl_conf_verify, mbedtls_ssl_config, mbedtls_ssl_config_defaults,
     mbedtls_ssl_config_free, mbedtls_ssl_config_init, mbedtls_ssl_context, mbedtls_ssl_free,
-    mbedtls_ssl_get_verify_result, mbedtls_ssl_handshake, mbedtls_ssl_init, mbedtls_ssl_read,
-    mbedtls_ssl_set_bio, mbedtls_ssl_set_hostname, mbedtls_ssl_setup, mbedtls_ssl_write,
-    mbedtls_x509_crt, mbedtls_x509_crt_free, mbedtls_x509_crt_init, mbedtls_x509_time,
+    mbedtls_ssl_get_ciphersuite, mbedtls_ssl_get_verify_result, mbedtls_ssl_handshake,
+    mbedtls_ssl_init, mbedtls_ssl_read, mbedtls_ssl_set_bio, mbedtls_ssl_set_hostname,
+    mbedtls_ssl_setup, mbedtls_ssl_write, mbedtls_x509_crt, mbedtls_x509_crt_free,
+    mbedtls_x509_crt_init, mbedtls_x509_time,
 };
 
 // The flags `paperpaw_x4::tls_trust` works with are mbedTLS's.
@@ -435,6 +436,15 @@ impl Session {
         match code {
             0 => {
                 self.handshaken = true;
+                // The suite decides what a download costs (#419): AES-GCM
+                // takes the C3 some 3.5 µs a byte, ChaCha20-Poly1305 a tenth.
+                // SAFETY: the session's context; the name is a static string.
+                let suite = unsafe { mbedtls_ssl_get_ciphersuite(&self.contexts.ssl) };
+                if !suite.is_null() {
+                    // SAFETY: as above, a NUL-terminated name.
+                    let name = unsafe { core::ffi::CStr::from_ptr(suite.cast()) };
+                    log::info!("tls: handshake done, {}", name.to_str().unwrap_or("?"));
+                }
                 Ok(true)
             }
             MBEDTLS_ERR_SSL_WANT_READ | MBEDTLS_ERR_SSL_WANT_WRITE => Ok(false),

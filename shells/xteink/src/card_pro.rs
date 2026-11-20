@@ -391,3 +391,9 @@ impl Blocks for Card {
         Ok(self.blocks)
     }
 }
+
+/// The counters of the C3's card (`card::written`): this card does not
+/// count (#419).
+pub fn written() -> [u32; 3] {
+    [0; 3]
+}

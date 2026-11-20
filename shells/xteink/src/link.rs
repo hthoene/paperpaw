@@ -12,6 +12,9 @@ use crate::tls;
 
 /// Plain bytes read from TLS at a time.
 const READ_PART: usize = 1024;
+/// Plain bytes passed on from the socket at a time: one chunk of a boosted
+/// download's file (`download_boost::plan`).
+const PLAIN_PART: usize = 8 * 1024;
 
 pub struct Link {
     pub socket: Handle,
@@ -81,11 +84,6 @@ impl Link {
     /// The TLS session over the connection, if it has one.
     pub fn session(&self) -> Option<&tls::Session> {
         self.tls.as_deref()
-    }
-
-    /// It runs TLS over its socket.
-    pub fn secure(&self) -> bool {
-        self.tls.is_some()
     }
 
     /// The other side closed the connection, or it is gone: a connection
@@ -207,11 +205,14 @@ impl Link {
         let mut moved = false;
         match self.tls.as_mut() {
             None => {
-                while more() && socket.can_recv() {
+                // One piece of at most `PLAIN_PART` bytes: the caller moves
+                // the stack on between pieces (`http`, #419).
+                if more() && socket.can_recv() {
                     socket
                         .recv(|data| {
-                            take(data);
-                            (data.len(), ())
+                            let n = data.len().min(PLAIN_PART);
+                            take(&data[..n]);
+                            (n, ())
                         })
                         .map_err(|_| Failure::Lost)?;
                     moved = true;
