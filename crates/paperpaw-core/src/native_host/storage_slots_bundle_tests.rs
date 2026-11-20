@@ -34,9 +34,9 @@ fn with(
     call: impl FnOnce(&EnvironmentScope, Option<Format<'_>>),
 ) {
     let scope = FormatScope::new();
-    let linked = LinkedPlugins::default();
+    let linked = OwnerDirectory::new();
     if built_in {
-        linked.add(OWNER).unwrap();
+        linked.add_linked(OWNER).unwrap();
     }
     let format = Some(Format {
         scope: &scope,

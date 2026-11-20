@@ -46,7 +46,7 @@ fn with(
     call: impl FnOnce(&EnvironmentScope, Option<Format<'_>>),
 ) {
     let scope = FormatScope::new();
-    let linked = LinkedPlugins::default();
+    let linked = OwnerDirectory::new();
     let format = Some(Format {
         scope: &scope,
         owner: 1,
@@ -334,8 +334,12 @@ fn a_root_one_rename_is_the_librarys_move_and_its_books_keep_their_place() {
     let storage: Rc<dyn Storage> = Rc::new(Shared(card.clone()));
     let hosts = HostServices::default();
     let moves = hosts.wire_library_moves(storage.clone()).unwrap();
-    let files = StorageFiles::new(storage, hosts.busy_sources().clone(), Rc::default())
-        .with_moves(moves.clone());
+    let files = StorageFiles::new(
+        storage,
+        hosts.busy_sources().clone(),
+        crate::native_host::owner_directory::OwnerDirectory::fresh(),
+    )
+    .with_moves(moves.clone());
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .storage(Shared(card.clone()))
         .build()
@@ -352,7 +356,7 @@ fn a_root_one_rename_is_the_librarys_move_and_its_books_keep_their_place() {
         .unwrap();
     let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let scope = core::pin::pin!(EnvironmentScope::new());
-    let linked = LinkedPlugins::default();
+    let linked = OwnerDirectory::new();
     let formats = FormatScope::new();
     let format = Some(Format {
         scope: &formats,
@@ -447,8 +451,12 @@ fn a_file_that_is_no_book_is_renamed_without_the_librarys_job() {
     let storage: Rc<dyn Storage> = Rc::new(Shared(card.clone()));
     let hosts = HostServices::default();
     let moves = hosts.wire_library_moves(storage.clone()).unwrap();
-    let files = StorageFiles::new(storage, hosts.busy_sources().clone(), Rc::default())
-        .with_moves(moves.clone());
+    let files = StorageFiles::new(
+        storage,
+        hosts.busy_sources().clone(),
+        crate::native_host::owner_directory::OwnerDirectory::fresh(),
+    )
+    .with_moves(moves.clone());
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .storage(Shared(card.clone()))
         .build()
@@ -465,7 +473,7 @@ fn a_file_that_is_no_book_is_renamed_without_the_librarys_job() {
         .unwrap();
     let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let scope = core::pin::pin!(EnvironmentScope::new());
-    let linked = LinkedPlugins::default();
+    let linked = OwnerDirectory::new();
     let formats = FormatScope::new();
     let format = Some(Format {
         scope: &formats,
@@ -551,8 +559,12 @@ fn a_book_whose_format_is_off_moves_with_what_the_library_keeps() {
     let storage: Rc<dyn Storage> = Rc::new(Shared(card.clone()));
     let hosts = HostServices::default();
     let moves = hosts.wire_library_moves(storage.clone()).unwrap();
-    let files = StorageFiles::new(storage, hosts.busy_sources().clone(), Rc::default())
-        .with_moves(moves.clone());
+    let files = StorageFiles::new(
+        storage,
+        hosts.busy_sources().clone(),
+        crate::native_host::owner_directory::OwnerDirectory::fresh(),
+    )
+    .with_moves(moves.clone());
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .storage(Shared(card.clone()))
         .build()
@@ -560,7 +572,7 @@ fn a_book_whose_format_is_off_moves_with_what_the_library_keeps() {
     let env = kernel.shared.place(paperpaw_platform::Instant(0));
     assert!(!env.formats().supports("a.mobi"), "the format is off");
     let scope = core::pin::pin!(EnvironmentScope::new());
-    let linked = LinkedPlugins::default();
+    let linked = OwnerDirectory::new();
     let formats = FormatScope::new();
     let format = Some(Format {
         scope: &formats,

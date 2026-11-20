@@ -15,6 +15,7 @@ pub(crate) struct EventTags([u64; LIMIT as usize / 64]);
 impl EventTags {
     /// The tags in the set for which `has` says yes (asked once for each tag
     /// the set can hold, word by word: no tag range is tested).
+    #[cfg(test)]
     pub(crate) fn collect(mut has: impl FnMut(u32) -> bool) -> Self {
         let mut set = Self::default();
         for (first, word) in (0u32..).step_by(64).zip(set.0.iter_mut()) {

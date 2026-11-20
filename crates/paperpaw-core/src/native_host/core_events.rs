@@ -286,7 +286,7 @@ impl Kernel {
         let mut held_by = 0;
         let mut n = 0;
         let instances = &self.shared.native_instances;
-        while let Some((owner, _)) = instances.running_nth(n) {
+        while let Some(owner) = instances.running_key_nth(n) {
             n += 1;
             let Some(id) = instances.id(owner) else {
                 continue;
@@ -345,7 +345,7 @@ impl Kernel {
     fn waiting_owner(&self) -> Option<u64> {
         let instances = &self.shared.native_instances;
         let mut n = 0;
-        while let Some((owner, _)) = instances.running_nth(n) {
+        while let Some(owner) = instances.running_key_nth(n) {
             if instances.setting_events.has_waiting(owner) {
                 return Some(owner);
             }

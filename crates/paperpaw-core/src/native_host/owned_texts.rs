@@ -11,7 +11,9 @@ impl crate::Kernel {
     /// every one is kept in the program (a linked plugin with its tables).
     pub fn owned_native_texts(&self) -> Vec<String> {
         let shared = &self.shared;
-        let plugins: Vec<&Id> = shared.native_instances.plugin_ids().collect();
+        let plugins: Vec<Id> = (0..)
+            .map_while(|index| shared.native_instances.plugin_id_nth(index))
+            .collect();
         let native = |id: &Id| plugins.iter().any(|plugin| id.is_owned_by(plugin));
         let mut owned = Vec::new();
         let mut note = |kind: &str, id: &Id, title_kept: bool| {

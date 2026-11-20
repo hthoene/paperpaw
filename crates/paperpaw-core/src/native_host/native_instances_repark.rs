@@ -44,8 +44,11 @@ impl super::NativeInstances {
     /// was.
     pub(crate) fn starve_waiting(&self) -> bool {
         let mut any = false;
-        for entry in self.entries.iter().filter(|entry| entry.enabled) {
-            if let Some(lease) = entry.instance.as_ref() {
+        let Some(rows) = self.rows() else {
+            return false;
+        };
+        for entry in rows.iter().filter(|entry| entry.enabled()) {
+            if let Some(lease) = entry.lease() {
                 any |= lease.slot().starve();
             }
         }

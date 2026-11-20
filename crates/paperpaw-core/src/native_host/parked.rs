@@ -56,7 +56,7 @@ impl crate::Kernel {
                 .shared
                 .native_instances
                 .id(key)
-                .and_then(paperpaw_sdk::Id::try_clone)
+                .and_then(|id| id.try_clone())
             else {
                 continue;
             };
@@ -137,7 +137,7 @@ impl crate::Kernel {
         let mut parked = 0;
         let mut index = 0;
         while parked < at_most {
-            let Some(id) = instances.plugin_ids().nth(index) else {
+            let Some(id) = instances.plugin_id_nth(index) else {
                 break;
             };
             index += 1;

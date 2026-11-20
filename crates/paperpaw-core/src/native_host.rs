@@ -317,7 +317,6 @@ pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
 mod library_events;
-pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 mod moves_pump;

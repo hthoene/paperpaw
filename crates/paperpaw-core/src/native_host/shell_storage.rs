@@ -65,7 +65,7 @@ fn format_of<S: 'static>(context: &Context<S>) -> Option<super::super::storage_s
         owner: context.resources.owner_id(),
         features: context.declared_services.features(),
         files: hosts.files().map(|files| &*files.0),
-        linked: hosts.linked(),
+        linked: hosts.owners().ok()?,
     })
 }
 

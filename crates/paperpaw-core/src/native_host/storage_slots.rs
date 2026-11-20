@@ -7,7 +7,7 @@ use super::{
     environment::EnvironmentScope,
     files_service::FilesHost,
     format_scope::FormatScope,
-    linked_plugins::LinkedPlugins,
+    owner_directory::OwnerDirectory,
     paths_in_use::PathsInUse,
     storage::{
         self, Card, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_BUNDLE, ROOT_CARD, ROOT_PLUGIN,
@@ -34,7 +34,7 @@ pub(crate) struct Format<'a> {
     pub(crate) owner: u64,
     pub(crate) features: AdmittedFeatures,
     pub(crate) files: Option<&'a dyn FilesHost>,
-    pub(crate) linked: &'a LinkedPlugins,
+    pub(crate) linked: &'a OwnerDirectory,
 }
 
 fn with_adapter<R>(
@@ -77,7 +77,7 @@ fn with_adapter<R>(
         if root == ROOT_BUNDLE {
             let adapter = StorageAdapter::borrowed_folder(storage, folder, in_use)
                 .ok_or(ERR_INVALID)?
-                .with_bundle(format.linked.contains(owner));
+                .with_bundle(format.linked.is_linked(owner));
             return call(&adapter);
         }
         let mut call = Some(call);

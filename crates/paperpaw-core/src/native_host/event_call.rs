@@ -186,7 +186,7 @@ impl crate::Kernel {
         }
         let id = instances.id(owner).ok_or(ERR_STATE)?;
         let env = self.shared.place(self.shared.now);
-        let mut stage = self.callback_stage(owner, id, &env);
+        let mut stage = self.callback_stage(owner, &id, &env);
         if navigates {
             stage = stage.with_stack(&self.shared.stack_rows, owner);
         }
