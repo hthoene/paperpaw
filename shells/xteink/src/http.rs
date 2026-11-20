@@ -149,7 +149,17 @@ struct Call {
     /// The user waits for it (`net_request.flags` bit 1, #369 H): the
     /// larger window whatever its file's cap says.
     foreground: bool,
+    /// What the log line of the download tells (#419): steps of the main
+    /// loop it was moved in, the longest wait between two of them, and the
+    /// time its writes to the card took.
+    steps: u32,
+    gap_max: u64,
+    last_step: u64,
+    card_ms: u64,
 }
+
+/// Milliseconds spent in writes of downloaded bytes to the card (#419).
+static CARD_MS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 /// A connection kept open for the next request to the same server.
 struct Idle {
@@ -249,6 +259,10 @@ impl Calls {
             fresh: false,
             began: now_ms(),
             foreground,
+            steps: 0,
+            gap_max: 0,
+            last_step: 0,
+            card_ms: 0,
         });
     }
 
@@ -455,12 +469,15 @@ impl Calls {
                         let host = url.split("://").nth(1).unwrap_or(url);
                         let host = host.split(['/', '?']).next().unwrap_or(host);
                         log::info!(
-                            "http: {} {host} {} B in {ms} ms ({} KB/s){}{}",
+                            "http: {} {host} {} B in {ms} ms ({} KB/s){}{} [{} steps, longest gap {} ms, card {} ms]",
                             call.call.method,
                             call.got,
                             call.got * 1000 / 1024 / ms,
                             if call.boosted { " boosted" } else { "" },
                             if call.reused { " kept-connection" } else { "" },
+                            call.steps,
+                            call.gap_max,
+                            call.card_ms,
                         );
                     }
                     if result.is_ok()
@@ -664,6 +681,12 @@ impl Call {
         }
         let max = self.call.max_response as u64;
         let mut rounds = 0;
+        if self.last_step != 0 {
+            self.gap_max = self.gap_max.max(now.saturating_sub(self.last_step));
+        }
+        self.last_step = now;
+        self.steps += 1;
+        let card_before = CARD_MS.load(core::sync::atomic::Ordering::Relaxed);
         let ended = loop {
             let (moved, ended) = match receive(
                 link,
@@ -696,6 +719,9 @@ impl Call {
                 Err(problem) => return Some(Err(problem.reason())),
             }
         };
+        self.card_ms += CARD_MS
+            .load(core::sync::atomic::Ordering::Relaxed)
+            .saturating_sub(card_before);
         if parser.head().is_some_and(|head| head.is_redirect()) {
             return self.redirect(net);
         }
@@ -1160,7 +1186,13 @@ fn keep(
             if *got > max {
                 return Err("too large");
             }
-            file.push(storage, piece).map_err(|e| e.reason())?;
+            let began = now_ms();
+            let pushed = file.push(storage, piece);
+            CARD_MS.fetch_add(
+                now_ms().saturating_sub(began),
+                core::sync::atomic::Ordering::Relaxed,
+            );
+            pushed.map_err(|e| e.reason())?;
         }
     }
     Ok(())
