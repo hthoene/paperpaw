@@ -13,6 +13,11 @@ use crate::native_host::{
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
+/// The hash a kept count names its scope by.
+fn scope_hash(scope: &str) -> u64 {
+    paperpaw_digest::fnv1a64(scope.as_bytes())
+}
+
 /// What `core.registry` reads.
 #[derive(Clone, Copy)]
 pub(crate) struct Sources<'a> {
@@ -70,6 +75,23 @@ impl RegistryView for Sources<'_> {
             schema::OP_SETTING => settings::detail(self, key, asker, visit),
             schema::OP_PRESET => presets::detail(self, key, visit),
             _ => Err(ERR_UNSUPPORTED),
+        }
+    }
+
+    /// Op 1 alone: its rows are the settings specs (of a scope), which only
+    /// change with the generation; whether a row frames is its key and group.
+    fn counted(&self, op: u32, scope: &str) -> Option<u32> {
+        let memo = self.generation.memo()?;
+        let (of, total) = memo.total?;
+        (op == schema::OP_SETTINGS && of == scope_hash(scope)).then_some(total)
+    }
+
+    fn keep_count(&self, op: u32, scope: &str, total: u32) {
+        if op != schema::OP_SETTINGS {
+            return;
+        }
+        if let Some(mut memo) = self.generation.memo() {
+            memo.total = Some((scope_hash(scope), total));
         }
     }
 }

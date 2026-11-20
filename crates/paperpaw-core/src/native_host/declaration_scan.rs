@@ -198,11 +198,12 @@ pub(super) fn find_in_image(
     starts: &super::Starts,
     kind: Kind,
     parts: &[&str],
+    from: usize,
     visit: &mut dyn for<'a> FnMut(super::Record<'a>),
-) -> bool {
+) -> Option<usize> {
     let category = kind.category();
     let wanted = |body: &[u8]| may_match(body, category, parts);
-    walk_image(owner, starts, kind, &wanted, &mut |record| {
+    walk_image(owner, starts, kind, from, &wanted, &mut |record| {
         if !super::super::declaration_index::matches_parts(record, category, parts) {
             return Ok(false);
         }
@@ -225,7 +226,7 @@ pub(super) fn each_in_image(
     wanted: &dyn Fn(&[u8]) -> bool,
     visit: &mut dyn for<'a> FnMut(super::Record<'a>),
 ) {
-    walk_image(owner, starts, kind, wanted, &mut |record| {
+    walk_image(owner, starts, kind, 0, wanted, &mut |record| {
         super::super::declarations::validate_record(owner.id.as_str(), &record)?;
         visit(record);
         Ok(false)
@@ -233,38 +234,41 @@ pub(super) fn each_in_image(
 }
 
 /// The records of `kind` of the image-only `owner` whose frame body is
-/// `wanted`, decoded in declaration order and given to `on` until it answers
-/// `true` (whether it did). An error of `on`, a batch whose frames do not
-/// walk and a record that does not decode are said to the plugin and passed.
+/// `wanted`, decoded in declaration order from batch `from` on (then those
+/// before it) and given to `on` until it answers `true`: the batch it did in,
+/// if it did. An error of `on`, a batch whose frames do not walk and a record
+/// that does not decode are said to the plugin and passed.
 fn walk_image(
     owner: &super::StoredOwner,
     starts: &super::Starts,
     kind: Kind,
+    from: usize,
     wanted: &dyn Fn(&[u8]) -> bool,
     on: &mut dyn for<'a> FnMut(super::Record<'a>) -> Result<bool, i32>,
-) -> bool {
+) -> Option<usize> {
     // A stale owner (a later generation of its plugin) answers nothing, as
     // `with_record` checks it for every key.
     if owner.source.generation() != owner.generation {
-        return false;
+        return None;
     }
     let bit = 1_u64 << kind as u32;
-    let mut found = false;
+    let mut found = None;
+    let from = from.min(starts.len());
     owner.source.with_image(&mut |image| {
         let Some(image) = image else {
             return;
         };
-        for at in 0..starts.len() {
+        for at in (from..starts.len()).chain(0..from) {
             if starts.kinds(at) & bit == 0 {
                 continue;
             }
             let Some(start) = starts.start(at) else {
-                break;
+                continue;
             };
             match walk_batch(owner, image, start, kind, wanted, on) {
                 Ok(false) => {}
                 Ok(true) => {
-                    found = true;
+                    found = Some(at);
                     break;
                 }
                 Err(error) => owner.source.invalid_declaration(error),

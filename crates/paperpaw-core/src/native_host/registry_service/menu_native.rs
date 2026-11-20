@@ -92,7 +92,7 @@ fn hash(parts: &[&str]) -> u32 {
 }
 
 /// Whether `wanted` is among `hashes` (sorted).
-fn among(hashes: &[u32], wanted: &[&str]) -> bool {
+pub(super) fn among(hashes: &[u32], wanted: &[&str]) -> bool {
     hashes.binary_search(&hash(wanted)).is_ok()
 }
 
@@ -361,16 +361,104 @@ impl<'a> Native<'a> {
     /// Whether the device meets the `menu.need` rows of `item`; `listed`: the
     /// user put it into their own list, which `no-touch` does not take out.
     pub(super) fn need_met(&self, item: &str, listed: bool) -> bool {
-        let read = || {
-            self.hashes(&[Kind::MenuNeed], &|record, add| {
-                if let Record::MenuNeed(row) = record {
-                    add(&[row.item]);
-                }
-            })
-        };
+        let read = || self.need_hashes();
         if !self.may_hold(|memo| &mut memo.needs, &read, &[item]) {
             return true;
         }
+        self.needs_of(item, listed)
+    }
+
+    /// The hashes of the items with a `menu.need` ([`Memo::needs`]), sorted;
+    /// `None` without memory.
+    fn need_hashes(&self) -> Option<Vec<u32>> {
+        #[cfg(test)]
+        need_reads::count();
+        self.hashes(&[Kind::MenuNeed], &|record, add| {
+            if let Record::MenuNeed(row) = record {
+                add(&[row.item]);
+            }
+        })
+    }
+
+    /// The hashes of the settings a native plugin declared a `setting.extra`
+    /// for (its plugin and name, as [`among`] takes them), sorted; `None`
+    /// without memory. A setting not among them has none: its row looks
+    /// for none (#422: a lookup that finds nothing walks the plugin's every
+    /// batch).
+    pub(super) fn extra_hashes(&self) -> Option<Vec<u32>> {
+        let mut out = Vec::new();
+        let mut failed = false;
+        self.scan(Kind::Extra, &mut |record, plugin| {
+            if let Record::SettingExtra(extra) = record {
+                if out.try_reserve(1).is_err() {
+                    failed = true;
+                    return;
+                }
+                out.push(hash(&[plugin, extra.name]));
+            }
+        });
+        if failed {
+            return None;
+        }
+        out.sort_unstable();
+        out.dedup();
+        Some(out)
+    }
+
+    /// The `menu.need` rows: the hash of the item and the record's key,
+    /// sorted by hash, for [`Native::need_met_keyed`]; `None` without memory.
+    pub(super) fn need_keys(&self) -> Option<Vec<(u32, DeclKey)>> {
+        #[cfg(test)]
+        need_reads::count();
+        let mut out = Vec::new();
+        let mut failed = false;
+        self.store.keys(Kind::MenuNeed, &mut |key| {
+            let _ignored = ordered::with_plugin(self.store, key, &mut |record, _| {
+                if let Record::MenuNeed(row) = record {
+                    if out.try_reserve(1).is_ok() {
+                        out.push((hash(&[row.item]), key));
+                    } else {
+                        failed = true;
+                    }
+                }
+                core::ops::ControlFlow::Continue(())
+            });
+        });
+        if failed {
+            return None;
+        }
+        paperpaw_sort::sort_unstable_by_key(&mut out, |(hash, _)| *hash);
+        Some(out)
+    }
+
+    /// [`Native::need_met`] from the rows [`Native::need_keys`] found, kept
+    /// longer than one op call (#422): only the rows of the item's hash are
+    /// read, where every row of the store was.
+    pub(super) fn need_met_keyed(&self, keys: &[(u32, DeclKey)], item: &str, listed: bool) -> bool {
+        let wanted = hash(&[item]);
+        let from = keys.partition_point(|(hash, _)| *hash < wanted);
+        let mut met = true;
+        for (_, key) in keys
+            .iter()
+            .skip(from)
+            .take_while(|(hash, _)| *hash == wanted)
+        {
+            let _ignored = ordered::with_plugin(self.store, *key, &mut |record, _| {
+                if let Record::MenuNeed(row) = record
+                    && row.item == item
+                    && !(listed && row.need == NO_TOUCH)
+                {
+                    met &= rules::need_met(row.need, row.capability, self.caps);
+                }
+                core::ops::ControlFlow::Continue(())
+            });
+        }
+        met
+    }
+
+    /// Whether the device meets the `menu.need` rows of `item`, every row of
+    /// the store read.
+    fn needs_of(&self, item: &str, listed: bool) -> bool {
         let mut met = true;
         self.scan(Kind::MenuNeed, &mut |record, _| {
             if let Record::MenuNeed(row) = record
@@ -512,5 +600,26 @@ fn skipped() -> Entry {
         order: 0,
         section: false,
         title: Fixed::new(),
+    }
+}
+
+/// How many times the `menu.need` rows were read for a lookup on this thread, for
+/// the tests that hold the settings ops to one read a generation (#422).
+#[cfg(test)]
+pub(super) mod need_reads {
+    extern crate std as test_std;
+    use core::cell::Cell;
+
+    test_std::thread_local! {
+        static READS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn count() {
+        READS.with(|reads| reads.set(reads.get() + 1));
+    }
+
+    /// The reads since the last call.
+    pub(in crate::native_host::registry_service) fn take() -> usize {
+        READS.with(|reads| reads.replace(0))
     }
 }

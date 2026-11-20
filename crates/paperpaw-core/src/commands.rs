@@ -66,6 +66,8 @@ impl Kernel {
     pub(crate) fn rest_settings(&mut self) {
         let short = self.shared.settings.went_short();
         self.shared.settings.rest();
+        // What the settings ops kept of the declarations for the round (#422).
+        self.shared.registry_generation.rest();
         if short {
             self.warn_runtime("no room to read a setting from its plugin; taken as not there");
         }

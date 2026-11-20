@@ -1,15 +1,18 @@
 //! A native plugin's `setting.extra` (`registry.md` 2.2 and 2.3, todo 541).
 //! The setting's spec keeps no extra (`native_values` maps the spec record
 //! alone); the record stays in the declaration store and is read from there
-//! when a row is asked for, with nothing kept beside it.
+//! when a row is asked for, with nothing kept beside it but which settings
+//! have one ([`ExtraLookup`]).
 use super::{
     fixed::{Fixed, caps},
+    menu_native::{Native, among},
     sources::Sources,
 };
 use crate::native_host::{
-    declaration_store::Kind,
+    declaration_store::{FindNear, Kind},
     registrations::{Record, SettingExtra},
 };
+use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::{Editor, SettingSpec, Settings};
 
@@ -102,16 +105,22 @@ pub(super) fn ready(sources: &Sources<'_>) -> Result<(), i32> {
 /// being changed. The cost is one name lookup: an indexed owner's is a
 /// binary search; an image-only owner walks only the batches that declare
 /// extras (their kind mask), so a plugin with none costs a mask test a
-/// batch.
+/// batch; as `lookup` says (#422).
 pub(super) fn with_extra<R>(
     sources: &Sources<'_>,
     spec: &SettingSpec,
+    lookup: &ExtraLookup,
     mut f: impl FnMut(&Shown<'_>) -> R,
 ) -> Result<R, i32> {
     let mut out = None;
-    if let (Some(directory), Some((plugin, name))) = (sources.directory, native_name(spec)) {
+    if let (Some(directory), Some((plugin, name))) = (sources.directory, native_name(spec))
+        && lookup
+            .declared
+            .as_deref()
+            .is_none_or(|declared| among(declared, &[plugin, name]))
+    {
         let store = directory.store.try_borrow().map_err(|_| ERR_BUSY)?;
-        store.find(plugin, Kind::Extra, name, &mut |record| {
+        store.find_near(plugin, Kind::Extra, name, &lookup.near, &mut |record| {
             if let Record::SettingExtra(extra) = record {
                 let screen = Fixed::<{ caps::ID }>::of(&[plugin, ".", extra.editor]);
                 let screen = screen.as_ref().map(Fixed::as_str);
@@ -123,6 +132,33 @@ pub(super) fn with_extra<R>(
         Some(out) => out,
         None => f(&Shown::of(spec)),
     })
+}
+
+/// How the rows of one op call look up their declared extras (#422): from
+/// where the last one was found (a list's rows are in about the order their
+/// extras were declared), and none where the generation's memo knows of none
+/// (a lookup that finds nothing walks every batch of the plugin).
+pub(super) struct ExtraLookup {
+    near: FindNear,
+    /// [`Native::extra_hashes`]; `None`: no room for them, every row looks.
+    declared: Option<Rc<[u32]>>,
+}
+
+impl ExtraLookup {
+    /// `fill`: read them where the memo lacks them (a list).
+    pub(super) fn new(sources: &Sources<'_>, native: Option<&Native<'_>>, fill: bool) -> Self {
+        let declared = native.and_then(|native| {
+            let mut memo = sources.generation.memo()?;
+            if memo.extras.is_none() && fill {
+                memo.extras = native.extra_hashes().map(Rc::from);
+            }
+            memo.extras.clone()
+        });
+        Self {
+            near: FindNear::new(None),
+            declared,
+        }
+    }
 }
 
 /// The plugin and name of a setting whose spec says nothing of what a
