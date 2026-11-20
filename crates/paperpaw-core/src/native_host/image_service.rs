@@ -159,6 +159,9 @@ struct Entry {
     tone: Option<alloc::boxed::Box<[u8; 256]>>,
     forced: u32,
     unasked: bool,
+    /// A document's picture that is a whole page (`fmt.image.flags` bit 1,
+    /// a page of a book whose sections differ, #242): asked as a comic's.
+    page: bool,
 }
 
 struct Inner {
@@ -450,6 +453,7 @@ impl ImageTable {
             tone: None,
             forced: 0,
             unasked: true,
+            page: false,
         };
         self.unasked.set(true);
         inner.next_id = id;
@@ -602,6 +606,19 @@ impl ImageTable {
             },
             None => doc,
         };
+        // A whole page's picture (bit 1): the picture stage hears it as a
+        // comic's page (`core.picture` place 1), whatever the format reads.
+        if let Some((id, _)) = mapped
+            && id != 0
+            && image.flags & 2 != 0
+            && let Ok(mut inner) = self.lock()
+            && let Some(entry) = inner
+                .entries
+                .iter_mut()
+                .find(|e| e.id == id && e.owner == owner)
+        {
+            entry.page = true;
+        }
         Ok(match mapped {
             Some((image, colour)) => Some(wire::ServiceDocImage {
                 image,

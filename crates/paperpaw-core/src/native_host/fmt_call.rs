@@ -213,6 +213,23 @@ fn answers(op: u32) -> &'static [u32] {
     }
 }
 
+/// `fmt.call.flags` bit 0 of op 1: the file is of the format's extensions
+/// and it is asked whether it reads the book (#242).
+const CLAIMED: u32 = 1;
+
+/// Whether op 1's answer at the front of `out` says yes.
+fn said_yes(out: &[u8], length: usize) -> Result<bool, i32> {
+    let reply = local::reply_decode(out.get(..length).ok_or(ERR_INVALID)?)?;
+    let mut yes = false;
+    for row in reply {
+        match row? {
+            local::Record::FmtYes(_) => yes = true,
+            _ => return Err(ERR_INVALID),
+        }
+    }
+    Ok(yes)
+}
+
 /// The service tag of a mirrored local one.
 fn service_tag(local: u32) -> Option<u32> {
     local::SERVICE_TAGS
@@ -317,15 +334,24 @@ impl<'a> Stage<'a> {
             &super::doc_service::Options::NONE,
             out,
         )?;
-        let reply = local::reply_decode(out.get(..length).ok_or(ERR_INVALID)?)?;
-        let mut yes = false;
-        for row in reply {
-            match row? {
-                local::Record::FmtYes(_) => yes = true,
-                _ => return Err(ERR_INVALID),
-            }
-        }
-        Ok(yes)
+        said_yes(out, length)
+    }
+
+    /// Op 1 with `flags` bit 0 `claimed` (#242): whether the format that
+    /// asks (`format.spec.flags` bit 5) reads `document`'s book, which is its
+    /// root 3 for the call (the caller's scope). No answer passes it on.
+    ///
+    /// # Errors
+    /// As [`Stage::call`]: `ERR_BUSY` for a format plugin not made yet.
+    pub(crate) fn ask(&self, target: Target, document: u32, out: &mut [u8]) -> Result<bool, i32> {
+        let record = local::FmtCall::new(SNIFF, document, 0, 0, 0, 0, 0, CLAIMED, 0, 0, 0, "", &[]);
+        let length = self.run(
+            (target, &Cell::new(false)),
+            &record,
+            &super::doc_service::Options::NONE,
+            out,
+        )?;
+        said_yes(out, length)
     }
 
     /// Op 4 `close`: best effort, nothing the format says can fail it.

@@ -27,6 +27,9 @@ use paperpaw_native::host_glue::{
 
 mod args;
 pub(crate) use args::cover_side;
+pub(crate) mod asked;
+mod lists;
+use lists::{format_for, formats, readers};
 mod call;
 mod check;
 pub(crate) mod cover;
@@ -126,6 +129,31 @@ pub(crate) trait DocHost {
     /// whose open waits for its format plugin (`pending`).
     fn keep_open(&self, _document: u32, _batch: &[u8]) -> Result<(), i32> {
         Ok(())
+    }
+    /// Whether `format` asks before it reads a book (`format.spec.flags` bit
+    /// 5, #242, `asked`).
+    fn format_asks(&self, _format: FormatRef) -> bool {
+        false
+    }
+    /// Op 1 with `claimed`: whether `format` reads `document`'s book (its
+    /// root 3 for the call). `ERR_BUSY` where its plugin is not made yet.
+    fn ask_format(&self, _document: u32, _format: FormatRef) -> Result<bool, i32> {
+        Ok(true)
+    }
+    /// The format that reads `document`'s book after those of `passed`
+    /// passed it on (section 1's order), `None` where no other does.
+    fn next_format(&self, _document: u32, _passed: &[FormatRef]) -> Option<FormatRef> {
+        None
+    }
+    /// The pump's step for the documents whose format was not made when it
+    /// was to be asked (`asked`), at depth 0 with the pump's `frame`.
+    fn settle_asks(
+        &self,
+        _frame: &dyn Frame,
+        _hosts: &super::host_services::HostServices,
+        _route: &dyn super::fmt_call::Route,
+    ) -> PrepareStep {
+        PrepareStep::Idle
     }
     /// Tell the format plugin to close a document (op 4 `close`). Best
     /// effort; nothing the format says can fail it. The service never calls
@@ -598,6 +626,15 @@ impl DocHost for OwnedHost<'_> {
     fn open_cache(&self, call: &FormatCall<'_>) -> Result<(), i32> {
         self.host.open_cache(call)
     }
+    fn format_asks(&self, format: FormatRef) -> bool {
+        self.host.format_asks(format)
+    }
+    fn ask_format(&self, document: u32, format: FormatRef) -> Result<bool, i32> {
+        self.host.ask_format(document, format)
+    }
+    fn next_format(&self, document: u32, passed: &[FormatRef]) -> Option<FormatRef> {
+        self.host.next_format(document, passed)
+    }
     fn keep_open(&self, document: u32, batch: &[u8]) -> Result<(), i32> {
         self.host.keep_open(document, batch)
     }
@@ -844,6 +881,8 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         Some(card) => host.select_format(1, card, request.format)?,
         None => host.select_format(request.root, request.path, request.format)?,
     };
+    // A format that passes the book on hands the next one the open as asked.
+    let asked_flags = request.flags;
     // Bit 3 `details` is for a `prepared` format's book only; any other
     // opens as before (`document.md` 2.1).
     if !host.format_prepared(format) {
@@ -900,15 +939,12 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     table.hold_reader(id);
     let answered = (|| {
         table.set_sides(id, image_side, cover_side)?;
-        let mut call = FormatCall::new(format, fmt::OPEN, id);
-        call.flags = request.flags;
-        call.image_side = image_side;
-        call.cover_side = cover_side;
-        call.conversion = conversion;
-        call.options = options;
-        call.css_root = request.css_root;
-        call.css_path = request.css_path;
-        pending::open(host, &call, input, out)
+        table.set_conversion(id, conversion)?;
+        let asked = wire::ServiceDocOpen {
+            flags: asked_flags,
+            ..request
+        };
+        asked::open(host, id, format, &asked, input, out)
     })();
     if let Err(error) = answered {
         // The id never reached the opener; the format may hold state for it.
@@ -1453,46 +1489,6 @@ fn list(
         return Err(ERR_NO_SPACE);
     }
     Ok(used + codec::encode_one(&Record::ServiceEnd(end), &mut out[used..])?)
-}
-
-fn paged(input: &[u8], scope_allowed: bool) -> Result<wire::ServiceDocPage<'_>, i32> {
-    let page: wire::ServiceDocPage<'_> = codec::single(input)?;
-    // No document here, and `scope` is op 21's format filter alone.
-    require(page.document == 0 && (scope_allowed || page.scope.is_empty()))?;
-    args::page_state(page.cursor, page.generation)?;
-    Ok(page)
-}
-
-fn formats(host: &dyn DocHost, input: &[u8], rows: usize, out: &mut [u8]) -> Result<usize, i32> {
-    let page = paged(input, false)?;
-    list(out, rows, |visit| {
-        host.formats(page.cursor, page.generation, visit)
-    })
-}
-
-fn readers(host: &dyn DocHost, input: &[u8], rows: usize, out: &mut [u8]) -> Result<usize, i32> {
-    let page = paged(input, true)?;
-    require(page.scope.is_empty() || args::id_valid(page.scope))?;
-    list(out, rows, |visit| {
-        host.readers(page.scope, page.cursor, page.generation, visit)
-    })
-}
-
-fn format_for(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let path: wire::ServiceDocPath<'_> = codec::single(input)?;
-    // Bit 0: sniff when no extension matches.
-    require(
-        path.root <= 1
-            && path.flags & !1 == 0
-            && args::path_valid(path.path)
-            && args::reachable(path.root, path.path),
-    )?;
-    host.root_access(path.root)?;
-    let mut written = Err(ERR_NOT_FOUND);
-    host.format_for(path.root, path.path, path.flags & 1 != 0, &mut |record| {
-        written = encode(&record, out);
-    })?;
-    written
 }
 
 #[cfg(test)]

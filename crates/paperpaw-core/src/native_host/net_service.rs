@@ -158,6 +158,8 @@ pub(crate) struct Start<'a> {
     pub(crate) timeout_ms: u32,
     /// The user waits for it (`net_request.flags` bit 1, honoured).
     pub(crate) foreground: bool,
+    /// Never boosted (`net_request.flags` bit 2).
+    pub(crate) lean: bool,
 }
 
 /// An answer to a served request.

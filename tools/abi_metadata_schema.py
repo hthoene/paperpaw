@@ -137,7 +137,16 @@ def compatible_metadata(old, new, minimum_since):
             {k: v for k, v in after.items() if k not in compared}, 'changed metadata encoding')
     for key in catalogs:
         prior, current = before[key], after[key]
-        require(current[:len(prior)] == prior, 'changed/removed metadata declaration')
+        require(len(current) >= len(prior), 'changed/removed metadata declaration')
+        for was, now in zip(prior, current):
+            if key == 'services' and was != now:
+                # A service schema's revision appends ops (#242): its catalog entry
+                # moves to the new revision, and nothing else of it changes.
+                grown = dict(now, semantic_revision=was['semantic_revision'])
+                require(grown == was and now['semantic_revision'] > was['semantic_revision'],
+                        'changed/removed metadata declaration')
+            else:
+                require(was == now, 'changed/removed metadata declaration')
         if key != 'profiles':
             for item in current[len(prior):]:
                 require(item['since'] >= minimum_since, 'backdated metadata requirement')

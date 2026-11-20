@@ -16,7 +16,10 @@
 //! exception: after its step the pump waits [`JOB_GAP_MS`] (a timed wake), so
 //! it goes on while the device is idle; the details job's next book waits the
 //! same gap (`details_job_pump`).
-use super::{doc_service::PrepareStep, native_host_call::HostRoute};
+use super::{
+    details_job_pump::PumpFrame, doc_service::PrepareStep, native_host_call::HostRoute,
+    registry_service::Sources,
+};
 
 /// The wait before a step that could not be made is tried again; it doubles
 /// for each failure in a row (as the library move job's does) ...
@@ -108,7 +111,27 @@ impl crate::Kernel {
                 env: &env,
                 meter: &self.shared.meter,
             };
-            documents.0.prepare_step(hosts, &route)
+            // A format to be asked whether it reads a book first (#242,
+            // `doc_service::asked`): the pump's frame, for the cache of the
+            // next format where it passes the book on.
+            let directory = self.shared.registry.native_declarations.as_deref();
+            let frame = PumpFrame {
+                env: &env,
+                sources: Sources {
+                    env: &env,
+                    directory,
+                    generation: &self.shared.registry_generation,
+                },
+                directory,
+                log: self.shared.device_log,
+            };
+            match documents.0.settle_asks(&frame, hosts, &route) {
+                PrepareStep::More => PrepareStep::More,
+                asked => match documents.0.prepare_step(hosts, &route) {
+                    PrepareStep::Idle => asked,
+                    step => step,
+                },
+            }
         };
         let job_only = documents.0.only_cover_job_preparing();
         // What the format staged runs now, outside any callback.

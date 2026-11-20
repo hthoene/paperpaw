@@ -208,7 +208,8 @@ def _decode_catalog(reader, wire, count, catalog, metadata, kind):
     host lacks, or has only at a lower revision than requested, is unavailable:
     an optional one is left out of the result, a required one refuses the load
     and names the key. Other flag bits are
-    refused. Services stay closed: an unknown service key is always refused.
+    refused. Services stay closed: an unknown service key is always refused; a known
+    one of its major is admitted at any revision (a revision only appends ops, #242).
     """
     result, seen, previous = [], set(), None
     for _ in range(count):
@@ -225,8 +226,11 @@ def _decode_catalog(reader, wire, count, catalog, metadata, kind):
                 continue
         _require(key in catalog, f'unknown {kind} key: {key!r}')
         fields = ('major', 'semantic_revision', 'min_table_bytes') if kind == 'service' else ('revision',)
-        # Services match exactly; a feature's revision was checked above (requested <= host).
-        _require(kind == 'feature' or all(values[field] == catalog[key][field] for field in fields),
+        # A service matches its major; its revision only appends ops (#242), so any is
+        # admitted, and its table is at most the host's. A feature's revision was
+        # checked above (requested <= host).
+        _require(kind == 'feature' or (values['major'] == catalog[key]['major'] and
+                                       values['min_table_bytes'] <= catalog[key]['min_table_bytes']),
                  f'{kind} requirement differs from catalog')
         item = dict(key=key, **{field: values[field] for field in fields})
         if kind == 'feature':

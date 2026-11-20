@@ -54,6 +54,23 @@ impl FileRoot {
     }
 }
 
+/// How the device spends its memory on a download (`network.md` 2.1, #242).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Priority {
+    /// The device decides, as before there was a choice: a download saved
+    /// to a file of at least 32 KiB gets the larger receive window and write
+    /// chunks where the heap keeps its reserve, one download at a time.
+    #[default]
+    Normal,
+    /// The user waits for it: the larger buffers whatever its size, and the
+    /// radio kept awake ([`Request::foreground`]).
+    Boost,
+    /// Never the larger buffers, whatever its size: a background sync that
+    /// must not take memory from what the user does.
+    Lean,
+}
+
 /// An HTTP token: letters, digits and the marks RFC 9110 allows.
 fn is_token(text: &str) -> bool {
     !text.is_empty()
@@ -250,7 +267,22 @@ impl<'a> Request<'a> {
     /// (`Unsupported`).
     #[must_use]
     pub const fn foreground(mut self) -> Self {
-        self.flags |= 2;
+        self.flags = (self.flags & !4) | 2;
+        self
+    }
+
+    /// How the device spends its memory on this download ([`Priority`]); the
+    /// last of this and [`Self::foreground`] counts. [`Priority::Boost`] is
+    /// [`Self::foreground`], honoured as it is; [`Priority::Lean`] is always
+    /// honoured. A host before it refuses a lean request (`Unsupported`).
+    #[must_use]
+    pub const fn priority(mut self, priority: Priority) -> Self {
+        self.flags = (self.flags & !6)
+            | match priority {
+                Priority::Normal => 0,
+                Priority::Boost => 2,
+                Priority::Lean => 4,
+            };
         self
     }
 

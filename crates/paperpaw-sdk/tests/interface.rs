@@ -588,6 +588,7 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
                 if now != line
                     && !user_agent_release_only(path, line, now)
                     && !layout_cache_revision(crate_, path, line, now)
+                    && !schema_revision_grew(path, line, now)
                     && !api_appended(path, line, now)
                     && !trait_appended(path, line, now)
                     && !(screen_grew && screen_revision_grew(path, line, now)) =>
@@ -686,6 +687,35 @@ fn user_agent_release_only(path: &str, before: &str, after: &str) -> bool {
             && paperpaw_sdk::Version::parse(version).is_some()
     };
     path == "const paperpaw_sdk::web::USER_AGENT" && release(before) && release(after)
+}
+
+/// A service or stage schema's `REVISION` that grew (#242): a revision only
+/// appends ops (`abi/services`, `abi/stages`; the ABI lock refuses an op that
+/// changed or went), so a plugin built against the lower one runs unchanged
+/// and opens what it knows. Going back, or another constant, stays guarded.
+fn schema_revision_grew(path: &str, before: &str, after: &str) -> bool {
+    let schema = [
+        "paperpaw_sdk::native::wire::services_wire::",
+        "paperpaw_sdk::native::stage_schemas::",
+    ]
+    .iter()
+    .any(|module| {
+        path.strip_prefix("const ")
+            .and_then(|rest| rest.strip_prefix(module))
+            .and_then(|rest| rest.strip_suffix("::REVISION"))
+            .is_some_and(|name| !name.is_empty() && !name.contains("::"))
+    });
+    let value = |line: &str| -> Option<u16> {
+        line.strip_prefix(path)?
+            .strip_prefix(": u16 = ")?
+            .strip_suffix("u16")?
+            .parse()
+            .ok()
+    };
+    schema
+        && value(before)
+            .zip(value(after))
+            .is_some_and(|(before, after)| after > before)
 }
 
 /// A newer layout cache key keeps old page indexes apart from new ones.
@@ -1272,4 +1302,37 @@ fn pinned_lists_only_grow_at_their_end() {
     assert_eq!(pin_changes("x", "a\nb\n", "a\nb\nc\n").new.len(), 1);
     assert_eq!(pin_changes("x", "a\nb\n", "a\nc\nb\n").breaking.len(), 1);
     assert_eq!(pin_changes("x", "a\nb\n", "a\n").breaking.len(), 1);
+}
+
+#[test]
+fn a_schema_revision_only_grows() {
+    let path = "const paperpaw_sdk::native::wire::services_wire::core_registry_v1::REVISION";
+    let line = |value: u16| format!("{path}: u16 = {value}u16");
+    // The next revision, or one later: what appended ops come with.
+    assert!(schema_revision_grew(path, &line(0), &line(1)));
+    assert!(schema_revision_grew(path, &line(1), &line(3)));
+    // Back, or the same: not growth.
+    assert!(!schema_revision_grew(path, &line(1), &line(0)));
+    assert!(!schema_revision_grew(path, &line(1), &line(1)));
+    // A stage schema's grows as a service's does.
+    let stage = "const paperpaw_sdk::native::stage_schemas::core_format_v1::REVISION";
+    assert!(schema_revision_grew(
+        stage,
+        &format!("{stage}: u16 = 1u16"),
+        &format!("{stage}: u16 = 2u16")
+    ));
+    // Another constant of the module stays guarded.
+    let major = "const paperpaw_sdk::native::wire::services_wire::core_registry_v1::MAJOR";
+    assert!(!schema_revision_grew(
+        major,
+        &format!("{major}: u16 = 1u16"),
+        &format!("{major}: u16 = 2u16")
+    ));
+    // In `changes`: grown is new, not breaking.
+    let kept = format!("{}\n", line(0));
+    let grown = changes("paperpaw-sdk", ("", &kept), ("", &format!("{}\n", line(1))));
+    assert!(grown.breaking.is_empty(), "{:?}", grown.breaking);
+    assert_eq!(grown.new.len(), 1);
+    let back = changes("paperpaw-sdk", ("", &format!("{}\n", line(1))), ("", &kept));
+    assert_eq!(back.breaking.len(), 1);
 }

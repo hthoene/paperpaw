@@ -1248,6 +1248,7 @@ pub paperpaw_sdk::native::declare::FormatDecl::priority: i32
 pub paperpaw_sdk::native::declare::FormatDecl::title: &'a str
 pub paperpaw_sdk::native::declare::FormatDecl::token: u32
 impl<'a> paperpaw_sdk::native::declare::FormatDecl<'a>
+pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::asks(self) -> Self
 pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::folder(self) -> Self
 pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::new(&'a str, &'a str, &'a str, u32) -> Self
 pub const fn paperpaw_sdk::native::declare::FormatDecl<'a>::prepared(self) -> Self
@@ -1841,6 +1842,7 @@ pub const fn paperpaw_sdk::native::document::DocState<'a>::id(&self) -> paperpaw
 pub const fn paperpaw_sdk::native::document::DocState<'a>::preparation(&self) -> paperpaw_sdk::native::document::Preparation
 pub const fn paperpaw_sdk::native::document::DocState<'a>::progress_ppm(&self) -> u32
 pub const fn paperpaw_sdk::native::document::DocState<'a>::right_to_left(&self) -> bool
+pub const fn paperpaw_sdk::native::document::DocState<'a>::some_whole_pages(&self) -> bool
 pub const fn paperpaw_sdk::native::document::DocState<'a>::status(&self) -> i32
 pub const fn paperpaw_sdk::native::document::DocState<'a>::whole_pages(&self) -> bool
 pub struct paperpaw_sdk::native::document::DocTextPart<'a>
@@ -2721,6 +2723,7 @@ pub const fn paperpaw_sdk::native::format::BlockReply<'a>::image_index(self, u32
 pub const fn paperpaw_sdk::native::format::BlockReply<'a>::last_in_section(self) -> Self
 pub fn paperpaw_sdk::native::format::BlockReply<'a>::new(&'a paperpaw_document::Block) -> Self
 pub const fn paperpaw_sdk::native::format::BlockReply<'a>::next(self, u32) -> Self
+pub const fn paperpaw_sdk::native::format::BlockReply<'a>::whole_page(self) -> Self
 pub struct paperpaw_sdk::native::format::FormatCall<'a>
 impl paperpaw_sdk::native::format::FormatCall<'_>
 pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_accept(&self, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
@@ -2741,6 +2744,7 @@ pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_metadata(&self, &pape
 pub fn paperpaw_sdk::native::format::FormatCall<'_>::reply_metadata_text(&self, &paperpaw_document::Metadata, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 impl<'a> paperpaw_sdk::native::format::FormatCall<'a>
 pub const fn paperpaw_sdk::native::format::FormatCall<'a>::background(&self) -> bool
+pub const fn paperpaw_sdk::native::format::FormatCall<'a>::claimed(&self) -> bool
 pub const fn paperpaw_sdk::native::format::FormatCall<'a>::color(&self) -> bool
 pub const fn paperpaw_sdk::native::format::FormatCall<'a>::conversion(&self) -> u64
 pub const fn paperpaw_sdk::native::format::FormatCall<'a>::cover_side(&self) -> u32
@@ -2767,6 +2771,7 @@ pub const fn paperpaw_sdk::native::format::FormatFeatures::embedded_fonts(self) 
 pub const fn paperpaw_sdk::native::format::FormatFeatures::new() -> Self
 pub const fn paperpaw_sdk::native::format::FormatFeatures::page_labels(self) -> Self
 pub const fn paperpaw_sdk::native::format::FormatFeatures::right_to_left(self) -> Self
+pub const fn paperpaw_sdk::native::format::FormatFeatures::some_whole_pages(self) -> Self
 pub const fn paperpaw_sdk::native::format::FormatFeatures::table_of_contents(self) -> Self
 pub const fn paperpaw_sdk::native::format::FormatFeatures::whole_pages(self) -> Self
 pub const fn paperpaw_sdk::native::format::FormatFeatures::xpointers(self) -> Self
@@ -3373,6 +3378,10 @@ pub mod paperpaw_sdk::native::net
 pub paperpaw_sdk::native::net::FileRoot::Data
 pub paperpaw_sdk::native::net::FileRoot::Files
 pub paperpaw_sdk::native::net::FileRoot::Install
+#[non_exhaustive] pub enum paperpaw_sdk::native::net::Priority
+pub paperpaw_sdk::native::net::Priority::Boost
+pub paperpaw_sdk::native::net::Priority::Lean
+pub paperpaw_sdk::native::net::Priority::Normal
 #[non_exhaustive] pub enum paperpaw_sdk::native::net::Reason
 pub paperpaw_sdk::native::net::Reason::Cancelled
 pub paperpaw_sdk::native::net::Reason::Dns
@@ -3453,6 +3462,7 @@ pub fn paperpaw_sdk::native::net::Request<'a>::headers(self, &'a [paperpaw_sdk::
 pub const fn paperpaw_sdk::native::net::Request<'a>::max_body(self, u32) -> Self
 pub const fn paperpaw_sdk::native::net::Request<'a>::max_file(self, u64) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::net::Request<'a>::new(u32, &'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::net::Request<'a>::priority(self, paperpaw_sdk::native::net::Priority) -> Self
 pub const fn paperpaw_sdk::native::net::Request<'a>::progress(self) -> Self
 pub fn paperpaw_sdk::native::net::Request<'a>::save_to(self, paperpaw_sdk::native::net::FileRoot, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::net::Request<'a>::send_file(self, paperpaw_sdk::native::net::FileRoot, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
@@ -3957,9 +3967,12 @@ pub paperpaw_sdk::native::services::PageEnd::truncated: bool
 pub struct paperpaw_sdk::native::services::Service
 impl paperpaw_sdk::native::services::Service
 pub fn paperpaw_sdk::native::services::Service::call(&self, &paperpaw_sdk::native::Host<'_>, u32, &[u8], &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::services::Service::has_op(&self, u32) -> bool
 pub fn paperpaw_sdk::native::services::Service::max_reply(&self, u32) -> core::option::Option<usize>
 pub fn paperpaw_sdk::native::services::Service::open(&paperpaw_sdk::native::Host<'_>, &str, u16, u16) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::services::Service::open_newest(&paperpaw_sdk::native::Host<'_>, &str, u16) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::services::Service::release(self, &paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::services::Service::revision(&self) -> u16
 #[non_exhaustive] pub struct paperpaw_sdk::native::services::ServicePluginUsage<'a>
 pub paperpaw_sdk::native::services::ServicePluginUsage::awake_ms: u64
 pub paperpaw_sdk::native::services::ServicePluginUsage::awake_reason: &'a str

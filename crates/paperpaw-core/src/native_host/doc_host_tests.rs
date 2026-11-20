@@ -90,6 +90,9 @@ struct World<'a> {
     scoped: RefCell<Vec<Scoped>>,
     /// The format plugins (by host owner) that answer a sniff with yes.
     sniffs: RefCell<Vec<u64>>,
+    /// The format plugins (by host owner) that are parked: every call is
+    /// `ERR_BUSY`, as the route answers for one not made yet.
+    parked: RefCell<Vec<u64>>,
     /// What the format answers to the next call.
     reply: RefCell<Result<Vec<u8>, i32>>,
     /// Answers to the next calls, in order, before `reply` (a details read).
@@ -212,6 +215,9 @@ impl Frame for World<'_> {
             other => panic!("{other:?}"),
         };
         self.calls.borrow_mut().push((owner, token, op));
+        if self.parked.borrow().contains(&owner) {
+            return Err(paperpaw_native::host_glue::ERR_BUSY);
+        }
         self.hosts.format_scope().current(owner, &mut |book| {
             self.scoped.borrow_mut().push((
                 book.path.into(),
@@ -546,6 +552,7 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         generation: Cell::new(1),
         walks: Cell::new(0),
         sniffs: RefCell::new(Vec::new()),
+        parked: RefCell::new(Vec::new()),
         sniffed: RefCell::new(Vec::new()),
         card,
         renames,
@@ -1228,6 +1235,8 @@ mod picture_tests;
 #[path = "doc_host_root5_tests.rs"]
 mod root5_tests;
 
+#[path = "doc_host_asks_tests.rs"]
+mod asks_tests;
 #[path = "doc_host_cover_job_tests.rs"]
 mod cover_job_tests;
 #[path = "doc_host_details_flag_tests.rs"]

@@ -80,11 +80,11 @@ pub(crate) const HOLD_WAIT_MAX_MS: u64 = 32_000;
 /// The pump's frame for the details job's open: the kernel's settings,
 /// declarations and registry, no callback (the format is called through the
 /// pump's route, never through a frame).
-struct PumpFrame<'a> {
-    env: &'a crate::Place<'a>,
-    sources: Sources<'a>,
-    directory: Option<&'a NativeDeclarations>,
-    log: super::device_log::DeviceLog,
+pub(super) struct PumpFrame<'a> {
+    pub(super) env: &'a crate::Place<'a>,
+    pub(super) sources: Sources<'a>,
+    pub(super) directory: Option<&'a NativeDeclarations>,
+    pub(super) log: super::device_log::DeviceLog,
 }
 
 impl Frame for PumpFrame<'_> {
