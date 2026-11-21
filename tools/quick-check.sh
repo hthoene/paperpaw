@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
-# The quick check of a branch before it is handed over (#328): the format
-# check every branch needs, plus the few targeted checks that would have caught
-# the causes of the red bases of Nov 18, each picked by the files the branch
-# changes against origin/abi7/integration. It is not the full CI (the firmware
-# builds, the S3 band and the fuzzers stay there) and not tools/check-local.sh
-# (which checks whole packages and their dependents): it runs what a change of
-# these files can break in a few minutes on a warm build directory.
+# The quick check of a branch before it is handed over (#328, #4473): the format
+# and lint checks every branch needs, plus the targeted checks that most often
+# turned a base red (format/lint, the unit and doc tests of a package, the
+# interface test, the plugin frames), each picked by the files the branch
+# changes against origin/abi7/integration. It is NOT a second CI: it has to end
+# in 1-2 minutes on a warm build directory, so what takes longer (the workspace
+# docs, the plugin libraries, the emulator's and the app's tests and goldens,
+# the no_std build, the S3 frames) is the landing check's job (CI), or run
+# `--full` here when you want them before. It is not tools/check-local.sh either
+# (which checks whole packages and their dependents).
 #
-#   tools/quick-check.sh [--base REV] [--all] [--list] [--skip a,b] [--only a,b]
+#   tools/quick-check.sh [--base REV] [--full] [--all] [--list] [--skip a,b] [--only a,b]
+#
+# The fast steps, which run by default: fmt, generated, python, clippy, pkgtests, interface, checks,
+# publish and frames. `--full` adds the others (doc, libs, desktop, memory, app, snapshots,
+# wasm32, webemu, x4tests, frames-s3; frames then also for a changed plugin) with the older, longer
+# time limits, for each file the branch changes; `--all` is `--full` for every step whatever changed.
 #
 # Steps (the files that trigger each one in brackets):
 #   fmt       always: cargo fmt --all --check and shells/xteink's rustfmt check; no tracked path starting with `-`
@@ -46,7 +54,8 @@
 #   python    CI's python checks of seconds: the changelog fragments and their tests,
 #             every UI language pack drawable by the interface font (tools/glyph-coverage.py), the store plugins' versions and folders
 #             (tools/plugin-files unittests), the size gate, the owner-image check, the x4 remote tool   [always]
-#   frames    the changed plugins (at most 4; `store` stands in when a library under them changed) built for the X4's
+#   frames    the changed plugins (at most 4; `store` stands in when a library under them changed; by default only for a
+#             changed library: sdk, ui-kit, core, native, text, layout, i18n, the plugin tools) built for the X4's
 #             C3 as CI builds them and packed: a frame of 2,048 B or more is refused  [plugins/, ui-kit, sdk, core native, text, layout]
 #   frames-s3 the same plugins built for the X4 Pro / Classic (ESP32-S3, espup's `esp` toolchain,
 #             `tools/plugin-files7/build.sh x4-pro`) and packed for target 9: a frame over the limit
@@ -57,9 +66,9 @@
 # directory it prints.
 #
 # It has to fit PlainBoard's 10 minutes, so (#328):
-#  - six lanes run side by side, each with one cargo at a time (CARGO_BUILD_JOBS=8 each) and a build
-#    directory of its own, so nothing waits on cargo's directory lock: the host lane (fmt, clippy,
-#    interface, checks, libs), the tests lane (desktop, memory, app, snapshots), the doc lane (doc alone: a cold
+#  - the lanes run side by side, each with one cargo at a time (CARGO_BUILD_JOBS=8 each) and a build
+#    directory of its own, so nothing waits on cargo's directory lock: the host lane (clippy, libs), the
+#    interface lane (interface, checks), the package tests, the tests lane (desktop, memory, app, snapshots), the doc lane (doc alone: a cold
 #    `cargo doc --workspace` is 300-400 s on a busy machine, rustdoc is not cached by sccache, and behind
 #    it wasm32 and webemu were cut for the budget on Nov 19), the wasm lane (wasm32, webemu, publish, x4tests), and one
 #    lane each for the plugin frames, `frames` (C3) and `frames-s3` (Xtensa). On a cold directory
@@ -89,8 +98,8 @@
 #    the script at its limit; the steps of such runs lived on for an hour, holding sccache and the CPU);
 #  - a library change (ui-kit, SDK, core ...) builds the frames of `store` alone, the largest plugin
 #    and the one at the limit; changed plugins are built themselves (at most 4);
-#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 450 s) and the whole run a budget
-#    (QUICK_CHECK_BUDGET, 480 s, from the start of the run without the wait for a set, with the fetch: with the ~25 s of the python checks in front of it, the whole quick-check
+#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 210 s; 450 s with --full) and the whole run a budget
+#    (QUICK_CHECK_BUDGET, 240 s; 480 s with --full, from the start of the run without the wait for a set, with the fetch: with the ~25 s of the python checks in front of it, the whole quick-check
 #    command ends within 9 minutes, PlainBoard's limit being 10). A step that is cut, or not started for the budget, FAILS the run with
 #    a message (exit 1): it checked nothing, and the build directories are warm for the next run. NOT checked here: the S3 `allow indirect` band
 # (tools/check-s3-budget.sh: it needs a full Xtensa firmware build of the whole
@@ -98,7 +107,7 @@
 # C3/S3 firmware size, the store fit, the `paperpaw-dev visual`/`reach` screens
 # job, the other shells, the fuzzers.
 #
-# --all runs every step (for a measurement or after a base merge); --list says
+# --full runs the slower steps too, --all every step whatever changed (for a measurement or after a base merge); --list says
 # what would run and why; --only/--skip take step names. CARGO_TARGET_DIR is not
 # used: the build directories are the set's. Exit 2: usage.
 set -uo pipefail
@@ -117,16 +126,17 @@ export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-20G}"
 # script landed runs its own, older script, with no limits: run the base's copy instead,
 #   git show origin/abi7/integration:tools/quick-check.sh > ~/qc.sh && bash ~/qc.sh )
 t_start=$SECONDS
-budget="${QUICK_CHECK_BUDGET:-480}"
-step_limit="${QUICK_CHECK_STEP_LIMIT:-450}"
+# The default tier has to end in 1-2 minutes; --full has the older, longer limits (set below).
 
 base=origin/abi7/integration
-all=0 list=0 only="" skip=""
+all=0 full=0 list=0 only="" skip=""
 steps=" fmt generated python clippy doc interface checks libs pkgtests desktop memory app snapshots publish wasm32 webemu x4tests frames frames-s3 "
+fast_steps=" fmt generated python clippy pkgtests interface checks publish frames "
 while (($#)); do
     case "$1" in
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
-        --all) all=1; shift ;;
+        --all) all=1; full=1; shift ;;
+        --full) full=1; shift ;;
         --list) list=1; shift ;;
         --only) only="${2:?--only needs a list}"; shift 2 ;;
         --skip) skip="${2:?--skip needs a list}"; shift 2 ;;
@@ -137,6 +147,8 @@ done
 for name in $(tr ',' ' ' <<< "$only,$skip"); do
     [[ "$steps" == *" $name "* ]] || { echo "quick-check: unknown step '$name' (known:$steps)" >&2; exit 2; }
 done
+if ((full)); then budget="${QUICK_CHECK_BUDGET:-480}" step_limit="${QUICK_CHECK_STEP_LIMIT:-450}"
+else budget="${QUICK_CHECK_BUDGET:-240}" step_limit="${QUICK_CHECK_STEP_LIMIT:-210}"; fi
 mb="$(git merge-base HEAD "$base" 2> /dev/null)" || { echo "quick-check: no base '$base' (git fetch?)" >&2; exit 2; }
 
 # The files this branch changes: committed, uncommitted and new.
@@ -205,8 +217,11 @@ if [[ $all = 1 ]]; then for s in $steps; do why[$s]="--all"; done; else
     fi
     touches '^(shells/(desktop|web)/|crates/paperpaw-(x4|core|sdk|emulator)/)' && why[webemu]="the emulator, the web shell or a crate under them changed"
     touches '^(crates/paperpaw-x4/|shells/xteink/|\.github/actions/install-image/)' && why[x4tests]="the X4 crate or the firmware's constants and tables changed"
-    touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames]="plugin code or what it builds with changed"
+    if ((full)); then touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames]="plugin code or what it builds with changed"
+    else touches '^(crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames]="what the plugins build with changed"; fi
     touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames-s3]="plugin code or what it builds with changed (S3 frames differ from the C3's)"
+    # The rest is the landing check's (CI) unless --full asks for it.
+    if ((!full)); then for s in $steps; do [[ "$fast_steps" == *" $s "* ]] || unset "why[$s]"; done; fi
 fi
 run_step() { # NAME: should it run?
     local s="$1"
@@ -241,7 +256,7 @@ wrapper_answers() { # [PORT]
     d="$(mktemp -d "$logs/probe.XXXXXX")" || return 1
     [[ -z "${1:-}" ]] || export SCCACHE_SERVER_PORT="$1"
     printf 'pub fn probe() -> u64 { %s }\n' "$RANDOM$RANDOM" > "$d/probe.rs"
-    timeout -k 2 "${QUICK_CHECK_PROBE_LIMIT:-20}" "$RUSTC_WRAPPER" rustc --crate-type lib --crate-name qc_probe \
+    timeout -k 2 "${QUICK_CHECK_PROBE_LIMIT:-10}" "$RUSTC_WRAPPER" rustc --crate-type lib --crate-name qc_probe \
         --edition 2021 --out-dir "$d" "$d/probe.rs" > "$d/log" 2>&1 < /dev/null
 }
 # The quick check's own server is asked at the same time, so a hung one costs the probe's time once.
@@ -249,7 +264,7 @@ if [[ -n "${RUSTC_WRAPPER:-}" ]]; then
     wrapper_answers "${QUICK_CHECK_SCCACHE_PORT:-4231}" &
     own_probe=$!
     if ! wrapper_answers; then
-        echo "quick-check: the compiler wrapper does not answer within ${QUICK_CHECK_PROBE_LIMIT:-20}s (a hung sccache server?): a server of the quick check's own"
+        echo "quick-check: the compiler wrapper does not answer within ${QUICK_CHECK_PROBE_LIMIT:-10}s (a hung sccache server?): a server of the quick check's own"
         export SCCACHE_SERVER_PORT="${QUICK_CHECK_SCCACHE_PORT:-4231}"
         if ! wait "$own_probe"; then
             echo "quick-check: that one does not answer either: building with rustc alone"
@@ -330,6 +345,7 @@ lane3_target="$set_dir/lane3"
 lane4_target="$set_dir/lane4"
 lane5_target="$set_dir/lane5"
 lane6_target="$set_dir/lane6"
+lane7_target="$set_dir/lane7"
 unset CARGO_BUILD_TARGET_DIR
 # Ends the process group of a step (its first argument runs in it) when the script is gone: PlainBoard
 # kills the script at its time limit, and steps in groups of their own lived on for an hour.
@@ -551,10 +567,15 @@ lane_wasm=$!
 ) &
 lane_tests=$!
 (
+    export CARGO_TARGET_DIR="$lane7_target"
+    lane interface checks
+) &
+lane_iface=$!
+(
     export CARGO_TARGET_DIR="$lane1_target"
-    lane clippy interface checks libs
+    lane clippy libs
 )
-wait "$lane_s3" "$lane_pkg" "$lane_py" "$lane_frames" "$lane_doc" "$lane_wasm" "$lane_tests"
+wait "$lane_s3" "$lane_pkg" "$lane_py" "$lane_frames" "$lane_doc" "$lane_wasm" "$lane_tests" "$lane_iface"
 cd "$root" || exit 2
 # Disk: the whole folder down to QUICK_CHECK_CACHE_GB. What is cut is moved aside at once (a set no run holds
 # only under its lock) and deleted in the background.
@@ -592,6 +613,7 @@ for s in $steps; do
     [[ "$(cut -c1-2 "$logs/$s.res")" == ok ]] || failed=1
 done
 # What no step here checks, and the cheap hints that go with it.
+((full)) || echo "  NOT RUN here (the landing check's; --full runs them): doc, libs, desktop, memory, app, snapshots, wasm32, webemu, x4tests, frames-s3"
 if touches '^(crates|plugins)/.*\.rs$'; then
     echo "  NOT CHECKED: the S3 band (shells/xteink/frame-budget-s3*.txt, 'allow indirect'): CI's \"Firmware interface-7 build\" counts it, 5 of the 18"
     echo "               red bases of Nov 18/19. After a change in layout, text, ui-kit, sdk, core or a plugin run: tools/check-s3-budget.sh $root x4-pro (~45 s warm, ~13 min cold)"
