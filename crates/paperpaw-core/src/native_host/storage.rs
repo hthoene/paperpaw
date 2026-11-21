@@ -42,6 +42,9 @@ pub const ROOT_PLUGIN: u32 = 0;
 pub(crate) const ROOT_CARD: u32 = 1;
 /// Root 2: the plugin's install folder, read only.
 pub(crate) const ROOT_BUNDLE: u32 = 2;
+/// Root 7: the stylesheets plugins bring for books, read only, inside a
+/// format call (`document.md` 3, Roots; draft 39).
+pub(crate) const ROOT_PLUGIN_CSS: u32 = 7;
 /// Longest path a plugin passes, in bytes.
 pub const MAX_PATH: usize = 512;
 /// Longest segment of a path, in bytes.
@@ -74,6 +77,9 @@ pub struct StorageAdapter<'a> {
     /// Root 2 for this call: `Some(built_in)`, where a plugin built into the
     /// firmware has an empty install folder; `None`: no root 2.
     bundle: Option<bool>,
+    /// Root 7 for this call, inside a format call: the plugins' stylesheets
+    /// as the kernel keeps them (in memory, read at start); `None`: no root 7.
+    plugin_css: Option<&'a [Cow<'static, str>]>,
 }
 
 /// Root 1 of one slot call: what else holds the user's files, beyond the
@@ -115,6 +121,7 @@ impl<'a> StorageAdapter<'a> {
             format: None,
             card: None,
             bundle: None,
+            plugin_css: None,
         })
     }
 
@@ -139,6 +146,7 @@ impl<'a> StorageAdapter<'a> {
             format: None,
             card: None,
             bundle: None,
+            plugin_css: None,
         })
     }
 
@@ -146,6 +154,13 @@ impl<'a> StorageAdapter<'a> {
     /// document of `book`.
     pub(crate) fn with_format(mut self, book: &'a FormatBook<'a>) -> Self {
         self.format = Some(book);
+        self
+    }
+
+    /// The adapter for a call of a format plugin with root 7: `sheets`, the
+    /// plugins' stylesheets for books.
+    pub(crate) fn with_plugin_css(mut self, sheets: &'a [Cow<'static, str>]) -> Self {
+        self.plugin_css = Some(sheets);
         self
     }
 
@@ -181,6 +196,14 @@ impl<'a> StorageAdapter<'a> {
         }
         if root == ROOT_BUNDLE {
             return self.resolve_bundle(path, write, with);
+        }
+        if root == ROOT_PLUGIN_CSS {
+            // Root 7 is no card path: only `size` and `read_at` read it.
+            return Err(if write && self.plugin_css.is_some() {
+                ERR_DENIED
+            } else {
+                ERR_UNSUPPORTED
+            });
         }
         if root != ROOT_PLUGIN {
             return self.resolve_format(root, path, write, with);
@@ -389,6 +412,10 @@ impl<'a> StorageAdapter<'a> {
     /// # Errors
     /// An `ERR_*` status; nothing is touched.
     pub fn size(&self, root: u32, path: &[u8]) -> Result<u64, i32> {
+        if root == ROOT_PLUGIN_CSS {
+            let sheets = self.plugin_sheets(path)?;
+            return Ok(sheets.iter().map(|sheet| sheet.len() as u64 + 1).sum());
+        }
         self.resolve(root, path, false, |p| self.storage.size(p).map_err(status))
     }
 
@@ -408,9 +435,27 @@ impl<'a> StorageAdapter<'a> {
         if out.len() > MAX_DATA {
             return Err(ERR_NO_SPACE);
         }
+        if root == ROOT_PLUGIN_CSS {
+            return Ok(read_joined(self.plugin_sheets(path)?, offset, out));
+        }
         self.resolve(root, path, false, |p| {
             self.storage.read_at(p, offset, out).map_err(status)
         })
+    }
+
+    /// Root 7's stylesheets: `ERR_UNSUPPORTED` outside a format call, the path
+    /// rules, then `ERR_NOT_FOUND` for a path other than "" (the one file) or
+    /// where no plugin has a stylesheet.
+    fn plugin_sheets(&self, path: &[u8]) -> Result<&'a [Cow<'static, str>], i32> {
+        let sheets = self.plugin_css.ok_or(ERR_UNSUPPORTED)?;
+        if !path.is_empty() {
+            relative_path(path)?;
+            return Err(ERR_NOT_FOUND);
+        }
+        if sheets.is_empty() {
+            return Err(ERR_NOT_FOUND);
+        }
+        Ok(sheets)
     }
 
     /// Slot 22: replaces the file with `data` (at most 4096 bytes), whole
@@ -603,6 +648,32 @@ impl<'a> StorageAdapter<'a> {
     pub fn sync(&self) -> Result<(), i32> {
         self.storage.sync().map_err(status)
     }
+}
+
+/// Copies root 7 from `offset` into `out`: the stylesheets one after the
+/// other, each followed by a newline. The count of bytes copied, 0 at the end.
+fn read_joined(sheets: &[Cow<'static, str>], offset: u64, out: &mut [u8]) -> usize {
+    let mut skip = offset;
+    let mut done = 0;
+    for sheet in sheets {
+        for piece in [sheet.as_bytes(), b"\n"] {
+            let Some(from) = usize::try_from(skip).ok().filter(|at| *at < piece.len()) else {
+                skip = skip.saturating_sub(piece.len() as u64);
+                continue;
+            };
+            skip = 0;
+            let (Some(source), Some(target)) = (piece.get(from..), out.get_mut(done..)) else {
+                return done;
+            };
+            let count = source.len().min(target.len());
+            target[..count].copy_from_slice(&source[..count]);
+            done += count;
+            if done == out.len() {
+                return done;
+            }
+        }
+    }
+    done
 }
 
 /// Whether `first` (the first segment of `relative`) or the whole path names

@@ -1,8 +1,8 @@
 //! Path-based storage with caller-owned buffers. Root 0 is the plugin's data
 //! folder. Root 1 reads the user's files only with signed `uses.storage` metadata;
 //! the host enforces permissions. Root 2 is the plugin's own install folder, read
-//! only. Roots 3, 4 and 6 are document-scoped and valid only during the relevant
-//! format callback. Root selection is passed through unchanged.
+//! only. Roots 3, 4, 6 and 7 are document-scoped and valid only during the
+//! relevant format callback. Root selection is passed through unchanged.
 //! FAT paths ignore case. An append is durable only after [`sync`]; a failed
 //! append may leave a partial tail, which the plugin's record format must handle.
 use super::{Error, Host, binding::status};
@@ -34,6 +34,11 @@ pub enum Root {
     /// An empty path names the file; available only during `core.format`
     /// ops 2 (open) and 3 (prepare).
     UserCss,
+    /// The stylesheets installed plugins bring for books (wire root 7, draft
+    /// 39), read only: an empty path names them as one file, each followed by
+    /// a newline, in the order of the plugins. `NotFound` where no plugin has
+    /// one; valid only during a `core.format` callback for a document.
+    PluginCss,
 }
 impl Root {
     pub(super) const fn wire(self) -> u32 {
@@ -44,6 +49,7 @@ impl Root {
             Self::Book => 3,
             Self::UserCss => 4,
             Self::DocumentCache => 6,
+            Self::PluginCss => 7,
         }
     }
 }
@@ -78,7 +84,8 @@ fn path(root: Root, text: &str) -> Result<PpBytes, Error> {
     if text.len() > MAX_PATH || text.split('/').any(|s| s.len() > MAX_SEGMENT) {
         return Err(Error::NoSpace);
     }
-    let scoped_file = text.is_empty() && matches!(root, Root::Book | Root::UserCss);
+    let scoped_file =
+        text.is_empty() && matches!(root, Root::Book | Root::UserCss | Root::PluginCss);
     if !scoped_file && !paperpaw_platform::storage::is_valid_path(text) {
         return Err(Error::Invalid);
     }

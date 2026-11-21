@@ -11,7 +11,7 @@ use super::{
     paths_in_use::PathsInUse,
     storage::{
         self, Card, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_BUNDLE, ROOT_CARD, ROOT_PLUGIN,
-        StorageAdapter,
+        ROOT_PLUGIN_CSS, StorageAdapter,
     },
 };
 use core::mem::MaybeUninit;
@@ -22,8 +22,8 @@ use paperpaw_native::host_glue::{
 
 /// What a plugin's slot call reaches beyond root 0. The format calls under
 /// way and the host owner id of the plugin whose slot it is let roots 3, 4
-/// and 6 name the document the plugin's call is for (a plugin outside such a
-/// call has none of these roots). Its admitted features open root 1, the
+/// and 6 name the document the plugin's call is for, and root 7 the plugins'
+/// stylesheets for it (a plugin outside such a call has none of these roots). Its admitted features open root 1, the
 /// user's files, with `uses.storage` (decision 125, `files.md` 1.1), and
 /// `files`, `core.files`'s host where it is wired, says which of them the host
 /// holds busy. `linked` tells whether the plugin is built into the firmware:
@@ -57,7 +57,7 @@ fn with_adapter<R>(
     let folder = core::str::from_utf8(folder).map_err(|_| ERR_INVALID)?;
     scope.with_frame(|frame| {
         let storage = frame.storage().ok_or(ERR_STATE)?;
-        // Roots 3, 4 and 6 are the call's document, if the plugin is in one.
+        // Roots 3, 4, 6 and 7 are the call's document, if the plugin is in one.
         let Some((format, root)) = format.filter(|(_, root)| *root != ROOT_PLUGIN) else {
             let adapter =
                 StorageAdapter::borrowed_folder(storage, folder, in_use).ok_or(ERR_INVALID)?;
@@ -82,10 +82,14 @@ fn with_adapter<R>(
         }
         let mut call = Some(call);
         let mut result = Err(ERR_UNSUPPORTED);
+        // Root 7 is read from the kernel's memory, never from the card.
+        let sheets = frame
+            .kernel_env()
+            .map_or(&[][..], crate::Place::stylesheets);
         format.scope.current(format.owner, &mut |book| {
             if let Some(call) = call.take() {
                 result = match StorageAdapter::borrowed_folder(storage, folder, in_use) {
-                    Some(adapter) => call(&adapter.with_format(book)),
+                    Some(adapter) => call(&adapter.with_format(book).with_plugin_css(sheets)),
                     None => Err(ERR_INVALID),
                 };
             }
@@ -133,7 +137,7 @@ unsafe fn path<'a>(
     change: bool,
 ) -> Result<&'a [u8], i32> {
     match root {
-        ROOT_PLUGIN | 3 | 4 | 6 => {}
+        ROOT_PLUGIN | 3 | 4 | 6 | ROOT_PLUGIN_CSS => {}
         ROOT_BUNDLE if format.is_none() => return Err(ERR_UNSUPPORTED),
         ROOT_BUNDLE if change => return Err(ERR_DENIED),
         ROOT_BUNDLE => {}
@@ -145,8 +149,8 @@ unsafe fn path<'a>(
     }
     // SAFETY: the caller guarantees readable input.
     let bytes = unsafe { input(bytes, MAX_PATH) }?;
-    // Roots 3 and 4 name one file by the empty path.
-    if !(bytes.is_empty() && matches!(root, 3 | 4)) {
+    // Roots 3, 4 and 7 name one file by the empty path.
+    if !(bytes.is_empty() && matches!(root, 3 | 4 | ROOT_PLUGIN_CSS)) {
         storage::relative_path(bytes)?;
     }
     Ok(bytes)

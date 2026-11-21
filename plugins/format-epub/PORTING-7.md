@@ -27,9 +27,10 @@ removal.
 
 The format is `siblings` (#459): root 3 is the book's folder and the opener gets the book's file name, so the
 family's `user_css` finds `styles.css` in the folder and the one named like the book (`Alice.css` for
-`Alice.epub`) and applies them after the book's own styles, as in Beta 3 (`docs/plugins.md`, *styles.css*). Plugins'
-stylesheets (`Registrar::add_stylesheet`, a data plugin's `styles.css`) still do not reach books: `core.format`
-has no field for them, and adding one is an interface-7 change.
+`Alice.epub`) and applies them after the book's own styles, as in Beta 3 (`docs/plugins.md`, *styles.css*). The
+plugins' stylesheets (a data plugin's `styles.css`) come before those, as interface 6 `OpenOptions::css` had them:
+the provider reads them at each open from root 7 (draft 39, #463; `FormatProvider::with_plugin_css`), which the
+host serves from memory; a host without root 7 gives none.
 
 ## Gap: untitled books
 
