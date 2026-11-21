@@ -615,3 +615,17 @@ fn advanced_settings_are_found_only_once_shown() {
     assert!(!visible(&groups, basic, &dev, None));
     assert!(visible(&groups, dev_on, &dev, None));
 }
+
+#[test]
+fn a_reset_that_does_not_fit_one_callback_is_known_before_it_is_staged() {
+    // #459: with 64 settings changed, every reset was refused at once and
+    // the callback dropped (nothing reset, nothing said).
+    let keys = |n: usize, len: usize| -> Vec<String> {
+        (0..n).map(|i| alloc::format!("{i:0len$}")).collect()
+    };
+    assert!(reset_fits(&keys(63, 20)));
+    assert!(!reset_fits(&keys(64, 20)));
+    // The bytes count too: 50 long keys are more than a callback stages.
+    assert!(!reset_fits(&keys(50, 80)));
+    assert!(reset_fits(&[]));
+}

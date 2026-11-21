@@ -204,6 +204,9 @@ pub enum Ended {
 #[derive(Debug, Default)]
 pub struct Loader {
     trouble: Trouble,
+    /// The last list asked for was held back by Offline mode (the host ended
+    /// it `Offline`): the start offers to go online (#459, as Beta 3).
+    held: bool,
     list: Option<RequestId>,
     /// The request for a community source's signature, and where it is.
     signature: Option<RequestId>,
@@ -241,6 +244,12 @@ impl Loader {
     #[must_use]
     pub const fn trouble(&self) -> Trouble {
         self.trouble
+    }
+
+    /// Whether the last list asked for was held back by Offline mode.
+    #[must_use]
+    pub const fn held_offline(&self) -> bool {
+        self.held
     }
 
     /// The list read, `None` until one was.
@@ -300,6 +309,7 @@ impl Loader {
     /// `NoMemory` (nothing changes then) and the host's refusals of the facts.
     #[inline(never)]
     pub fn start_list(&mut self, wire: &mut dyn Wire) -> Result<(), Error> {
+        self.held = false;
         let Some(facts) = wire.facts()? else {
             // Nothing is asked of a library that does not know the device, and
             // the start says so instead of loading for ever.
@@ -449,6 +459,7 @@ impl Loader {
     fn none(&mut self, wire: &mut dyn Wire, done: &Done) -> Ended {
         let _ = wire.storage().remove(LIST_PART);
         let _ = wire.storage().remove(SIGNATURE_PART);
+        self.held = done.reason == Reason::Offline;
         self.trouble = match (self.index.is_some(), done.status) {
             (true, _) => Trouble::None,
             // The host tells a connection it had no memory for the same

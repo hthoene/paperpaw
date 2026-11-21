@@ -77,6 +77,11 @@ pub trait Loader {
     fn small_memory(&self) -> bool {
         true
     }
+    /// Whether the list was held back by Offline mode: the start offers to go
+    /// online for it. (Addition of #459; the default says it was not.)
+    fn held_offline(&self) -> bool {
+        false
+    }
     /// The address of the community source listed, `None` for PaperPaw's own
     /// library (#214).
     fn source(&self) -> Option<&str> {
@@ -101,6 +106,10 @@ pub struct LoaderView<'a> {
 }
 
 impl Loader for LoaderView<'_> {
+    fn held_offline(&self) -> bool {
+        self.loader.held_offline()
+    }
+
     fn list_state(&self) -> Trouble {
         use crate::native_load::Trouble as Load;
         match self.loader.trouble() {
@@ -305,6 +314,8 @@ pub enum Next {
     Close,
     /// Fetch the list of plugins.
     FetchList,
+    /// Go online (the reader chose to, in Offline mode), then fetch the list.
+    GoOnline,
     /// Fetch the page of plugin `id`.
     FetchPage(String),
     /// Install plugin `id`.

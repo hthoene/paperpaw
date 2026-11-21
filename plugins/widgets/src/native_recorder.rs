@@ -8,8 +8,9 @@
 //! `reading.ini` of the plugin's folder when the book is closed or the device
 //! sleeps or stops.
 //!
-//! The pages left in the chapter, which the events of interface 6 carried,
-//! are not in a reading position of interface 7; the widget does not show them.
+//! The pages left in the chapter come with the reading position
+//! ([`ReadingView::chapter_left`]) and are kept as `chapter-left`, the name
+//! interface 6 wrote them under (#459).
 use alloc::string::String;
 use paperpaw_sdk::{
     config,
@@ -38,6 +39,9 @@ pub struct Position {
     pub pages: Option<u32>,
     /// The chapter's title (empty where not known).
     pub chapter: String,
+    /// The pages after this one to the end of its chapter (0 on its last
+    /// page), where the reader knows the chapter's end.
+    pub chapter_left: Option<u32>,
     /// Seconds read and the pages they took, for the speed.
     pub seconds: u32,
     pub turned: u32,
@@ -63,7 +67,18 @@ impl Position {
     /// was read for a speed.
     #[must_use]
     pub fn left(&self) -> Option<u64> {
-        let pages = self.pages?.saturating_sub(self.page?);
+        self.seconds_for(self.pages?.saturating_sub(self.page?))
+    }
+
+    /// Seconds left to read in the chapter, if its end is known and enough
+    /// was read for a speed.
+    #[must_use]
+    pub fn chapter_seconds(&self) -> Option<u64> {
+        self.seconds_for(self.chapter_left?)
+    }
+
+    /// Seconds `pages` take at the speed read, if enough was read for one.
+    fn seconds_for(&self, pages: u32) -> Option<u64> {
         (self.turned >= MIN_PAGES)
             .then(|| u64::from(pages) * u64::from(self.seconds) / u64::from(self.turned))
     }
@@ -80,6 +95,9 @@ impl Position {
         }
         if !self.chapter.is_empty() {
             put(&mut out, "chapter", &self.chapter)?;
+        }
+        if let Some(left) = self.chapter_left {
+            put(&mut out, "chapter-left", &Number::new(left))?;
         }
         put(&mut out, "seconds", &Number::new(self.seconds))?;
         put(&mut out, "turned", &Number::new(self.turned))?;
@@ -100,6 +118,7 @@ impl Position {
                 }
                 "page" => position.page = value.as_u32().filter(|n| *n > 0),
                 "pages" => position.pages = value.as_u32().filter(|n| *n > 0),
+                "chapter-left" => position.chapter_left = value.as_u32(),
                 "seconds" => position.seconds = value.as_u32().unwrap_or(0),
                 "turned" => position.turned = value.as_u32().unwrap_or(0),
                 _ => {}
@@ -206,6 +225,7 @@ impl Recorder {
             page: position.page,
             pages: position.pages,
             chapter: copy(&position.chapter)?,
+            chapter_left: position.chapter_left,
             seconds: position.seconds,
             turned: position.turned,
         })
@@ -235,6 +255,7 @@ impl Recorder {
         if position.chapter != view.chapter() {
             position.chapter = copy(view.chapter())?;
         }
+        position.chapter_left = view.chapter_left();
         self.unsaved = true;
         self.revision = self.revision.wrapping_add(1);
         Ok(())
@@ -275,6 +296,7 @@ mod tests {
             page: Some(34),
             pages: Some(210),
             chapter: String::from(" Chapter \"3\" "),
+            chapter_left: Some(4),
             seconds: 900,
             turned: 30,
         }
@@ -292,9 +314,9 @@ mod tests {
         assert_eq!(read.path, "books/a.epub");
         assert_eq!((read.page, read.pages), (Some(34), Some(210)));
         assert_eq!((read.seconds, read.turned), (600, 20));
-        // The chapter's end of interface 6 is not read.
+        // The chapter's end interface 6 kept is read too (#459).
         let old = Position::parse("[reading]\npath = /a.epub\nchapter-left = 4\n").unwrap();
-        assert_eq!(old.path, "/a.epub");
+        assert_eq!((old.path.as_str(), old.chapter_left), ("/a.epub", Some(4)));
     }
 
     #[test]

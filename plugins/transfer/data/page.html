@@ -192,12 +192,16 @@ let sending = false;
 
 function put(item) {
   return new Promise(done => {
+    // Larger than the device takes: said before a byte is sent.
+    const tooLarge = T.tooLarge.replace('{max}', T.maxMb);
+    if (item.file.size > T.maxMb * 1048576) return done(tooLarge);
     const request = new XMLHttpRequest();
     request.open('PUT', '/api/file?' + query(join(item.folder, item.file.name)));
     request.upload.onprogress = e => {
       if (e.lengthComputable) show(item, Math.round(e.loaded * 100 / e.total) + ' %');
     };
-    request.onload = () => done(request.status == 200 ? null : (request.responseText || request.status));
+    request.onload = () => done(request.status == 200 ? null
+      : request.status == 413 ? tooLarge : (request.responseText || request.status));
     request.onerror = () => done(T.failed);
     request.send(item.file);
   });

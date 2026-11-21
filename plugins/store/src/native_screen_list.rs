@@ -458,6 +458,18 @@ pub fn empty_words(trouble: Trouble, touch: bool) -> (&'static str, &'static str
     }
 }
 
+/// What the start says where Offline mode held the list back: the offer to go
+/// online for it (#459: it only said *No connection*, and a tap tried again
+/// in vain).
+#[must_use]
+pub const fn offer_words(touch: bool) -> (&'static str, &'static str) {
+    if touch {
+        ("core.offline.title", "store.offline.offer")
+    } else {
+        ("core.offline.title", "store.offline.offer.buttons")
+    }
+}
+
 /// The picture over what the screen says when it has no rows.
 #[must_use]
 pub const fn empty_icon(trouble: Trouble) -> &'static str {
@@ -674,7 +686,11 @@ impl Screen for View {
                 .draw_with(ctx.host, frame, &title, true, Footer::None);
         }
         let touch = snapshot::capture_snapshot(ctx.host)?.has_touch();
-        let (head, help) = empty_words(trouble, touch);
+        let (head, help) = if trouble == Trouble::Offline && ctx.loader.held_offline() {
+            offer_words(touch)
+        } else {
+            empty_words(trouble, touch)
+        };
         let head = say.copy(head)?;
         let help = if help.is_empty() {
             String::new()
@@ -712,7 +728,12 @@ impl Screen for View {
                     }
                 );
                 if wanted && retry(true, ctx.loader.list_state()) {
-                    return Ok((Handled::Yes, Next::FetchList));
+                    let next = if ctx.loader.held_offline() {
+                        Next::GoOnline
+                    } else {
+                        Next::FetchList
+                    };
+                    return Ok((Handled::Yes, next));
                 }
                 Next::None
             }

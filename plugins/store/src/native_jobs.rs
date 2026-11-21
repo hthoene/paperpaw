@@ -37,6 +37,9 @@ const DATA_DIR: &str = ".paperpaw/plugins/store/";
 const REMOVE_REQUEST: u32 = 0x7000_0000;
 /// The setup's step, as the plugin's own item.
 const SETUP_ITEM: &str = "store.setup";
+/// How long the network is asked for when the reader goes online for the
+/// list in Offline mode (as the fonts' browser asks).
+const GO_ONLINE_MS: u32 = 300_000;
 
 /// What the device has of the plugin being installed, owned.
 struct Present {
@@ -66,6 +69,17 @@ impl NativeStore {
             }
             Next::Close => close_screen(host),
             Next::FetchList => self.fetch_list(host),
+            Next::GoOnline => {
+                // Honoured right after the reader's input; where it is not,
+                // the list's request says so again.
+                let mut scratch = [0; 64];
+                if let Err(Error::NoMemory) =
+                    CommandSender::new(host, &mut scratch).go_online(GO_ONLINE_MS)
+                {
+                    return Err(Error::NoMemory);
+                }
+                self.fetch_list(host)
+            }
             Next::FetchPage(id) => self.fetch_page(host, &id),
             Next::Install(id) | Next::Update(id) => self.begin(host, &id),
             Next::Remove(id) => self.remove(host, &id),

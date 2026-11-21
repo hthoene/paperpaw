@@ -615,6 +615,16 @@ impl NativeLock {
         released
     }
 
+    /// The code could not be kept or removed: the screen of `instance` says
+    /// so and offers the kinds again ([`Flow::not_kept`]).
+    fn not_kept(&mut self, instance: Instance, fx: &mut Effects) {
+        if let Some(view) = self.screens.get(instance) {
+            view.flow.not_kept(fx);
+        } else {
+            fx.discard();
+        }
+    }
+
     /// Carries out what an input meant, in order. A refused effect ends the
     /// list: the effects after it are dropped, with the codes they hold
     /// wiped.
@@ -636,14 +646,26 @@ impl NativeLock {
                 }
                 Effect::AskPassword => self.ask_password(host, instance)?,
                 Effect::Notify(key) => notify(host, key)?,
-                Effect::Forget => store::forget(host)?,
+                Effect::Forget => {
+                    if store::forget(host).is_err() {
+                        self.not_kept(instance, fx);
+                    }
+                }
                 Effect::SetKind(value) => {
                     let mut scratch = [0; 256];
                     CommandSender::new(host, &mut scratch)
                         .set_setting(store::KIND, SettingValue::Text(value))?;
                 }
-                Effect::Keep(kind, code) | Effect::Renew(kind, code) => {
-                    store::keep(host, kind, &code)?;
+                Effect::Keep(kind, code) => {
+                    if store::keep(host, kind, &code).is_err() {
+                        self.not_kept(instance, fx);
+                    }
+                }
+                // A renewal is a better salt for a code that opens already: one
+                // that cannot be kept now is kept at the next unlock, which goes
+                // on all the same.
+                Effect::Renew(kind, code) => {
+                    store::keep(host, kind, &code).ok();
                 }
                 // The end of a wait is seen at the next input (and drawn from
                 // the clock); an exact wake needs the work service.

@@ -2052,7 +2052,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-browser"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-epub-family",
@@ -2122,7 +2122,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-edge-light"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2156,7 +2156,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-file-sync"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2312,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-rtf"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2384,7 +2384,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-joplin"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2434,7 +2434,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-kosync"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2466,7 +2466,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-lock"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2580,7 +2580,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-picture-frame"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2593,7 +2593,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-picture-home"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
@@ -2671,7 +2671,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-read-later-cloud"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2722,7 +2722,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-readwise"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2747,7 +2747,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-settings"
-version = "1.0.11"
+version = "1.0.12"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2759,7 +2759,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-setup"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2814,7 +2814,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.15"
+version = "1.0.16"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2847,7 +2847,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-transfer"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "flate2",
  "paperpaw-core",
@@ -2912,7 +2912,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wallabag"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2940,7 +2940,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-widgets"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2970,7 +2970,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wikipedia"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",

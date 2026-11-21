@@ -20,6 +20,8 @@ fn linked_entry_preserves_generated_metadata_and_native_factory() {
 /// host denies `command.restart` to a plugin that did not declare `uses.power`.
 /// It switches a built-in plugin on (*Switch on*): the host denies
 /// `command.set_plugin_enabled` to one that did not declare `uses.registry`.
+/// It goes online for the list in Offline mode (#459): `command.go_online`
+/// needs `uses.wifi`.
 #[test]
 fn the_metadata_names_the_features_the_store_commands_need() {
     let entry = paperpaw_plugin_store::NATIVE_ENTRY.entry();
@@ -35,6 +37,7 @@ fn the_metadata_names_the_features_the_store_commands_need() {
         "uses.install",
         "uses.network",
         "uses.registry",
+        "uses.wifi",
     ] {
         assert!(has(key), "{key} is not declared");
     }

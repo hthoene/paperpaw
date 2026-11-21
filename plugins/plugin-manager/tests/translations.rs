@@ -60,3 +60,29 @@ fn the_unsigned_note_says_it_runs_and_is_short() {
         assert!(!line.to_lowercase().contains(bad), "{line}");
     }
 }
+
+/// *How it works* (a held row) reads `<id>.plugin.how`: every plugin with
+/// code that has a `how/` text has the key in its English and German
+/// catalogs (#459: eleven of them had only the files, and the manager said
+/// they had none).
+#[test]
+fn every_plugin_with_code_and_a_how_text_has_it_in_its_catalogs() {
+    let plugins = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&plugins).unwrap() {
+        let dir = entry.unwrap().path();
+        let id = dir.file_name().unwrap().to_string_lossy().into_owned();
+        if !dir.join("src/native_plugin.rs").exists() || !dir.join("how/en.txt").exists() {
+            continue;
+        }
+        for language in ["en", "de"] {
+            let source = std::fs::read_to_string(dir.join(format!("i18n/{language}.ini"))).unwrap();
+            let catalog = Catalog::parse(source).unwrap();
+            let key = format!("{id}.plugin.how");
+            let how = catalog.get(&key).unwrap_or_default();
+            assert!(how.len() > 200, "{key} ({language}): {how:?}");
+        }
+        checked += 1;
+    }
+    assert!(checked >= 11, "{checked}");
+}
