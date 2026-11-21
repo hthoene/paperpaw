@@ -4,15 +4,14 @@
 //! plugins must be built for, and the licences.
 //!
 //! The page is the interface-7 plugin [`native_plugin::NativeAbout`]; the
-//! interface-6 page is gone. Two rows wait on the host and say so: the
-//! licences and the plugins built in open their text in the reader, which
-//! needs `doc_open.root` 5 (draft 22, `command.open` into `core.reader`).
+//! interface-6 page is gone. The licences and the plugins built in open
+//! their text in the reader (`native_pages`: written to the plugin's data
+//! folder and handed over, `command.open` into `core.reader`).
 //! Other plugins' lines come through the plugin-defined stage `about.lines`
 //! (`stages/about.lines@1.def`, codec `src/stages.rs` by
 //! `tools/stage-codec.py`): a plugin subscribes (`registration.stage`) and
 //! answers each run with one line; they are listed after the licences. The licences text
-//! (`data/licences-*.md`, `tools/licences/build.py`) and the logo stay in
-//! the crate for that slice.
+//! (`data/licences-*.md`, `tools/licences/build.py`) is packed by `build.rs`.
 
 #![no_std]
 
@@ -29,6 +28,7 @@ pub const SOURCE: &str = "https://github.com/hthoene/paperpaw";
 mod declarations;
 mod native_entry;
 mod native_model;
+mod native_pages;
 #[allow(
     clippy::all,
     clippy::pedantic,

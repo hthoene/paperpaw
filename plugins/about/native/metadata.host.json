@@ -121,10 +121,19 @@
     {
       "kind": "host",
       "name": "stage.run"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
     }
   ],
   "services": [
-    "core.device"
+    "core.device",
+    "core.ui"
   ],
   "features": []
 }
