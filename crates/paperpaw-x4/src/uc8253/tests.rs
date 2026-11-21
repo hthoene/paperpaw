@@ -580,3 +580,29 @@ fn partial_windows_are_in_whole_bytes() {
         [0x00, 0x00, 0x03, 0x17, 0x01, 0xE8, 0x02, 0x0F, 0x01]
     );
 }
+
+#[test]
+fn a_uc8279d_is_unshown_until_a_refresh_ends() {
+    // The busy pin sticks: its first refresh times out, and the module
+    // counts as one this build cannot show on (an update on trial goes back).
+    let c = Rc::new(RefCell::new(Controller::new((0, u32::MAX))));
+    let mut panel = Display::new(
+        Spi(c.clone()),
+        Dc(c.clone()),
+        Pin,
+        Busy(c.clone()),
+        Delay(Rc::new(Cell::new(0))),
+    )
+    .uc8279d();
+    panel.init().unwrap();
+    assert!(panel.uc8279d_unshown());
+    assert_eq!(panel.refresh(Refresh::Full, false), Err(Error::Timeout));
+    assert!(panel.uc8279d_unshown());
+    // A refresh that ends: shown.
+    c.borrow_mut().busy_pattern = (1, 2);
+    c.borrow_mut().busy = (0, 0);
+    panel.refresh(Refresh::Full, false).unwrap();
+    assert!(!panel.uc8279d_unshown());
+    // A UC8253 is never one.
+    assert!(!display().0.uc8279d_unshown());
+}

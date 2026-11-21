@@ -175,10 +175,11 @@ fn after_a_cut_at_any_block_the_free_space_is_the_fats() {
 }
 
 /// A card marked dirty (taken out of a computer that was writing it) is
-/// counted, whatever its sector says; once counted and synced it is
-/// marked clean, its count kept.
+/// counted, whatever its sector says. Its mark is the computer's: it stays
+/// through a count kept and a sync (the computer offers its check), and
+/// the next mount counts again.
 #[test]
-fn a_card_marked_dirty_is_counted_and_then_kept() {
+fn a_card_marked_dirty_is_counted_and_keeps_its_mark() {
     let mut image = kept();
     image[0x41] |= 1;
     assert_eq!(first_ask(&image).0, None);
@@ -187,8 +188,8 @@ fn a_card_marked_dirty_is_counted_and_then_kept() {
     count_out(&card, &s);
     s.sync().unwrap();
     let image = card.image();
-    assert_eq!(image[0x41] & 1, 0);
-    assert_eq!(first_ask(&image).0, Some(in_fat(&image)));
+    assert_eq!(image[0x41] & 1, 1, "the mark found is kept");
+    assert_eq!(first_ask(&image).0, None);
 }
 
 /// A computer that changed the card wrote its own count or hint into the
@@ -238,8 +239,11 @@ fn a_count_or_hint_another_wrote_is_not_taken() {
 /// not kept on the card, so the next mount counts again.
 #[test]
 fn a_count_that_changes_ran_into_is_not_kept() {
+    // Another writer's count in the sector: the mount counts the FAT.
     let mut image = kept();
-    image[0x41] |= 1;
+    let at = fsinfo(&image) + 488;
+    let other = word(&image, at) - 3;
+    image[at..at + 4].copy_from_slice(&other.to_le_bytes());
     let card = Cut::new(image);
     let s = card.storage();
     let mut asks = 0;

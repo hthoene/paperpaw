@@ -251,6 +251,19 @@ impl Ota {
         esp_hal::system::software_reset()
     }
 
+    /// An update on trial that cannot work on this device (`why`): marked
+    /// bad, and the device starts again into the firmware before it, as
+    /// after a failed trial. Nothing where none is on trial.
+    #[cfg_attr(not(feature = "x3"), expect(dead_code, reason = "the X3's"))]
+    pub fn give_up(&mut self, why: &str) {
+        match self.updates.try_borrow_mut().map(|mut u| u.give_up()) {
+            Ok(Ok(true)) => warn!("OTA: {why}: back to the firmware before"),
+            Ok(Ok(false)) => return,
+            Ok(Err(_)) | Err(_) => warn!("OTA: {why}: could not mark the update as bad"),
+        }
+        esp_hal::system::software_reset();
+    }
+
     /// Whether the running firmware is on trial.
     pub fn on_trial(&self) -> bool {
         self.updates.try_borrow().is_ok_and(|u| u.on_trial())

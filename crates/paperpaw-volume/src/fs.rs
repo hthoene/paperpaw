@@ -812,9 +812,10 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// hint as it is followed, and `note` in the first of its reserved bytes: a caller's own
     /// word that it counted them, which no other writer of the sector leaves there with another
     /// count. For a caller that has written everything back and counted the FAT exactly. The
-    /// volume's dirty mark is cleared too where it was set (the count is not trusted by others
-    /// beside it). The count is taken back before the FAT is written next (`before_fat_write`).
-    /// `false` where the volume has no such sector.
+    /// volume's dirty mark is left as it was mounted: PaperPaw sets none, so one found is another
+    /// writer's (a computer that was not let go of the card), and it is theirs to check. The count
+    /// is taken back before the FAT is written next (`before_fat_write`). `false` where the volume
+    /// has no such sector.
     ///
     /// # Errors
     ///
@@ -835,7 +836,6 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
             fs_info.dirty = false;
             disk.seek(SeekFrom::Start(was))?;
         }
-        self.mark_clean()?;
         self.count_kept.set(true);
         // Overwritten with the count's record.
         self.claim.set(None);
@@ -867,29 +867,6 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     #[must_use]
     pub fn marked_dirty(&self) -> bool {
         self.current_status_flags.get().dirty
-    }
-
-    // Modified for PaperPaw: added.
-    /// Clears the dirty mark in the boot sector, also of a volume that was mounted dirty
-    /// (`set_dirty_flag` keeps that one). The disk's position is left where it was.
-    fn mark_clean(&self) -> Result<(), IO::Error> {
-        let mut flags = self.current_status_flags.get();
-        if !flags.dirty {
-            return Ok(());
-        }
-        flags.dirty = false;
-        let offset = if self.fat_type() == FatType::Fat32 {
-            0x041
-        } else {
-            0x025
-        };
-        let mut disk = self.disk.borrow_mut();
-        let was = disk.seek(SeekFrom::Current(0))?;
-        disk.seek(io::SeekFrom::Start(offset))?;
-        disk.write_u8(flags.encode())?;
-        disk.seek(SeekFrom::Start(was))?;
-        self.current_status_flags.set(flags);
-        Ok(())
     }
 
     // Modified for PaperPaw: `referrer` added, what is to point at the cluster: said on the disk
@@ -1083,11 +1060,10 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     pub(crate) fn set_dirty_flag(&self, dirty: bool) -> Result<(), IO::Error> {
         // Do not overwrite flags read from BPB on mount
-        // Modified for PaperPaw: but a mark cleared since (`mark_clean`) stays cleared.
-        let current_flags = self.current_status_flags.get();
         let mut flags = self.bpb.status_flags();
-        flags.dirty = (flags.dirty && current_flags.dirty) || dirty;
+        flags.dirty |= dirty;
         // Check if flags has changed
+        let current_flags = self.current_status_flags.get();
         if flags == current_flags {
             // Nothing to do
             return Ok(());

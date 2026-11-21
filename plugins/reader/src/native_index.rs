@@ -125,19 +125,43 @@ pub fn layout_text(
     Ok(text)
 }
 
-/// The file of the index of this book in this layout: the book's path, the
-/// conversion its places belong to (an edition) and the layout's key tell
-/// them apart.
+/// What tells one edition of the book at a path from another for its page
+/// index, beside the layout (#458, as Beta 3's key did).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Edition {
+    /// The conversion its places belong to.
+    pub conversion: u64,
+    /// The file's size: another file at the same path.
+    pub size: u64,
+    /// The file's time, where the card tells it.
+    pub modified: Option<u64>,
+    /// The packs of letters the reading font draws (a bit each, 0 where it
+    /// cannot tell): another pack, other widths.
+    pub packs: u64,
+}
+
+/// The file of the index of this book in this layout: the book's path, its
+/// edition, the layout's key and the version of the layout itself (another
+/// layout, other pages) tell them apart.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-pub fn file_name(path: &str, conversion: u64, layout: &str) -> Result<String, Error> {
+pub fn file_name(path: &str, edition: Edition, layout: &str) -> Result<String, Error> {
     let mut hashed = String::new();
     hashed
-        .try_reserve(path.len() + layout.len() + 24)
+        .try_reserve(path.len() + layout.len() + 96)
         .map_err(|_| Error::NoMemory)?;
     hashed.push_str(path);
-    write!(hashed, "|{conversion:x}|").map_err(|_| Error::NoMemory)?;
+    write!(
+        hashed,
+        "|{:x}|{}|{}|{:x}|v{}|",
+        edition.conversion,
+        edition.size,
+        edition.modified.unwrap_or(u64::MAX),
+        edition.packs,
+        paperpaw_sdk::layout::VERSION,
+    )
+    .map_err(|_| Error::NoMemory)?;
     hashed.push_str(layout);
     let mut name = String::new();
     name.try_reserve(26).map_err(|_| Error::NoMemory)?;
@@ -440,6 +464,13 @@ impl Counter {
     #[must_use]
     pub fn pages(&self) -> Option<u32> {
         self.index.is_complete().then(|| self.index.pages())
+    }
+
+    /// Whether the complete index has a page after the one starting at `at`.
+    #[must_use]
+    pub fn promises_more(&self, storage: &dyn Storage, at: (u32, u32)) -> bool {
+        self.locate(storage, at)
+            .is_some_and(|(page, _)| page.saturating_add(1) < self.index.pages())
     }
 
     /// The count is thrown away (a page the index promised did not come).
@@ -802,7 +833,7 @@ mod tests {
         let base = Reading::new(12, 120, 100, 4, 4, true);
         let name = |reading: &Reading| {
             let layout = layout_text(reading, (480, 800, 220), false, 0).unwrap();
-            file_name("/b.epub", 1, &layout).unwrap()
+            file_name("/b.epub", edition(1), &layout).unwrap()
         };
         let sans = base.with_text("Source Sans 3", (true, 0, 0));
         assert_eq!(name(&sans), name(&sans));
@@ -830,7 +861,7 @@ mod tests {
         let name = |letters: Letters| {
             let layout =
                 layout_text(&base.with_letters(letters), (480, 800, 220), false, 0).unwrap();
-            file_name("/b.epub", 1, &layout).unwrap()
+            file_name("/b.epub", edition(1), &layout).unwrap()
         };
         let default = name(Letters::DEFAULT);
         assert_eq!(default, name(Letters::DEFAULT));
@@ -843,13 +874,60 @@ mod tests {
         assert!(!before.is_empty());
     }
 
+    fn edition(conversion: u64) -> Edition {
+        Edition {
+            conversion,
+            size: 1_000,
+            modified: None,
+            packs: 0,
+        }
+    }
+
     #[test]
     fn the_name_follows_book_edition_and_layout() {
-        let a = file_name("/b.epub", 1, "12/100").unwrap();
-        assert_eq!(a, file_name("/b.epub", 1, "12/100").unwrap());
-        assert_ne!(a, file_name("/b.epub", 2, "12/100").unwrap());
-        assert_ne!(a, file_name("/b.epub", 1, "14/100").unwrap());
-        assert_ne!(a, file_name("/c.epub", 1, "12/100").unwrap());
+        let a = file_name("/b.epub", edition(1), "12/100").unwrap();
+        assert_eq!(a, file_name("/b.epub", edition(1), "12/100").unwrap());
+        assert_ne!(a, file_name("/b.epub", edition(2), "12/100").unwrap());
+        assert_ne!(a, file_name("/b.epub", edition(1), "14/100").unwrap());
+        assert_ne!(a, file_name("/c.epub", edition(1), "12/100").unwrap());
         assert!(a.starts_with("pages-") && a.ends_with(".bin"));
+    }
+
+    #[test]
+    fn another_file_at_the_path_or_another_pack_is_another_index() {
+        let a = file_name("/b.epub", edition(1), "12/100").unwrap();
+        // The book replaced by another at the same path: another size or time.
+        let size = Edition {
+            size: 1_001,
+            ..edition(1)
+        };
+        let time = Edition {
+            modified: Some(5),
+            ..edition(1)
+        };
+        // A pack of letters came or went: other widths, other pages.
+        let pack = Edition {
+            packs: 7,
+            ..edition(1)
+        };
+        for other in [size, time, pack] {
+            assert_ne!(a, file_name("/b.epub", other, "12/100").unwrap());
+        }
+    }
+
+    #[test]
+    fn an_index_promising_pages_past_the_text_says_so() {
+        let storage = MemoryStorage::new();
+        let mut counter = Counter::open(&storage, String::from("pages-x.bin")).unwrap();
+        let mut lay = book(5);
+        while counter.step(&storage, 8, &mut lay) == Step::More {}
+        assert_eq!(counter.pages(), Some(5));
+        // Page 3 of 5 has pages after it, the last none; a place the index
+        // does not know promises nothing.
+        assert!(counter.promises_more(&storage, (0, 20)));
+        assert!(!counter.promises_more(&storage, (0, 40)));
+        // Counting: nothing is promised yet.
+        let counting = Counter::open(&storage, String::from("pages-y.bin")).unwrap();
+        assert!(!counting.promises_more(&storage, (0, 0)));
     }
 }

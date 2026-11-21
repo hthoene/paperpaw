@@ -4,12 +4,50 @@
 
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::native::device::{Device, DeviceClass};
-use paperpaw_sdk::native::storage::DataStorage;
+use paperpaw_sdk::native::files::Files;
+use paperpaw_sdk::native::fonts::{Font, FontRole};
+use paperpaw_sdk::native::storage::{DataStorage, Root};
 use paperpaw_ui_kit::mem::buffer;
 
 use super::{Body, Documents, Host, Open, Setup, View};
 use crate::native_chapter::{self, Chapter};
-use crate::native_index::{self, Counter, Laid, Step};
+use crate::native_index::{self, Counter, Edition, Laid, Step};
+
+/// What the count of an open book asks the host only once.
+#[derive(Debug, Default)]
+pub(super) struct Asked {
+    /// The device's memory class (none where the host does not tell).
+    class: Option<Option<DeviceClass>>,
+    /// The book's file and the packs drawn, for the index's name
+    /// ([`Edition`]); asked again once a pack came (`packs_changed`).
+    file: Option<(u64, Option<u64>)>,
+    packs: Option<u64>,
+    /// The index was thrown away while the book is open (`distrust_index`).
+    mended: bool,
+    /// And its count is to be started again (`take_recount`).
+    recount: bool,
+}
+
+impl Asked {
+    /// The book's file and the packs drawn, asked before the book's
+    /// document is opened: the stat's buffers then do not add to its peak.
+    pub(super) fn for_book(host: &Host<'_>, path: &str) -> Self {
+        Self {
+            file: Some(book_file(host, path).unwrap_or((0, None))),
+            packs: Some(packs_drawn(host)),
+            ..Self::default()
+        }
+    }
+}
+
+/// A letter of each pack of letters the store has (`tools/script-pack.py`):
+/// which of them the reading font draws, with its fallbacks, tells which packs
+/// the pages are laid out with. Asked of the font (`text.covers`, nothing
+/// allocated): a listing of the registry would keep about 10 KiB.
+const PACK_LETTERS: [char; 29] = [
+    'Ɓ', 'ა', 'ա', 'ж', 'α', 'ạ', 'ع', 'א', 'ก', 'ሀ', '한', '们', '們', 'あ', 'ক', 'क', 'ក', 'ກ',
+    'က', 'ཀ', 'ક', 'ਕ', 'କ', 'க', 'క', 'ಕ', 'ക', 'ක', '뷁',
+];
 
 impl Open {
     /// The count of the layout now: the one open is kept if it is this
@@ -22,7 +60,8 @@ impl Open {
         else {
             return;
         };
-        let Ok(name) = native_index::file_name(&self.path, self.conversion, &layout) else {
+        let edition = self.edition(host);
+        let Ok(name) = native_index::file_name(&self.path, edition, &layout) else {
             return;
         };
         if self.counter.as_ref().is_some_and(|c| c.name() == name) {
@@ -78,11 +117,49 @@ impl Open {
     /// The device's memory class, asked once (none where the host does not
     /// tell: the pace of a small device).
     fn device_class(&mut self, host: &Host<'_>) -> Option<DeviceClass> {
-        if !self.class_asked {
-            self.class_asked = true;
-            self.class = read_class(host);
+        *self.count.class.get_or_insert_with(|| read_class(host))
+    }
+
+    /// The book's edition for the name of its index, its file and the packs
+    /// asked once (a file the card cannot tell of is size 0, as in Beta 3).
+    fn edition(&mut self, host: &Host<'_>) -> Edition {
+        let path = &self.path;
+        let (size, modified) = *self
+            .count
+            .file
+            .get_or_insert_with(|| book_file(host, path).unwrap_or((0, None)));
+        let packs = *self.count.packs.get_or_insert_with(|| packs_drawn(host));
+        Edition {
+            conversion: self.conversion,
+            size,
+            modified,
+            packs,
         }
-        self.class
+    }
+
+    /// A forward turn found no page after the one on show though the count
+    /// says there are more: the index counted pages this layout does not make
+    /// (counted while a letter measured otherwise). As Beta 3's
+    /// `distrust_index`, it is thrown away and the pages are counted again,
+    /// once while the book is open, so that the count is right and no page is
+    /// promised that does not come.
+    pub(super) fn distrust_index(&mut self, host: &Host<'_>) {
+        let storage = DataStorage::new(host);
+        let promised = self
+            .counter
+            .as_ref()
+            .is_some_and(|counter| counter.promises_more(&storage, self.at));
+        if self.count.mended || !promised {
+            return;
+        }
+        self.count.mended = true;
+        if let Some(counter) = self.counter.take() {
+            counter.forget(&storage);
+        }
+        if let Ok(setup) = self.settings.setup(host) {
+            self.ensure_counter(host, &setup);
+            self.count.recount = true;
+        }
     }
 
     /// The number of the page on show and of the pages of the book, once the
@@ -135,6 +212,24 @@ impl View {
         }
     }
 
+    /// A pack of letters came: the packs are asked again for the name of the
+    /// index, so that the pages are counted with the letters there are now.
+    pub fn packs_changed(&mut self) {
+        if let Body::Open(open) = &mut self.body {
+            open.count.packs = None;
+        }
+    }
+
+    /// Whether the count was started again by the last input (its index
+    /// thrown away, `distrust_index`): its steps are to be asked for. Asked
+    /// once.
+    pub fn take_recount(&mut self) -> bool {
+        match &mut self.body {
+            Body::Open(open) => core::mem::take(&mut open.count.recount),
+            Body::Message(_) | Body::Preparing(_) => false,
+        }
+    }
+
     /// Whether this screen's pages still need counting.
     #[must_use]
     pub fn counting(&self) -> bool {
@@ -158,4 +253,40 @@ fn read_class(host: &Host<'_>) -> Option<DeviceClass> {
     let (mut input, mut out) = (buffer(256).ok()?, buffer(1024).ok()?);
     let identity = device.device(host, &mut input, &mut out).ok()?;
     Some(identity.class())
+}
+
+/// The size and time of the book's file on the card.
+fn book_file(host: &Host<'_>, path: &str) -> Option<(u64, Option<u64>)> {
+    let files = Files::open(host).ok()?;
+    // The stat answers up to 4,096 bytes and the host asks for room for it.
+    let found = match (buffer(1024), buffer(4096)) {
+        (Ok(mut input), Ok(mut out)) => files
+            .stat(host, Root::Files, path, &mut input, &mut out)
+            .ok()
+            .map(|entry| (entry.size(), entry.modified())),
+        _ => None,
+    };
+    files.release(host).ok();
+    found
+}
+
+/// Which packs of letters the reading font draws ([`PACK_LETTERS`], a bit
+/// each): another pack, other widths. 0 where the font cannot tell.
+fn packs_drawn(host: &Host<'_>) -> u64 {
+    let Ok(font) = Font::acquire_role(host, FontRole::Reading) else {
+        return 0;
+    };
+    let mut drawn = 0u64;
+    for (at, letter) in PACK_LETTERS.iter().enumerate() {
+        let mut bytes = [0u8; 4];
+        let letter = letter.encode_utf8(&mut bytes);
+        if font
+            .covers(&*letter)
+            .is_ok_and(|covered| covered == letter.len())
+        {
+            drawn |= 1 << at;
+        }
+    }
+    font.release().ok();
+    drawn
 }

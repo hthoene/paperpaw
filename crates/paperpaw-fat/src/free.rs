@@ -392,8 +392,10 @@ impl<IO: fatfs::ReadWriteSeek + 'static> crate::FatStorage<IO> {
 
     /// After everything was written back ([`Storage::sync`]): keeps the
     /// free space on the card where every free cluster is known and the
-    /// card does not hold it yet. One block written (two where the card
-    /// was marked dirty), none while the FAT is not written between.
+    /// card does not hold it yet. One block written, none while the FAT is
+    /// not written between. A card marked dirty keeps its mark (another
+    /// writer's, see `keep_free_count`) and is counted again at its next
+    /// mount.
     ///
     /// [`Storage::sync`]: paperpaw_platform::Storage::sync
     pub(crate) fn keep_free(&self) -> Result<(), paperpaw_platform::StorageError> {

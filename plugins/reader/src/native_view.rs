@@ -166,9 +166,8 @@ struct Open {
     said: bool,
     /// The count of the book's pages in this layout.
     counter: Option<Counter>,
-    /// The device's memory class, once asked.
-    class: Option<paperpaw_sdk::native::device::DeviceClass>,
-    class_asked: bool,
+    /// What the count asks the host once.
+    count: count::Asked,
     /// The chapter of the page on show (its start, the next start, its title).
     chapter: Option<Chapter>,
     /// The pages left in the chapter, as last reported, and for which place.
@@ -222,6 +221,7 @@ impl View {
             return Ok(Self::message("reader.no-book"));
         }
         let root = found.root();
+        let asked = count::Asked::for_book(host, &found.path);
         let state = {
             let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
             let colour =
@@ -257,6 +257,7 @@ impl View {
             found,
             whole_pages,
             conversion,
+            asked,
         };
         match preparation {
             Preparation::Ready => Self::opened(host, (docs, library), book),
@@ -292,6 +293,7 @@ impl View {
             mut found,
             whole_pages,
             conversion,
+            asked,
         } = book;
         let root = found.root();
         // A refusal on the way gives the document back.
@@ -366,8 +368,7 @@ impl View {
             spoken: None,
             finished: false,
             counter: None,
-            class: None,
-            class_asked: false,
+            count: asked,
             chapter: None,
             chapter_left: None,
             bookmarks: Vec::new(),
@@ -1316,7 +1317,10 @@ impl Open {
             None => self.lay(host, docs, &setup, end),
         };
         match onto(laid) {
-            Onto::Stay => Ok(false),
+            Onto::Stay => {
+                self.distrust_index(host);
+                Ok(false)
+            }
             Onto::Unlaid => self.next(),
             Onto::Page(laid) => {
                 let moved = self.next()?;
