@@ -50,6 +50,7 @@ pub mod paint;
 pub mod parts;
 pub mod screens;
 pub mod sheet;
+pub mod slider;
 pub mod status_items;
 pub mod status_line;
 pub mod style;

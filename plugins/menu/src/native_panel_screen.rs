@@ -217,6 +217,7 @@ impl PanelView {
             button: style.row.saturating_sub(style.gap),
             border: paperpaw_ui_kit::sheet::edge_thickness(style.line),
             label: 0,
+            value: 0,
             pager: style.row,
             margin: style.margin,
             rtl: false,
@@ -232,7 +233,11 @@ impl PanelView {
             },
             &g,
         );
-        let g = Geometry { label, ..g };
+        // The widest value a number shows between its buttons.
+        let value = font.measure_text(style.small, "100 %").map_or(0, |w| {
+            (w as u16).saturating_add(style.gap.saturating_mul(2))
+        });
+        let g = Geometry { label, value, ..g };
         let small = FontMeasure {
             font,
             size: style.small,
