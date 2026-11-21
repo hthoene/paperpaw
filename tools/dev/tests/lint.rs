@@ -32,7 +32,12 @@ fn the_settings_list_in_the_pseudo_language() {
     );
     let files = lint::pseudo_plugin(&context).unwrap();
     assert!(files.iter().any(|(path, _)| path.ends_with("/plugin.ini")));
-    assert!(files.len() > 2, "the catalogs are split: {}", files.len());
+    assert!(
+        files
+            .iter()
+            .any(|(path, _)| path.ends_with("/i18n/pseudo.ppcat")),
+        "the catalog is compiled"
+    );
     let variant = Variant {
         language: PSEUDO.into(),
         ..Variant::x4()
