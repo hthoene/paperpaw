@@ -647,18 +647,18 @@ fn a_refused_delete_is_told_and_never_aborts() {
 }
 
 #[test]
-fn the_menu_button_on_the_filter_row_opens_the_librarys_menu() {
+fn the_focus_starts_on_the_first_book_so_one_press_of_the_menu_button_holds_it() {
     let world = World::default();
     world.phase.set(2);
     let host = setup(&world);
     let plugin = open_browser(&host);
     let done = plugin.input(BROWSER_TOKEN, &action("core.menu")).unwrap();
-    assert!(fine(done.status), "{}", done.status);
-    assert!(
-        log_has(&world, "handover menu=files.menu"),
-        "{:?}",
-        log(&world)
-    );
+    assert_eq!(done.status, 1);
+    let log = log(&world);
+    // The book's sheet is asked, not the library's menu (that one is the
+    // filter row's, a step back: `native_list`'s tests hold it).
+    assert!(log.iter().any(|l| l.starts_with("ask kind 1")), "{log:?}");
+    assert!(!log_has(&world, "handover menu=files.menu"), "{log:?}");
 }
 
 #[test]

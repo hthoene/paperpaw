@@ -33,6 +33,10 @@ const PARTS: [(&str, &str); 4] = [
     ("reading", "widgets.library.reading"),
     ("unread", "widgets.library.unread"),
 ];
+/// The most the digits grow in `Fit`, in titles: more than the two of the
+/// natural height ([`height`]), but a size the X4 family's font still draws
+/// whole (the host draws larger ones smaller than the layout counted on).
+const MOST_TITLES: f32 = 3.0;
 /// The caption.
 const CAPTION: &str = "widgets.library.caption";
 
@@ -236,6 +240,12 @@ fn digits_height(font: &Font<'_>, size: f32, digits: f32) -> Result<u16, Error> 
     Ok((geometry::line_metrics(font, size)?.0 * digits + 0.99) as u16)
 }
 
+/// The size the digits start from in `Fit`: the place's height, at most
+/// [`MOST_TITLES`] titles, at least `small`.
+fn fit_size(height: u16, title: f32, small: f32) -> f32 {
+    f32::from(height).min(title * MOST_TITLES).max(small)
+}
+
 /// What a layout is made of: the place and the sizes of the interface.
 struct Place<'a, 'f> {
     font: &'a Font<'f>,
@@ -388,8 +398,12 @@ pub fn draw_with(
     let parts = parts(cx)?;
     let style = cx.style();
     let max = match cx.settings.size()? {
-        // As large as the place holds, its height checked below.
-        TextSize::Fit => f32::from(rest.height).max(style.small),
+        // As large as the place holds, its height checked below, but never
+        // larger than the two titles the widget's natural height is made of:
+        // where the host cannot tell the ink (the X4 family) nothing but the
+        // size stops the digits growing past the place, and the host draws
+        // them smaller than the layout counted on.
+        TextSize::Fit => fit_size(rest.height, style.title, style.small),
         other => other.text(style) * 1.4,
     };
     let place = Place {
@@ -625,6 +639,15 @@ fn draw_share(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_digits_never_start_from_more_than_two_titles() {
+        // A tall widget (213 px) on the X4 family: the title is 28 px there.
+        assert!((fit_size(213, 28.0, 18.0) - 84.0).abs() < f32::EPSILON);
+        // A short place keeps its height; a tiny one the small size.
+        assert!((fit_size(40, 28.0, 18.0) - 40.0).abs() < f32::EPSILON);
+        assert!((fit_size(10, 28.0, 18.0) - 18.0).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn the_library_is_counted() {
