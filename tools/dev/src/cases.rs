@@ -159,7 +159,13 @@ pub fn some_sizes(grid: (u8, u8)) -> Vec<(u8, u8)> {
 /// [`paperpaw_emulator::offline::SCREENS`], are those that need its
 /// answers to show anything): the settings' secret by the plugin and name
 /// of a password, which need not be kept to be shown.
-pub const OPENING: &[(&str, &[(&str, &str)])] = &[("settings.secret", &[("id", "mail:password")])];
+pub const OPENING: &[(&str, &[(&str, &str)])] = &[
+    ("settings.secret", &[("id", "mail:password")]),
+    (
+        "picture-home.status-items",
+        &[("id", "picture-home.bar.left-items")],
+    ),
+];
 
 /// The parameters that open `screen` where it does not open without any
 /// ([`OPENING`], then the emulator's): for a check that looks at every
