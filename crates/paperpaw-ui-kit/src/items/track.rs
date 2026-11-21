@@ -23,10 +23,7 @@ impl Item {
     /// [`Error::NoMemory`] only.
     pub fn with_track(mut self, track: Track) -> Result<Self, Error> {
         if let Self::Row(row) = &mut self {
-            let mut one = Vec::new();
-            one.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
-            one.push(track);
-            row.track = one.into_boxed_slice().try_into().ok();
+            row.extra_mut()?.track = Some(track);
             row.stepper = true;
         }
         Ok(self)
@@ -47,10 +44,10 @@ impl ItemList {
     /// place (the knob a finger moves). `false` where `index` is no slider row.
     pub fn set_number(&mut self, index: usize, value: String, number: i64) -> bool {
         match self.items.get_mut(index) {
-            Some(Item::Row(row)) if row.track.is_some() => {
+            Some(Item::Row(row)) if row.track().is_some() => {
                 row.value = value;
-                if let Some(track) = row.track.as_mut() {
-                    track[0].value = number;
+                if let Some(track) = row.extra.as_deref_mut().and_then(|e| e[0].track.as_mut()) {
+                    track.value = number;
                 }
                 true
             }

@@ -472,7 +472,7 @@ pub fn plugin_row(
         zone: None,
         icon: None,
         stepper: false,
-        track: None,
+        extra: None,
         wrap_value: false,
         disabled: false,
         on: None,
@@ -480,7 +480,6 @@ pub fn plugin_row(
         whole: false,
         small: false,
         plain: false,
-        bold: None,
     })
 }
 
@@ -508,7 +507,7 @@ pub fn top_row(say: &mut dyn Say, top: Top, order: Order, help: &str) -> Result<
         zone: None,
         icon: None,
         stepper: false,
-        track: None,
+        extra: None,
         wrap_value: false,
         disabled: false,
         on: None,
@@ -516,7 +515,6 @@ pub fn top_row(say: &mut dyn Say, top: Top, order: Order, help: &str) -> Result<
         whole: false,
         small: false,
         plain: false,
-        bold: None,
     })
 }
 

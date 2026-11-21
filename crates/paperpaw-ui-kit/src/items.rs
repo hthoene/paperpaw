@@ -20,6 +20,7 @@ use paperpaw_sdk::{
 mod band;
 mod changed;
 mod empty;
+mod extra;
 mod grip;
 mod row;
 pub(crate) use row::draw_row;
@@ -29,6 +30,7 @@ pub use changed::{RowKey, RowsChange};
 pub use empty::Progress;
 pub(crate) use empty::Spot;
 use empty::{draw_empty, draw_progress};
+pub use extra::RowExtra;
 use grip::{draw_drag, draw_row_with_grip};
 use row::{note_line_count, title_lines};
 use stepper::draw_stepper;
@@ -62,11 +64,11 @@ pub struct RowItem {
     /// A number: round − and + buttons at the right (touch screens), each a tap
     /// target, with the value tight between them.
     pub stepper: bool,
-    /// A number shown with a slider under its row (touch screens): its value and
-    /// range, the one element of a boxed array (a field of every row of every
-    /// list is a field of every plugin's frame, so it is as small as it can
-    /// be: a thin pointer). The row is a stepper too; the track takes a second row.
-    pub track: Option<alloc::boxed::Box<[Track; 1]>>,
+    /// What few rows have, behind one thin pointer (a field of every row of
+    /// every list is a field of every plugin's frame, so it is as small as it
+    /// can be): a slider's [`Track`] and the bold part of the title. See
+    /// [`RowItem::track`] and [`RowItem::bold`].
+    pub extra: Option<alloc::boxed::Box<[RowExtra; 1]>>,
     /// Shown faint, passed by the focus and not chosen by a tap.
     pub disabled: bool,
     /// A switch: on or off (the row is told as a switch to whoever asks what
@@ -88,9 +90,6 @@ pub struct RowItem {
     /// A value too long for the line of its title is wrapped to a line of
     /// its own under it, at the right (as in Beta 3), not cut with "…".
     pub wrap_value: bool,
-    /// The bytes of the title drawn bold where they are shown (the word found
-    /// in a search hit's snippet); `None` for a title all in one weight.
-    pub bold: Option<(u16, u16)>,
 }
 
 /// Room above the rows of the first page that the owner fills with something it
@@ -142,7 +141,7 @@ impl Item {
             zone: None,
             icon: None,
             stepper: false,
-            track: None,
+            extra: None,
             disabled: false,
             on: None,
             field: false,
@@ -150,7 +149,6 @@ impl Item {
             small: false,
             plain: false,
             wrap_value: false,
-            bold: None,
         }))
     }
 
@@ -160,13 +158,12 @@ impl Item {
     /// # Errors
     /// [`Error::NoMemory`] when the texts cannot be copied.
     pub fn row_marked(title: &str, value: &str, bold: (u16, u16)) -> Result<Self, Error> {
-        Ok(Self::Row(RowItem {
-            bold: Some(bold),
-            ..match Self::row(title, value)? {
-                Self::Row(row) => row,
-                Self::Heading(_) => RowItem::default(),
-            }
-        }))
+        let mut row = match Self::row(title, value)? {
+            Self::Row(row) => row,
+            Self::Heading(_) => RowItem::default(),
+        };
+        row.extra_mut()?.bold = Some(bold);
+        Ok(Self::Row(row))
     }
 
     /// This item with a value too long for its title's line wrapped under it,
@@ -1052,7 +1049,7 @@ pub(crate) fn item_height(
             let style = own.as_ref().unwrap_or(style);
             let (_, band) = title_lines(font, style, width, row)?;
             // The track of a slider has a row of its own under the title.
-            let band = if row.track.is_some() {
+            let band = if row.track().is_some() {
                 band.saturating_add(style.row)
             } else {
                 band
@@ -1320,7 +1317,7 @@ fn draw_title(
         }
     };
     if lines.is_empty() {
-        if let Some(bold) = row.bold.filter(|_| !alone) {
+        if let Some(bold) = row.bold().filter(|_| !alone) {
             let title = (row.title.as_str(), bold);
             return marked_columns(paint, font, style, cols, title, value, ink);
         }
