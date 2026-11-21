@@ -224,6 +224,46 @@ fn a_store_plugin_named_is_switched_on() {
     assert!(paperpaw_dev::session::switched_on(&all).is_empty());
 }
 
+/// The dev session shows a screen and tells it so (`ScreenShown`) after its
+/// first frame. A page laid out in the draw then laid itself out anew in the
+/// second frame, and what the widgets it makes ask of the host (the reading
+/// goal's cat reads the registry's plugin list, which reads the card's record
+/// of the store's installs) was asked while drawing (#450). Picture home lays
+/// the page out when it is shown, so its draw asks the card nothing.
+#[test]
+fn picture_home_draws_without_asking_the_card_when_it_is_shown_after_its_first_frame() {
+    let _turn = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-shown-{}", std::process::id()));
+    let mut context = Context::new(
+        Target {
+            plugins: vec!["picture-home".into()],
+            ..Target::default()
+        },
+        out,
+    );
+    context.quick = true;
+    let mut report = Report::default();
+    perf::run(&context, &mut report).unwrap();
+    let text = report.text(Level::Info);
+    assert!(
+        text.contains("picture-home.dashboard"),
+        "not measured:\n{text}"
+    );
+    assert!(
+        found(
+            &report,
+            "perf.draw-io",
+            "picture-home.dashboard",
+            Level::Error
+        )
+        .is_empty(),
+        "{text}"
+    );
+    let _ = std::fs::remove_dir_all(&context.out);
+}
+
 /// Every plugin of the app can be named: the ones that were left out of the
 /// dev app have their screens now, and a store plugin has them switched on.
 #[test]
