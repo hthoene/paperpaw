@@ -456,5 +456,5 @@ default from a plugin.
 | `<book>.sdr/metadata.<ext>.lua` | koreader | KOReader's book settings |
 | `<book>.sdr/<book file>.annotations.lua` | koreader | KOReader, which takes the annotations over and removes the file |
 | `.paperpaw/plugins/wifi/picked.txt` | wifi | the network picked last on the Wi-Fi page, its name in one line: joined first when in reach (setting *Join first*). |
-| `wifi.ini` (at the top of the card) | wifi | networks to join, `ssid = ...` and `password = ...` lines. The firmware writes them there at a start from what the web flasher gave, or the reader writes them by hand. At a start they are kept with the passwords and keys, and the file is removed. |
+| `wifi.ini` (at the top of the card) | wifi | networks to join, `ssid = ...` and `password = ...` lines. The firmware writes them there at a start from what the web flasher gave, or the reader writes them by hand. At a start the host adds them to `.paperpaw/plugins/wifi/wifi.ini` and removes the file at the top; the plugin keeps them with the passwords and keys and removes its file. |
 | `.paperpaw/plugins/calibre/books/*.json`, `device.json` | calibre | Calibre's device driver |

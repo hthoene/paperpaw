@@ -1054,6 +1054,14 @@ impl Driver {
         }
     }
 
+    /// Whether the battery is too low for a firmware install to begin (the
+    /// kernel's status, told before each pump).
+    pub(crate) fn set_battery_low(&mut self, low: bool) {
+        if let Ok(mut machine) = self.machine.try_borrow_mut() {
+            machine.set_battery_low(low);
+        }
+    }
+
     /// Tells the machine what a dual-boot change wrote: the flags follow the
     /// file and `auto` latches the setup as declared. `false`: it is borrowed.
     fn dual_machine(&mut self, after: After) -> bool {

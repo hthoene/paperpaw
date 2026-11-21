@@ -148,6 +148,9 @@ pub const fn reason(outcome: DeviceOutcome) -> &'static str {
         DeviceOutcome::CardError => "update.reason.unreadable",
         DeviceOutcome::CardFull => "update.reason.write",
         DeviceOutcome::Unsupported => "update.reason.unsupported",
+        // The host stopped it: a battery near empty (Beta 3's guard), or the
+        // device shutting down or its card taken out.
+        DeviceOutcome::Cancelled => "update.reason.stopped",
         _ => "update.reason.other",
     }
 }

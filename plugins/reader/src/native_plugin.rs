@@ -21,7 +21,7 @@ use crate::{
     native_skim_view,
     native_skim_view::SkimView,
     native_toc_view::{Outcome, TocView},
-    native_view::{Handover, View, read_handover},
+    native_view::{CARD_ROOT, Handover, View, read_handover},
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -1006,6 +1006,10 @@ impl NativeReader {
         now_ms: u64,
     ) -> Result<(), Error> {
         self.screens.shown(SCREEN, instance)?;
+        Self::scope_book(
+            host,
+            self.screens.get(instance).and_then(|view| view.book()),
+        );
         self.wake(host, instance)?;
         Self::set_grays(host, instance, false);
         let (asked, reopened) = (self.aloud_asked.take(), self.reopening.take());
@@ -1034,6 +1038,20 @@ impl NativeReader {
         // pages are counted from now (`start_count` asks for the screen on top).
         self.start_count(host);
         self.follow_note(host, instance)
+    }
+
+    /// The book on show takes its own settings ("Only this book", and Beta 3's
+    /// `books/<key>/settings.ini`, which the host reads as they are) while the
+    /// reading screen is on top, as in Beta 3; a book not on the card has none.
+    /// The host ends the scope when the screen closes. Where the host keeps no
+    /// scope, the book shows with the settings of every book.
+    #[inline(never)]
+    fn scope_book(host: &Host<'_>, book: Option<(&str, &'static str)>) {
+        let path = book
+            .filter(|(_, root)| *root == CARD_ROOT)
+            .map(|(path, _)| path);
+        let mut scratch = [0; 768];
+        CommandSender::new(host, &mut scratch).set_scope(path).ok();
     }
 
     /// An action of the reader that reached the plugin, not a screen:

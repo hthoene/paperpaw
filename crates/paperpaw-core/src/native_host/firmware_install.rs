@@ -419,6 +419,9 @@ pub(crate) struct FirmwareInstall {
     progress: (u64, u64),
     /// The dual-boot facts (`dev_firmware.flags`) and the latch.
     dual: Dual,
+    /// The battery is near empty and the device not charging
+    /// (`paperpaw_sdk::firmware::battery_allows_install`): no install begins.
+    battery_low: bool,
 }
 
 /// What `dev_firmware.flags` tells (`device.md` 3, `docs/dual-boot.md`).
@@ -508,6 +511,7 @@ impl FirmwareInstall {
                 latched: false,
                 ini_off: false,
             },
+            battery_low: false,
         }
     }
 
@@ -515,6 +519,12 @@ impl FirmwareInstall {
     pub(crate) fn set_dual_host(&mut self, capable: bool, declared: bool) {
         self.dual.capable = capable;
         self.dual.declared = declared;
+    }
+
+    /// Whether the battery is too low for an install to begin, as the kernel
+    /// sees it before each step of the queue.
+    pub(crate) fn set_battery_low(&mut self, low: bool) {
+        self.battery_low = low;
     }
 
     /// What `paperpaw.ini` says now (`dev_firmware.flags` bit 1).
@@ -713,6 +723,11 @@ impl FirmwareInstall {
         if job.install.is_some() && self.dual.capable && (self.dual.declared || self.dual.latched) {
             // Declared as dual boot: no firmware is installed here.
             return Some(outcome(&job, Reason::NOT_HERE.0));
+        }
+        if job.install.is_some() && self.battery_low {
+            // No firmware is written on a battery near empty, the device not
+            // charging (Beta 3's guard): the host stops it before it begins.
+            return Some(outcome(&job, Reason::STOPPED.0));
         }
         if job.install.is_none() {
             self.mark_running(job.owner);
