@@ -1,7 +1,9 @@
 //! Wi-Fi given with the firmware by the web flasher (see
 //! `paperpaw_x4::provision`): read once at a start from the `nvs`
 //! partition, given to the card as `wifi.ini` (added to one already
-//! there), which the `wifi` plugin keeps with the passwords and removes;
+//! there), which the kernel hands to the `wifi` plugin as it starts
+//! (`paperpaw_core` `card_wifi.rs`), and the plugin keeps the networks with
+//! the passwords and removes it;
 //! the record is erased once the card has it.
 
 use alloc::boxed::Box;

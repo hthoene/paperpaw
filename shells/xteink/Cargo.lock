@@ -2653,7 +2653,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2703,7 +2703,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

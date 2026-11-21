@@ -92,9 +92,12 @@ const fn root_code(root: Root) -> &'static str {
     match root {
         Root::Data => "0",
         Root::Handed => "5",
-        _ => "1",
+        _ => CARD_ROOT,
     }
 }
+
+/// The root code of a book on the card (`root_code`).
+pub const CARD_ROOT: &str = "1";
 
 /// An open book and the page on show.
 #[derive(Debug)]
