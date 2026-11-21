@@ -1445,16 +1445,25 @@ impl Plugin for NativeReader {
                 return Ok(handled);
             }
         }
-        let (handled, turned, note) = match (self.screens.top(token), &self.docs, &self.ui) {
+        let (handled, turned, note, recount) = match (self.screens.top(token), &self.docs, &self.ui)
+        {
             (Some(view), Some(docs), Some(ui)) => {
                 view.forget_status();
                 let handled = view.input(host, (docs, self.library.as_ref(), ui), &input)?;
-                (handled, view.take_turned(), view.take_note())
+                (
+                    handled,
+                    view.take_turned(),
+                    view.take_note(),
+                    view.take_recount(),
+                )
             }
             _ => return Ok(Handled::No),
         };
         if turned {
             self.start_quiet(host);
+        }
+        if recount {
+            self.start_count(host);
         }
         self.pictures_due(host);
         if let Some(note) = note {

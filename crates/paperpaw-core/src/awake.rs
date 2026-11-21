@@ -128,7 +128,12 @@ impl Kernel {
         }
         self.holds.marked = Some(now);
         let walking = self.walk_holds_sleep(now);
-        walking || self.io.speech.speaking() || self.io.http.busy() || self.io.servers.busy()
+        walking
+            || self.io.speech.speaking()
+            || self.io.http.busy()
+            || self.io.servers.busy()
+            || self.native_net(crate::native_host::net_service::NetTable::request_running)
+            || self.native_net(crate::native_host::net_service::NetTable::serving_on_network)
     }
 
     /// The sleep is due at `now`: whether the library's walk puts it off.

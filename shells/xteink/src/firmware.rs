@@ -329,6 +329,19 @@ impl Firmware {
         self.ota.as_ref().is_some_and(Ota::installing)
     }
 
+    /// Takes the escape's request (Power held 8 s, G12), if there is one:
+    /// `true` then, and the caller switches off. Latched: letting go of the
+    /// key from now on does not turn this into the normal suspend decision.
+    fn take_escape(&mut self) -> bool {
+        if !input::escape_requested() {
+            return false;
+        }
+        input::escape_take();
+        self.state.escape = true;
+        info!("Power held: switching off");
+        true
+    }
+
     /// One turn of the main loop. Its frame lies under every plugin's work,
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
@@ -338,12 +351,7 @@ impl Firmware {
         crate::cpu_clock::set_policy(paperpaw_x4::controls::clock_policy(self.kernel.power()));
         // Power held 8 s (G12): out, whatever else is going on. The timer's
         // readings reset the processor if this is not reached in time.
-        if input::escape_requested() {
-            input::escape_take();
-            // Latched here, in the main loop: letting go of the key from now
-            // on does not turn this into the normal suspend decision.
-            self.state.escape = true;
-            info!("Power held: switching off");
+        if self.take_escape() {
             return self.sleep(false);
         }
         // Beta 3's veiled values, sealed the first time a radio is on.
@@ -439,6 +447,16 @@ impl Firmware {
         let network = &mut self.network;
         let waited = self.panel.wait_with(|| network.keep_served());
         crate::cpu_clock::work();
+        // The newer X3's UC8279d is driven by a mode of its own, not tried
+        // on every module: an update on trial whose first refresh times out
+        // shows nothing on this X3, and goes back to the firmware before it.
+        #[cfg(feature = "x3")]
+        if waited == Err(paperpaw_x4::display::Error::Timeout)
+            && self.panel.uc8279d_unshown()
+            && let Some(ota) = &mut self.ota
+        {
+            ota.give_up("the display's first refresh timed out");
+        }
         waited
     }
 
