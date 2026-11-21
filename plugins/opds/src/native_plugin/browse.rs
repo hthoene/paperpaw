@@ -20,15 +20,17 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Style,
     mem::{SERVICE_BUFFER, buffer, collect, join, push},
+    online::Chosen,
     paint::frame_rect,
     text::{concat, copy, decimal_u64},
 };
 
-use super::{Ask, Opds, Pending, View};
-use crate::native_browse::{Browser, Note, Row, Step};
+use super::{Again, Ask, Opds, Pending, View};
+use crate::native_browse::{Browser, Note, Retry, Row, Step};
 use crate::native_catalogs as catalogs;
 use crate::native_covers::{self as covers, Covers, MAX_LIVE};
 use crate::native_files::{DataFiles, Files};
+use crate::native_keep::Secret;
 use crate::native_web::{self as web, BOOK, COVER, DESCRIPTION, FEED, FILES};
 
 /// The browse screen: the browsing, its rows and the line below.
@@ -125,6 +127,12 @@ impl BrowseView {
             }
         }
         Ok(())
+    }
+
+    /// What the line below says.
+    #[cfg(test)]
+    pub(super) fn note(&self) -> &str {
+        &self.note
     }
 
     /// The rows and the line below, as the browsing is now.
@@ -330,7 +338,20 @@ impl Opds {
             None => catalogs::Catalog::default(),
         };
         let password = catalogs::password(&self.vault(host), &catalog)?;
+        self.browse(host, instance, catalog, password)
+    }
+
+    /// Browsing `catalog` on the screen `instance`: its first feed asked for.
+    pub(super) fn browse(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        catalog: catalogs::Catalog,
+        password: Option<Secret>,
+    ) -> Result<(), Error> {
         let mut browser = Browser::new(catalog, password, &self.folder, self.small)?;
+        // A screen opened anew may offer to go online again.
+        self.online.reset();
         browser.start(host, &mut self.web)?;
         // Covers need the memory of a device that is not a small one.
         let with_covers = !self.small && Self::switch_setting(host, "opds.covers", true);
@@ -477,6 +498,20 @@ impl Opds {
         CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
     }
 
+    /// The reader's answer to the offer to go online for the feed of screen
+    /// `instance`: loaded again, or said to need the network.
+    pub(super) fn feed_chosen(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        chosen: Chosen<Retry>,
+    ) -> Result<(), Error> {
+        if let Some(View::Browse(view)) = self.screens.get(instance) {
+            view.browser.offered(host, &mut self.web, chosen)?;
+        }
+        self.redraw_browse(host)
+    }
+
     /// The words to search for were typed.
     pub(super) fn terms_typed(&mut self, host: &Host<'_>, text: &str) -> Result<(), Error> {
         if let Some(View::Browse(view)) = self.screens.top(crate::declarations::BROWSE_SCREEN) {
@@ -489,7 +524,7 @@ impl Opds {
     pub(super) fn http_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
         let files = DataFiles::new(host);
         let mut handled = None;
-        for (at, view) in self.screens.all().enumerate() {
+        for (instance, view) in self.screens.all_with_instance() {
             let View::Browse(view) = view else {
                 continue;
             };
@@ -497,22 +532,29 @@ impl Opds {
                 view.browser
                     .done(host, &mut self.web, &files, self.library.as_ref(), done)?;
             if let Some(step) = step {
-                handled = Some((at, step));
+                handled = Some((instance, step));
                 break;
             }
         }
-        let Some((at, step)) = handled else {
+        let Some((instance, step)) = handled else {
             return self.other_done(host, done);
         };
         // The step of the screen that took it: its rows are made anew.
         let (extensions, touch) = (core::mem::take(&mut self.extensions), self.touch);
-        let rebuilt = match self.screens.all().nth(at) {
+        let rebuilt = match self.screens.get(instance) {
             Some(View::Browse(view)) => view.rebuild(host, &extensions, touch),
             _ => Ok(()),
         };
         self.extensions = extensions;
         rebuilt?;
-        self.browse_step(host, step)?;
+        match step {
+            // Offline mode held the feed back: going online is offered, once
+            // for the screen (its line says no network meanwhile and after).
+            Step::Offline(retry) => {
+                self.offer_online(host, Again::Feed(instance, retry))?;
+            }
+            step => self.browse_step(host, step)?,
+        }
         // A new feed: its covers.
         self.covers_step(host)?;
         Self::redraw(host)

@@ -38,7 +38,10 @@ give is the list of blocked cases at the end.
 - Loading: `core.net` GET with `save_to` (data folder, `download.tmp`), `User-Agent` and `Accept`
   as in interface 6; the answer is read from `http_done` (status, final address, content type). An
   error answer's page comes in memory (`Net::body`) and is kept to be shown; an error without a page
-  is told (`browser.error`). No network, offline, saving or the radio off is `browser.no-network`.
+  is told (`browser.error`). No network, saving or the radio off is `browser.no-network`.
+- Offline mode: a load the reader started that ends `offline` offers to go online once (restored,
+  #459, the shared `paperpaw_ui_kit::online::Offer`); *Go online* sends `command.go_online` and loads
+  the address again, *Not now* says `browser.no-network` (`tests/native_offline_flow.rs`).
 - A page is kept with its address as `<base href>`, titled, put in the history and opened in the
   reader with a hand-over of `root=0`, `path=pages/<hash>.html` (`command.open` on slot `core.reader`).
   Back from the reader goes through the pages of this time; a page whose file is gone is loaded again.
@@ -83,9 +86,8 @@ give is the list of blocked cases at the end.
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- The screen (H1, H2, H4): the start screen and its three lists, the offer to go online in Offline
-  mode (`network.md` 3.2: a request that ends with reason `offline` and `later`), the choices on a
-  held entry, the address dialog and the messages.
+- The screen (H1, H2, H4): the start screen and its three lists, the choices on a held entry, the
+  address dialog and the messages.
 - Loading: `core.net` GET with `save_to` (data folder) and the `Accept` and `User-Agent` headers, the
   answer from `http_done`, an error page kept to be shown; no host for requests on integration
   (`core-net-host`).
@@ -97,5 +99,5 @@ give is the list of blocked cases at the end.
 - The slot `core.browser` is offered, but the screen takes the address as a parameter (`params::URL`)
   in interface 6 and the native hand-over of a parameter to a slot's screen is **to settle** with
   Kernel (`ui.md` 1.3).
-- The `ui::offline::OfflineOffer` and the chooser in the screen are interface-6 widgets; the native
-  start screen is lists of `paperpaw_ui_kit`.
+- The chooser in the screen is an interface-6 widget; the native start screen is lists of
+  `paperpaw_ui_kit` (the `ui::offline::OfflineOffer` is restored as `paperpaw_ui_kit::online::Offer`, #459).

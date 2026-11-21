@@ -25,6 +25,7 @@ use paperpaw_sdk::{Storage, native::net::REPLY, native::net::REQUEST_INPUT};
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push},
+    online::{Chosen, Offer},
     read_event, text,
     text::{concat, copy},
     uitext,
@@ -105,6 +106,9 @@ pub struct NativeBrowser {
     /// The number of the next request.
     token: u32,
     asked: Option<(AskId, Asked)>,
+    /// Offline mode held a load back: the offer to go online, and the address
+    /// to load again then (#459).
+    online: Offer<String>,
 }
 
 const HELD_BOOKMARK: &[&str] = &["open", "delete"];
@@ -355,7 +359,7 @@ impl NativeBrowser {
             None => return Ok(()),
         };
         if let Some(url) = start {
-            return self.load(host, &url);
+            return self.start(host, &url);
         }
         if !showing {
             return Ok(());
@@ -379,7 +383,7 @@ impl NativeBrowser {
             self.show(host, previous)
         } else {
             let url = copy(&previous.url)?;
-            self.load(host, &url)
+            self.start(host, &url)
         }
     }
 
@@ -395,7 +399,7 @@ impl NativeBrowser {
                     return Ok(());
                 };
                 self.pages.clear();
-                self.load(host, &url)
+                self.start(host, &url)
             }
         }
     }
@@ -470,6 +474,14 @@ impl NativeBrowser {
 
     /// An answer to a question the plugin asked.
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        // The offer to go online first: the network is asked for, the
+        // address loaded again; *Not now* says it needs the network.
+        match self.online.answered(host, answer)? {
+            Some(_) if !self.wanted() => return Ok(()),
+            Some(Chosen::Online(url)) => return self.load(host, &url),
+            Some(Chosen::NotNow(_)) => return self.say(host, "browser.no-network", &[]),
+            None => {}
+        }
         let Some((request, _)) = &self.asked else {
             return Ok(());
         };
@@ -490,7 +502,7 @@ impl NativeBrowser {
                 }
                 self.pages.clear();
                 let url = web::address(typed.trim())?;
-                self.load(host, &url)
+                self.start(host, &url)
             }
             Asked::Read(path) => {
                 if answer.choice() == 0 {
@@ -518,7 +530,7 @@ impl NativeBrowser {
         match (row, option) {
             (_, "open") => {
                 self.pages.clear();
-                self.load(host, &entry.url)
+                self.start(host, &entry.url)
             }
             (Row::History(_), "bookmark") => {
                 let Some(view) = self.screens.top(SCREEN).filter(|v| v.bookmarks_read) else {
@@ -578,6 +590,13 @@ impl NativeBrowser {
         self.refresh(host)
     }
 
+    /// The reader starts loading `url`: Offline mode may offer to go online
+    /// for it again (once per start).
+    fn start(&mut self, host: &Host<'_>, url: &str) -> Result<(), Error> {
+        self.online.reset();
+        self.load(host, url)
+    }
+
     /// Loads `url`; what it is decides where it goes once it is there.
     fn load(&mut self, host: &Host<'_>, url: &str) -> Result<(), Error> {
         let Some(net) = &self.net else {
@@ -632,6 +651,19 @@ impl NativeBrowser {
         }];
         match done.reason() {
             Reason::Ok => {}
+            // Loaded again from *Go online* before the host went online
+            // (`paperpaw_ui_kit::online`): once more.
+            Reason::Offline if self.online.again() => return self.load(host, &loading.url),
+            // Held back by Offline mode: offered once to go online for it.
+            Reason::Offline if self.online.may_offer() => {
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                return match self.online.ask(host, ui, loading.url) {
+                    Ok(()) => Ok(()),
+                    Err(Error::NoMemory) => Err(Error::NoMemory),
+                    // Not asked (the host refused the question): said as before.
+                    Err(_) => self.say(host, "browser.no-network", &[]),
+                };
+            }
             Reason::NoNetwork | Reason::Offline | Reason::Saving | Reason::NetworkOff => {
                 return self.say(host, "browser.no-network", &[]);
             }

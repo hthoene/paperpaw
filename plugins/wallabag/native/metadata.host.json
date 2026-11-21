@@ -158,6 +158,10 @@
     {
       "key": "uses.network",
       "required": false
+    },
+    {
+      "key": "uses.wifi",
+      "required": false
     }
   ]
 }

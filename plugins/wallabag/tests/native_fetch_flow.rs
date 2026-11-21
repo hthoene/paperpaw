@@ -390,7 +390,9 @@ fn a_fetch_logs_in_lists_downloads_and_puts_the_books_into_the_library() {
     assert_eq!(log(), ["import article.tmp Wallabag/Nine a b.epub flags 0"]);
     assert_eq!(
         seen().last().map(String::as_str),
-        Some("done Ok(Some(Finish { key: \"wallabag.done\", counts: Some((2, 0, 0)) }))")
+        Some(
+            "done Ok(Some(Finish { key: \"wallabag.done\", counts: Some((2, 0, 0)), offline: false }))"
+        )
     );
     assert_eq!(
         file("articles.txt").unwrap(),
@@ -543,13 +545,14 @@ fn what_is_not_a_whole_list_changes_nothing() {
 
 #[test]
 fn a_login_that_fails_says_why() {
-    for (status, reason, key) in [
-        (401, 0, "wallabag.bad-login"),
-        (200, 0, "wallabag.bad-login"),
-        (0, 1, "wallabag.no-network"),
-        (0, 11, "wallabag.no-network"),
-        (0, 2, "wallabag.unreachable"),
-        (0, 4, "wallabag.unreachable"),
+    // Only Offline mode's hold (11) is marked: the plugin offers to go online.
+    for (status, reason, key, offline) in [
+        (401, 0, "wallabag.bad-login", false),
+        (200, 0, "wallabag.bad-login", false),
+        (0, 1, "wallabag.no-network", false),
+        (0, 11, "wallabag.no-network", true),
+        (0, 2, "wallabag.unreachable", false),
+        (0, 4, "wallabag.unreachable", false),
     ] {
         let host = ScriptedHost::new();
         setup(&host);
@@ -562,7 +565,7 @@ fn a_login_that_fails_says_why() {
         assert_eq!(
             seen(),
             [format!(
-                "done Ok(Some(Finish {{ key: \"{key}\", counts: None }}))"
+                "done Ok(Some(Finish {{ key: \"{key}\", counts: None, offline: {offline} }}))"
             )],
             "{status} {reason}"
         );

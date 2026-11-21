@@ -305,3 +305,38 @@ fn a_start_replaces_the_fetch_under_way_and_ends_its_request() {
     assert_eq!(w.cancelled, 1);
     assert!(f.busy());
 }
+
+#[test]
+fn a_request_offline_mode_held_back_ends_the_fetch_with_what_to_fetch_again() {
+    let (a, b, c) = (
+        "https://a.example/1",
+        "https://b.example/2",
+        "https://c.example/3",
+    );
+    let mut f = Fetcher::new();
+    let mut w = World::new(&format!("{a}\n{b}\n{c}\n"));
+    let mut shelf = Kept::default();
+    f.start(&mut w, 0, true).unwrap();
+    w.answer(a, RSS);
+    let done = ok(&w);
+    assert_eq!(end(&mut f, &mut w, &mut shelf, &done), Ended::Next);
+    // B is held back (reason 11): not a failed feed, C is not asked for.
+    let held = Done::new(w.id(), FEED_REQUEST, Reason::Offline, false);
+    assert_eq!(
+        end(&mut f, &mut w, &mut shelf, &held),
+        Ended::Offline { from: 1, all: true }
+    );
+    assert!(!f.busy());
+    assert_eq!(w.requests.len(), 2);
+    assert!(w.volume.get(&download(b).unwrap()).is_none());
+    // A single feed is fetched again alone.
+    f.start(&mut w, 2, false).unwrap();
+    let held = Done::new(w.id(), FEED_REQUEST, Reason::Offline, false);
+    assert_eq!(
+        end(&mut f, &mut w, &mut shelf, &held),
+        Ended::Offline {
+            from: 2,
+            all: false
+        }
+    );
+}

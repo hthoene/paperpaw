@@ -82,9 +82,11 @@ it asked about (`entry.json`: gone with a 404 or archived), and each new article
 
 Deliberately different from interface 6:
 
-- No offer to go online first. A fetch the reader starts is within the host's 2,000 ms window of user input
-  (`network.md` 3.2), so the offline power mode lets it through; a request ended for the power mode or the
-  network says `wallabag.no-network`.
+- The offer to go online is restored (#459, the shared `paperpaw_ui_kit::online::Offer`): where Offline
+  mode holds back the login of a fetch the reader started (the row, the action), the host's question asks;
+  *Go online* sends `command.go_online` and fetches again, *Not now* (or held back again) says
+  `wallabag.no-network`. A rule's or a due work's fetch stays quiet. Asked after the request ended
+  (`Reason::Offline`), not before it as in interface 6. `tests/native_offline_flow.rs`.
 - The token is read by the JSON parser, whose own copy of the value is not zeroed (the token is a
   short-lived session key that is never stored); every copy the plugin makes is.
 

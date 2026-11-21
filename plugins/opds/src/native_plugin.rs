@@ -28,6 +28,7 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{
     Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push, wipe},
+    online::{Chosen, Offer},
     read_event,
     text::copy,
 };
@@ -36,6 +37,7 @@ use crate::declarations::{
     BROWSE_SCREEN, CATALOGS_SCREEN, EDIT_SCREEN, HTTP_TOKEN, IMAGE_TOKEN, OPEN_TOKEN,
     PROGRESS_TOKEN, STOP_TOKEN, SYNC_TOKEN, WORK_TOKEN,
 };
+use crate::native_browse::Retry;
 use crate::native_catalogs::{self as catalogs, Catalog, Vault};
 use crate::native_files::DataFiles;
 use crate::native_keep::{self as keep, Secret};
@@ -80,6 +82,17 @@ enum Ask {
     Read,
 }
 
+/// What Offline mode held back that the reader asked for, done again once
+/// they chose to go online (#459).
+#[derive(Debug)]
+enum Again {
+    /// The feed of the browse screen `Instance`.
+    Feed(paperpaw_sdk::native::ui::Instance, Retry),
+    /// The sync the reader started: of the catalog at this place in the list,
+    /// or of all those marked.
+    Sync(Option<usize>),
+}
+
 /// The state of one open screen.
 #[derive(Debug)]
 #[allow(
@@ -114,6 +127,12 @@ pub(crate) struct Opds {
     /// The path of the book just saved, while the choice to read it is open.
     saved_path: Option<String>,
     asked: Option<(AskId, Ask)>,
+    /// The offer to go online where Offline mode held back what the reader
+    /// started: once for each browse screen opened and each sync they start.
+    online: Offer<Again>,
+    /// The sync going on, where the reader started it (not the work's): what
+    /// it syncs, to sync again once they went online.
+    reader_sync: Option<Option<usize>>,
     /// The catalogs, as the list last said; `unreadable` when the list could
     /// not be read (it is left as it is, and changes to it are not kept).
     catalogs: Vec<Catalog>,
@@ -532,6 +551,12 @@ impl Opds {
 
     /// An answer to a question the plugin asked.
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        // The offer to go online first (it sent `command.go_online` on *Go
+        // online*): what was held back is done again, or said to need the
+        // network.
+        if let Some(chosen) = self.online.answered(host, answer)? {
+            return self.online_chosen(host, chosen);
+        }
         if answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
@@ -560,6 +585,50 @@ impl Opds {
                     Ask::Field(field) => self.field_typed(host, field, text.as_str()),
                     _ => self.terms_typed(host, text.as_str()),
                 }
+            }
+        }
+    }
+
+    /// Offers to go online for `again`, where it was not offered yet, or does
+    /// it once more where it was done again from *Go online* before the host
+    /// went online (`paperpaw_ui_kit::online`); `false` where neither
+    /// (offered already, no question to be had): what was held back then
+    /// stays said to need the network.
+    fn offer_online(&mut self, host: &Host<'_>, again: Again) -> Result<bool, Error> {
+        if self.online.again() {
+            self.online_chosen(host, Chosen::Online(again))?;
+            return Ok(true);
+        }
+        let Some(ui) = self.ui.as_ref().filter(|_| self.online.may_offer()) else {
+            return Ok(false);
+        };
+        match self.online.ask(host, ui, again) {
+            Ok(()) => Ok(true),
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// The reader's answer to the offer to go online: what was held back is
+    /// done again, or said to need the network.
+    fn online_chosen(&mut self, host: &Host<'_>, chosen: Chosen<Again>) -> Result<(), Error> {
+        let (online, again) = match chosen {
+            Chosen::Online(again) => (true, again),
+            Chosen::NotNow(again) => (false, again),
+        };
+        match again {
+            Again::Feed(instance, retry) => {
+                let chosen = if online {
+                    Chosen::Online(retry)
+                } else {
+                    Chosen::NotNow(retry)
+                };
+                self.feed_chosen(host, instance, chosen)
+            }
+            Again::Sync(only) if online => self.sync_begin(host, only, true),
+            Again::Sync(_) => {
+                self.list_note = Some(Messages::new()?.copy(host, "opds.no-network")?);
+                self.refresh(host)
             }
         }
     }
@@ -594,3 +663,6 @@ impl Opds {
         self.stop_all(host);
     }
 }
+
+#[cfg(all(test, feature = "linked"))]
+mod online_tests;

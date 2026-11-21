@@ -55,5 +55,10 @@ reading event's millionths, as agreed for Beta 4. Exact format-specific forward 
 
 Only an authorized device session can establish card-plugin admission, host service availability,
 already-online network HTTP, TLS/time/trust, reconnect/background work, real Secrets refusal and
-persistence, reader navigation, heap/stack and power behavior. The plugin is not granted permission
-to force Wi-Fi on. Real KOReader interoperability is not established by the in-process fake transport.
+persistence, reader navigation, heap/stack and power behavior. Real KOReader interoperability is not
+established by the in-process fake transport.
+
+The *Go online* offer is restored (#459, the shared `paperpaw_ui_kit::online::Offer`; `uses.wifi`):
+where Offline mode holds back *Sign in* or *Create account*, the host asks once; *Go online* sends it
+again (once more at its end, as the host allows the network only after that callback), *Not now* says
+there is no network. Automatic fetches and pushes stay quiet. native_host.rs drives it on the real host.

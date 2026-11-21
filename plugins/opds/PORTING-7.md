@@ -72,8 +72,11 @@ Version 1.0.4: Beta 3 was 1.0.3 and the first slice bumped it; no further bump b
 
 ## Differences from interface 6
 
-- No offer to go online first (Offline mode): a request ended for the power mode or the network says
-  `opds.no-network`.
+- The offer to go online in Offline mode is restored (#459, the shared `paperpaw_ui_kit::online::Offer`):
+  a feed Offline mode held back asks once for each browse screen opened (the host's question); *Go online*
+  loads that feed again, *Not now* says `opds.no-network`. A sync the reader started (its row, *Sync now*,
+  the reader's own `opds.sync`) asks the same and syncs again; the work's sync never asks. On hold or with
+  the network off it says `opds.no-network`.
 - The folder is below the library folder (`Library::import` takes no other place). One written from the
   card's root as interface 6 had it (`Books/Calibre`) is read as below the library, leaving out a leading
   library folder name. The folder chooser is not used: a text question.

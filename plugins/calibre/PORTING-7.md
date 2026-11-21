@@ -46,8 +46,9 @@ the activation of native plugins and the host's sockets and library (`tests/acce
 
 ## Differences from interface 6
 
-- No *go online* offer in offline mode: a connection refused because the device is offline, on hold or its
-  network turned off says "no Wi-Fi" like any other missing network.
+- The *go online* offer in offline mode is restored (#459, the shared `paperpaw_ui_kit::online::Offer`):
+  a search or connection Offline mode held back asks once (the host's question); *Go online* starts the
+  session again, *Not now* says "no Wi-Fi". On hold or with the network turned off it says "no Wi-Fi".
 - After a delete, what the library kept for the book goes with it at once (interface 6 removed only the
   file and the host's next walk removed the rest): the same end state, sooner.
 - The reasons a connection failed are short English words (`timed out`, `refused`, …) inside
