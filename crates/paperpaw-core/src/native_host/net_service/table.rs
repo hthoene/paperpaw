@@ -132,6 +132,24 @@ impl NetTable {
     pub(super) fn lock(&self) -> Result<RefMut<'_, Inner>, i32> {
         self.inner.try_borrow_mut().map_err(|_| ERR_BUSY)
     }
+
+    /// Whether the transport has a request: what going to sleep waits for a
+    /// while, as for interface 6's requests (`Kernel::holds_sleep`). One
+    /// queued for room or for a network that may never come is not counted.
+    pub(crate) fn request_running(&self) -> bool {
+        self.inner
+            .try_borrow()
+            .is_ok_and(|inner| inner.reqs.iter().any(|r| r.state == State::Running))
+    }
+
+    /// Whether a server listens on the network (the cable's is not counted):
+    /// with a request running, what puts the sleep off
+    /// (`Kernel::busy_at_sleep`).
+    pub(crate) fn serving_on_network(&self) -> bool {
+        self.inner
+            .try_borrow()
+            .is_ok_and(|inner| inner.serving.on_network())
+    }
 }
 
 impl Drop for NetTable {

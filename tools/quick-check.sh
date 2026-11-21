@@ -48,7 +48,7 @@
 #             native host reads is dead there)           [shells/desktop, shells/web, paperpaw-x4/core/sdk/emulator]
 #   x4tests   the X4 crate's update tests (update_path, updates): the boards, partition tables and the constants
 #             of shells/xteink/src/ota.rs they check      [crates/paperpaw-x4, shells/xteink, .github/actions/install-image]
-#   pkgtests  the own tests (unit, integration, doc) of the changed packages, with CI's `paperpaw-core/testing` where a
+#   pkgtests  (cut by the limit with tests run and none red, it passes as PARTIAL: the rest is the landing check's) the own tests (unit, integration, doc) of the changed packages, with CI's `paperpaw-core/testing` where a
 #             package has core as a dependency: a red test of the package itself (settings scripted_pages, epub-family,
 #             battery, dev perf ... were 11 of the 18 red bases of Nov 18/19)   [any .rs/Cargo.toml of a package but the app]
 #   python    CI's python checks of seconds: the changelog fragments and their tests,
@@ -393,7 +393,13 @@ step() { # NAME COMMAND...
     wait "$pid" 2> /dev/null
     rc=$?
     local dt=$((SECONDS - t0))
-    if ((cut)); then
+    # The package tests of a big change (the FAT card tests alone take ~150 s) cannot all run in the fast tier: cut
+    # after tests ran and none of them failed, they count as run so far, and the rest is the landing check's.
+    if ((cut && !full)) && [[ "$name" == pkgtests ]] && grep -q '^test .* \.\.\. ok$' "$logs/$name.log" \
+        && ! grep -qE 'FAILED|panicked at|^error' "$logs/$name.log"; then
+        echo "ok    $name (${dt}s, PARTIAL: cut at the limit of ${limit}s with no test red so far; the tests after it are the landing check's, or run --full: $logs/$name.log)" > "$logs/$name.res"
+        echo "CUT $name after ${dt}s, tests green so far: counted as run in part"
+    elif ((cut)); then
         echo "FAIL  $name: CUT after ${dt}s (limit ${limit}s, step limit ${step_limit}s, budget ${budget}s): nothing was checked here; the build directories are warm now, run again: $logs/$name.log" > "$logs/$name.res"
         echo "CUT $name after ${dt}s: $(tail -n 3 "$logs/$name.log" | tr '\n' ' ')"
     elif ((rc)); then

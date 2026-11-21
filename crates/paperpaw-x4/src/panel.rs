@@ -155,6 +155,12 @@ where
         }
     }
 
+    /// A UC8279d (the newer X3's) that has not ended a refresh since it was
+    /// set up: its first is still to come, or it failed.
+    pub fn uc8279d_unshown(&self) -> bool {
+        matches!(self, Panel::Uc8253(display) if display.uc8279d_unshown())
+    }
+
     /// How the screen PaperPaw draws is turned, as the device's setting
     /// says (see [`Device`]).
     pub fn set_rotation(&mut self, rotation: Rotation) {

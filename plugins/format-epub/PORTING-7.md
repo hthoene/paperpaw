@@ -23,10 +23,17 @@ parsers' own plugin-folder cache with its stamps (shared with the other formats 
 it to the document cache, root 6, where the stamps are redundant but harmless); it goes with the family's last
 removal.
 
+## One's own stylesheets
+
+The format is `siblings` (#459): root 3 is the book's folder and the opener gets the book's file name, so the
+family's `user_css` finds `styles.css` in the folder and the one named like the book (`Alice.css` for
+`Alice.epub`) and applies them after the book's own styles, as in Beta 3 (`docs/plugins.md`, *styles.css*). Plugins'
+stylesheets (`Registrar::add_stylesheet`, a data plugin's `styles.css`) still do not reach books: `core.format`
+has no field for them, and adding one is an interface-7 change.
+
 ## Gap: untitled books
 
-This is not a `siblings` format, so the opener gets an empty file name (root 3 is the book itself). A book with no
-title of its own now has an empty title where Beta 3 used the file stem. The reader names such a book by its path
+A book with no title of its own has an empty title where Beta 3 used the file stem. The reader names such a book by its path
 (#1045); the library does the same.
 
 ## Gaps (the family's)

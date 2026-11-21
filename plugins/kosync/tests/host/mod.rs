@@ -246,7 +246,18 @@ impl World {
     fn with_account(signed_in: bool) -> Self {
         Self::with_plugins(signed_in, true, true)
     }
+    /// Signed out, in the Offline power mode (the core's `core.offline`,
+    /// worn again at the start as the reader left it).
+    pub fn offline() -> Self {
+        let card = Self::card(false);
+        card.write(".paperpaw/power.ini", b"mode = core.offline\n")
+            .unwrap();
+        Self::on_card(card, false, true, true)
+    }
     fn with_plugins(signed_in: bool, installed: bool, enabled: bool) -> Self {
+        Self::on_card(Self::card(signed_in), signed_in, installed, enabled)
+    }
+    fn card(signed_in: bool) -> Card {
         let card = Card(Rc::new(
             MemoryStorage::new().with(
                 "book.txt",
@@ -266,7 +277,7 @@ impl World {
             )
             .unwrap();
         }
-        Self::on_card(card, signed_in, installed, enabled)
+        card
     }
     fn on_card(card: Card, signed_in: bool, installed: bool, enabled: bool) -> Self {
         let network = Rc::new(Network::default());
@@ -409,6 +420,8 @@ impl World {
                 "uses.network",
                 "uses.secrets",
                 "uses.power",
+                // `command.go_online` (the offer to go online, #459).
+                "uses.wifi",
             ]
             .map(|key| Feature { key, revision: 1 })
             .to_vec()
@@ -474,6 +487,21 @@ impl World {
         self.network.now.set(now);
         self.kernel()
             .run_action(Instant(now), Id::new_static(action));
+        self.pump();
+    }
+    /// A short press of the button `name`: a user input, which the host's
+    /// window for `command.go_online` needs (an action run is none).
+    pub fn press(&mut self, name: &'static str) {
+        use paperpaw_platform::{ButtonState, InputEvent};
+        let now = self.network.now.get() + 100;
+        self.network.now.set(now + 50);
+        for (at, state) in [
+            (now, ButtonState::Pressed),
+            (now + 50, ButtonState::Released),
+        ] {
+            self.kernel()
+                .handle(Instant(at), InputEvent::Button { name, state });
+        }
         self.pump();
     }
     pub fn pump(&mut self) {

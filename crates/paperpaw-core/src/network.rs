@@ -196,6 +196,20 @@ impl Kernel {
     /// then sleeps anyway.
     pub fn holds_sleep(&self) -> bool {
         self.io.http.busy()
+            || self.native_net(crate::native_host::net_service::NetTable::request_running)
+    }
+
+    /// What `core.net`'s table says (`ask`), `false` where the service is
+    /// not made.
+    pub(crate) fn native_net(
+        &self,
+        ask: fn(&crate::native_host::net_service::NetTable) -> bool,
+    ) -> bool {
+        self.shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.net())
+            .is_some_and(|net| ask(net.0.table()))
     }
 
     /// Whether plugins have sockets or broadcasts open, e.g. to keep

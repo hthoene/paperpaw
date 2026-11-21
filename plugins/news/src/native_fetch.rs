@@ -136,6 +136,10 @@ pub enum Ended {
     /// The next request was refused for want of a network (a run's end, the
     /// Wi-Fi off): the fetch is over, with what it had come to.
     NoNetwork { done: usize, failed: usize },
+    /// Offline mode held the request back (`Reason::Offline`): the fetch is
+    /// over (the feeds after it would be held back too); fetching from `from`
+    /// (with `all` those after it) again is what going online is for.
+    Offline { from: usize, all: bool },
 }
 
 /// A request in flight, and the fetch it belongs to.
@@ -269,6 +273,14 @@ impl Fetcher {
             return Ok(Ended::Finished {
                 done: run.done,
                 failed: run.failed,
+            });
+        }
+        if done.reason == Reason::Offline {
+            // Nothing came: no feed is counted, and the rest is not asked for.
+            wire.volume().remove(&file).ok();
+            return Ok(Ended::Offline {
+                from: run.index,
+                all: run.all,
             });
         }
         let ended = made(wire, shelf, &mut run, done, (articles, max_text), date_text);

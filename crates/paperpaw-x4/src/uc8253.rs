@@ -502,6 +502,12 @@ where
         self.uc8279d
     }
 
+    /// A UC8279d that has not ended a refresh since [`Display::init`]: its
+    /// first is still to come, or it failed.
+    pub fn uc8279d_unshown(&self) -> bool {
+        self.uc8279d && self.first_refresh
+    }
+
     /// LAB ONLY (#40): shows fast refreshes with the SDK's fast waveform
     /// whose frame counts are scaled to `percent` of its own (100: as it is;
     /// 50: half the frames, faster, more ghosting; 150: longer, cleaner),

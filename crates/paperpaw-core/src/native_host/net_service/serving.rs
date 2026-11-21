@@ -100,6 +100,11 @@ impl Tables {
         !self.servers.is_empty()
     }
 
+    /// Whether a server listens on the network (port 0 is the cable's).
+    pub(super) fn on_network(&self) -> bool {
+        self.servers.iter().any(|s| s.port != 0)
+    }
+
     /// Whether an event waits for the pump.
     pub(super) fn has_events(&self) -> bool {
         !self.events.is_empty()

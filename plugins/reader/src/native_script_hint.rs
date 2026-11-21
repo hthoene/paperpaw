@@ -831,8 +831,9 @@ pub fn answered<'v>(
                 if view.hint_book().is_none() {
                     continue;
                 }
-                // A refused redraw leaves the page as it was: drawn at the
-                // next turn.
+                // Counted with its letters now; a refused redraw leaves the
+                // page as it was: drawn at the next turn.
+                view.packs_changed();
                 view.reflow(host, docs).ok();
                 laid = true;
                 if let Some(book) = view.hint_book() {

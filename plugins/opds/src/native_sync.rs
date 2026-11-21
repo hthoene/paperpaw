@@ -78,6 +78,9 @@ pub struct Report {
     pub failed: u32,
     /// Catalogs that could not be read.
     pub unreachable: u32,
+    /// Of those, the ones Offline mode held back: a sync the reader started
+    /// offers to go online for them (#459).
+    pub offline: u32,
     /// Catalogs whose address lists no books, only further lists (such as
     /// Project Gutenberg's start page): nothing to sync there.
     pub only_lists: u32,
@@ -507,8 +510,13 @@ impl Sync {
             }
             Ok(None)
         };
-        if web::ended(done) != Ended::Fine {
-            return unreachable(self);
+        match web::ended(done) {
+            Ended::Fine => {}
+            Ended::Offline if first => {
+                self.report_mut().offline += 1;
+                return unreachable(self);
+            }
+            _ => return unreachable(self),
         }
         let Some(run) = self.run.as_mut() else {
             return Ok(None);

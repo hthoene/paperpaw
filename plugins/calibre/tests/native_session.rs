@@ -141,6 +141,41 @@ fn a_silent_network_is_asked_again_and_then_calibre_is_not_found() {
     assert_eq!(s.state, State::Ended(Ending::NoNetwork { managed: false }));
 }
 
+/// Held back by Offline mode (reason 11, `offline`): it ends as without a
+/// network and, where the plugin's offer may be made, the reader is offered to
+/// go online (on *Go online* the plugin starts the session again; on *Not now*
+/// the screen says there is no network). Offered already: only no network.
+#[test]
+fn offline_mode_offers_to_go_online_and_going_online_starts_again() {
+    let no_network = State::Ended(Ending::NoNetwork { managed: true });
+    // The broadcast held back while Calibre is found.
+    let mut s = session();
+    s.start(BOUND, "").unwrap();
+    assert_eq!(
+        s.find_offline(true).unwrap(),
+        [Step::Redraw, Step::OfferOnline]
+    );
+    assert_eq!(s.state, no_network);
+    // Go online: the session starts again and finds Calibre anew.
+    assert_eq!(s.start(BOUND, "").unwrap(), [Step::Find, Step::Redraw]);
+    assert_eq!(s.state, State::Finding);
+    // Held back again, offered already: no network, nothing asked.
+    assert_eq!(s.find_offline(false).unwrap(), [Step::Redraw]);
+    assert_eq!(s.state, no_network);
+    // A broadcast that ends after the search is over asks nothing.
+    assert!(s.find_offline(true).unwrap().is_empty());
+    // The connection to the address set held back.
+    let mut s = session();
+    s.start(BOUND, "192.168.1.5").unwrap();
+    assert_eq!(s.offline(true).unwrap(), [Step::Redraw, Step::OfferOnline]);
+    assert_eq!(s.state, no_network);
+    let again = s.start(BOUND, "192.168.1.5").unwrap();
+    assert!(matches!(again[0], Step::Connect { .. }), "{again:?}");
+    // Not now: the screen says there is no network, nothing starts.
+    assert_eq!(s.no_network().unwrap(), [Step::Redraw]);
+    assert_eq!(s.state, no_network);
+}
+
 #[test]
 fn the_device_introduces_itself_with_its_extensions_and_the_password_hash() {
     let mut device = Fake {

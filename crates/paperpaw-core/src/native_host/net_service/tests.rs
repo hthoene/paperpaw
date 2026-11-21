@@ -21,6 +21,8 @@ mod pump_bytes;
 mod requests;
 #[path = "tests/serving.rs"]
 mod serving_tests;
+#[path = "tests/sleep_holds.rs"]
+mod sleep_holds;
 #[path = "tests/tls.rs"]
 mod tls_tests;
 

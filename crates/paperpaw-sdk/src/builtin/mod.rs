@@ -533,6 +533,8 @@ pub mod settings {
     /// Whether plugins may keep the device from going to sleep by itself
     /// ([`WakeHold`](crate::power::WakeHold)): on by default; off, the
     /// device sleeps after [`SLEEP_AFTER`] whatever plugins ask.
+    /// Not offered in interface 7, which carries no wake holds
+    /// (`docs/abi/device.md`).
     pub const AWAKE_HOLDS: Setting<bool> = Setting::new("core.awake-holds");
     /// How the screen is turned: one of [`ROTATIONS`], where the shell
     /// can turn it (see [`MenuNeed::Rotation`](crate::MenuNeed)); each

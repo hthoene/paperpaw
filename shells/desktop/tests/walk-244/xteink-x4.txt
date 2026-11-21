@@ -119,7 +119,6 @@ Text "Alice's Adventures in" at 120,143 207x35
 Text "Wonderland" at 120,177 124x35
 Text "New" at 374,211 38x29
 Text "Lewis Carroll" at 120,211 108x29
-Text "A" at 59,178 20x52
 Text "Alice's Adventures in" at 120,281 207x35
 Text "Wonderland" at 120,315 124x35
 Text "New" at 374,349 38x29
@@ -128,7 +127,6 @@ Text "A" at 59,316 20x52
 Text "Die Verwandlung" at 120,419 171x35
 Text "New" at 374,453 38x29
 Text "Franz Kafka" at 120,453 98x29
-Text "D" at 57,439 23x52
 Text "Die Verwandlung" at 120,527 171x35
 Text "New" at 374,561 38x29
 Text "Franz Kafka" at 120,561 98x29
@@ -312,7 +310,6 @@ Text "Alice's Adventures in" at 120,143 207x35
 Text "Wonderland" at 120,177 124x35
 Text "New" at 374,211 38x29
 Text "Lewis Carroll" at 120,211 108x29
-Text "A" at 59,178 20x52
 Text "Alice's Adventures in" at 120,281 207x35
 Text "Wonderland" at 120,315 124x35
 Text "New" at 374,349 38x29
@@ -321,7 +318,6 @@ Text "A" at 59,316 20x52
 Text "Die Verwandlung" at 120,419 171x35
 Text "New" at 374,453 38x29
 Text "Franz Kafka" at 120,453 98x29
-Text "D" at 57,439 23x52
 Text "Die Verwandlung" at 120,527 171x35
 Text "New" at 374,561 38x29
 Text "Franz Kafka" at 120,561 98x29

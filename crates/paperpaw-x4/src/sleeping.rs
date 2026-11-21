@@ -275,9 +275,14 @@ pub trait Board {
     fn look(&mut self) -> Look;
     /// The panel powered down; it keeps its picture.
     fn panel_down(&mut self);
-    /// Waits until the power button is let go, [`HELD_MS`] at the longest:
-    /// `false` if it is still held.
-    fn button_released(&mut self) -> bool;
+    /// Whether the power button is down.
+    fn power_down(&mut self) -> bool;
+    /// Takes the escape's request, if Power was held long enough for it
+    /// (`crate::escape`, G12): `true` then, and the reader is switched off
+    /// (taken, its readings no longer reset the processor).
+    fn take_escape(&mut self) -> bool;
+    /// Waits `ms` with the readings going, the watchdog fed.
+    fn wait(&mut self, ms: u64);
     /// Wi-Fi and Bluetooth asked to go off, a busy task waited for a
     /// while.
     fn leave_radios(&mut self);
@@ -410,6 +415,25 @@ pub fn after_suspend(lightly: bool, power_off: bool, pressed: bool) -> After {
     }
 }
 
+/// How often the power button is looked at while it is waited for (ms).
+const RELEASE_POLL_MS: u64 = 10;
+
+/// Waits until the power button is let go (`true`): held, it would wake the
+/// reader at once. `false`, switched off, if it is held for [`HELD_MS`] (a
+/// case, a sleeve) or long enough for the escape to ask (G12, from the
+/// press that put the reader to sleep): its readings go on until the sleep
+/// pauses them and would reset the processor if the request were left.
+fn button_released(board: &mut impl Board) -> bool {
+    let until = board.now_ms().saturating_add(HELD_MS);
+    while board.power_down() {
+        if board.take_escape() || board.now_ms() > until {
+            return false;
+        }
+        board.wait(RELEASE_POLL_MS);
+    }
+    true
+}
+
 /// One sleep of a reader put to sleep on battery or on USB: checks that it
 /// can sleep lightly (the power button let go, the radios off), naps until
 /// the power button or the time of [`Asleep::next`], and ends either way
@@ -422,7 +446,7 @@ pub fn run(off: Off, board: &mut impl Board) -> Ended {
         return Ended::SwitchOff(Why::Chosen);
     };
     board.panel_down();
-    if !board.button_released() {
+    if !button_released(board) {
         board.say("the power button is held: switching off");
         return Ended::SwitchOff(Why::Held);
     }
@@ -499,6 +523,7 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
+    use crate::escape::{self, Escape, Step};
 
     /// The reason of the switch-off a sleeping reader ends in, for the
     /// look at `percent` after `after_ms` (on battery, the choice 15 minutes).
@@ -811,6 +836,13 @@ mod tests {
         batteries: Vec<Option<u8>>,
         usb: bool,
         held: bool,
+        /// The escape's readings of the power button (every 5 ms while it
+        /// waits), as the input interrupt makes them.
+        escape: Escape,
+        asked: bool,
+        taken: bool,
+        /// The readings reset the processor (`Step::Force`).
+        forced: bool,
         radios_stay_on: bool,
         asleep: bool,
         /// When the sleep screen is wanted again; cleared once it is shown.
@@ -826,6 +858,10 @@ mod tests {
                 batteries: Vec::new(),
                 usb: false,
                 held: false,
+                escape: Escape::new(),
+                asked: false,
+                taken: false,
+                forced: false,
                 radios_stay_on: false,
                 asleep: false,
                 show_at: None,
@@ -838,6 +874,17 @@ mod tests {
 
         fn last(&self, call: &str) -> Option<usize> {
             self.calls.iter().rposition(|c| c == call)
+        }
+        /// The escape's readings until `to` (ms), the button as `held`.
+        fn read_until(&mut self, to: u64) {
+            while self.now < to {
+                self.now += 5;
+                match self.escape.update(self.now, self.held, true, self.taken) {
+                    Step::Idle => {}
+                    Step::Ask => self.asked = true,
+                    Step::Force => self.forced = true,
+                }
+            }
         }
     }
 
@@ -860,9 +907,16 @@ mod tests {
         fn panel_down(&mut self) {
             self.calls.push("panel".into());
         }
-        fn button_released(&mut self) -> bool {
-            self.calls.push("released".into());
-            !self.held
+        fn power_down(&mut self) -> bool {
+            self.held
+        }
+        fn take_escape(&mut self) -> bool {
+            let take = self.asked && !self.taken;
+            self.taken |= take;
+            take
+        }
+        fn wait(&mut self, ms: u64) {
+            self.read_until(self.now + ms);
         }
         fn leave_radios(&mut self) {
             self.calls.push("leave".into());
@@ -1005,6 +1059,23 @@ mod tests {
         assert_eq!(run(Off::of(M30), &mut board), Ended::SwitchOff(Why::Held));
         assert_eq!(board.at("nap"), None);
         assert_eq!(board.at("leave"), None);
+    }
+
+    #[test]
+    fn power_held_through_the_sleep_entry_ends_held_not_forced() {
+        // Power pressed at 0 to sleep and held on (to switch off, or a
+        // sleeve): `core.suspend` and the work finished take 2 s, then the
+        // sleep waits for the button. The escape asks at 8 s, from the
+        // press; the wait takes it, and the reader is switched off the clean
+        // way, not reset 1.5 s later by the readings.
+        let mut board = Fake::new(vec![]);
+        board.held = true;
+        board.read_until(2_000);
+        assert_eq!(run(Off::of(M30), &mut board), Ended::SwitchOff(Why::Held));
+        assert!(board.taken, "the escape's request is taken");
+        assert!(!board.forced, "the processor is not reset");
+        assert!(board.now < escape::HOLD_MS + escape::GRACE_MS);
+        assert_eq!(board.at("nap"), None);
     }
 
     #[test]

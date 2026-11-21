@@ -33,17 +33,17 @@ impl paperpaw_x4::sleeping::Board for Light<'_> {
         let _ = self.firmware.panel.power_down();
     }
 
-    fn button_released(&mut self) -> bool {
-        let until = now().0 + paperpaw_x4::sleeping::HELD_MS;
-        // Released first: held, the button would wake it at once.
-        while input::power_down() {
-            if now().0 > until {
-                return false;
-            }
-            power::feed();
-            self.firmware.delay.delay_millis(10);
-        }
-        true
+    fn power_down(&mut self) -> bool {
+        input::power_down()
+    }
+
+    fn take_escape(&mut self) -> bool {
+        self.firmware.take_escape()
+    }
+
+    fn wait(&mut self, ms: u64) {
+        power::feed();
+        self.firmware.delay.delay_millis(ms as u32);
     }
 
     fn leave_radios(&mut self) {
@@ -120,6 +120,10 @@ impl Firmware {
         info!("sleeping: the sleep screen again");
         self.apply(effects);
         self.finish_work();
+        // Power held 8 s while it was drawn (G12): switched off now.
+        if self.state.escape {
+            self.power_off();
+        }
         self.settle_frame();
         self.write_back();
     }

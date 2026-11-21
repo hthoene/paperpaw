@@ -93,8 +93,10 @@ made the frame 2,368 bytes, over the packer's limit of 2,048).
   feed's book in `core.reader` (or fetches a feed with no book), a hold offers *Open / Fetch / Remove*,
   *Add a feed* asks for the address on the keyboard (from `https://`). The action `news.open`, the place
   in the tools (order 44) and the icons are declared as in interface 6.
-- Differences from interface 6, on purpose: no *go online* offer in Offline mode (the network service
-  refuses and the notice *needs a network* says so, as in joplin and calibre); the book of a feed is found
+- Differences from interface 6, on purpose: the *go online* offer in Offline mode is restored (#459, the
+  shared `paperpaw_ui_kit::online::Offer`): a fetch the reader started on the list whose request ends
+  `Reason::Offline` asks once, *Go online* fetches it again, *Not now* (and the background fetch) says
+  *needs a network* (`tests/native_offline_flow.rs`); the book of a feed is found
   by the path the library gave (`books.txt`), not by looking for a file name: a book the reader moved is
   opened where it is kept only while `books.txt` knows it, else the feed is fetched again; the books of
   version 1 (by name alone) are not retired. After an update from Beta 3 `books.txt` is empty, so a tap
