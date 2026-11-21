@@ -493,10 +493,10 @@ fn start() -> Firmware {
     let bundle = ready.staged.other_slot.take();
     let flash = ready.flash.clone();
     #[cfg(feature = "native-on")]
-    let device_table = match &ready.code {
-        CodePlugins::Load(loader) => Some(loader.device_table()),
-        _ => None,
-    };
+    let (device_table, card_code) = (
+        ready.code.device_table(),
+        matches!(ready.code, CodePlugins::Load(_)),
+    );
     let firmware = Firmware {
         panel: ready.panel,
         network: ready.network,
@@ -516,6 +516,8 @@ fn start() -> Firmware {
         secrets: secrets::Secrets::new(ready.secrets),
         #[cfg(feature = "native-on")]
         device_table,
+        #[cfg(feature = "native-on")]
+        card_code,
         state: State::default(),
         // Last, and built right in its place: the kernel is large.
         kernel: kernel(
@@ -795,9 +797,9 @@ fn prepare() -> Ready {
     );
     #[cfg(feature = "ppn5")]
     network.attach_device(device.clone());
-    // Safe mode is known only now: no loader is made then, so the device is told.
+    // Safe mode is known only now: its loader loads no code, so the device is told.
     #[cfg(feature = "ppn5")]
-    if let CodePlugins::SafeMode(mode) = &code {
+    if let CodePlugins::SafeMode(_, mode) = &code {
         device_host::tell_native(&device, Some(mode));
     }
     // Light sleeps while idle on battery (allowed only by the main loop),
@@ -914,14 +916,28 @@ fn install_note(ota: Option<&ota::Ota>, storage: &dyn Storage, panicked: Option<
     }
 }
 
-/// How this start treats code plugins (ADR 0024).
+/// How this start treats code plugins (ADR 0024). The plugins linked into
+/// the firmware run at every start (#457): they are the firmware, so a trial
+/// tests them and safe mode keeps Wi-Fi and the update to fetch a fix with.
 enum CodePlugins {
     Load(native::Loader),
-    /// Safe mode: none loaded.
-    SafeMode(paperpaw_sdk::native::SafeMode),
-    /// None this start: an update is on trial, which must show it starts
-    /// by itself. What the firmware takes is told once it is kept (#164).
-    OnTrial,
+    /// Safe mode: none of the card loaded; of the linked plugins, the one
+    /// the crash was in is held back (`Kernel::native_decide`).
+    SafeMode(native::LinkedOnly, paperpaw_sdk::native::SafeMode),
+    /// None of the card this start: an update is on trial, which must show it
+    /// starts by itself. What the firmware takes is told once it is kept (#164).
+    OnTrial(native::LinkedOnly),
+}
+
+impl CodePlugins {
+    /// The device's table of handles, which the linked plugins share.
+    #[cfg(feature = "native-on")]
+    fn device_table(&self) -> native::DeviceTable {
+        match self {
+            Self::Load(loader) => loader.device_table(),
+            Self::SafeMode(linked, _) | Self::OnTrial(linked) => linked.device_table(),
+        }
+    }
 }
 
 /// What this firmware loads, as plugins see it (`Place`),
@@ -934,11 +950,6 @@ fn native(
     native
 }
 
-/// Loads nothing: in safe mode the kernel asks for no code.
-struct NoCode;
-
-impl paperpaw_core::CodeLoader for NoCode {}
-
 /// Whether code plugins are loaded at this start, after the key for safe
 /// mode was looked for and the failed starts counted.
 fn code_plugins(
@@ -948,27 +959,11 @@ fn code_plugins(
     #[cfg(feature = "ppn5")] device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     #[cfg(feature = "ppn5")] secrets: secrets::Kept,
 ) -> CodePlugins {
-    if ota.is_some_and(ota::Ota::on_trial) {
-        info!("native: an update on trial starts without code plugins");
-        native::no_hot_code();
-        return CodePlugins::OnTrial;
-    }
-    if let Some(safe_mode) = safe_mode::check(input::held(safe_mode::KEY)) {
-        warn!(
-            "native: safe mode ({:?}), without code plugins",
-            safe_mode.reason
-        );
-        native::no_hot_code();
-        return CodePlugins::SafeMode(safe_mode);
-    }
     #[cfg(feature = "esp32s3")]
-    let place = {
-        let _ = flash;
-        native::Place::new()
-    };
+    let place = native::Place::new();
     #[cfg(feature = "esp32c3")]
     let place = native::Place::new(flash.clone());
-    CodePlugins::Load(native::Loader::new(
+    let loader = native::Loader::new(
         place,
         #[cfg(feature = "ppn5")]
         host_net,
@@ -976,7 +971,21 @@ fn code_plugins(
         device,
         #[cfg(feature = "ppn5")]
         secrets::Wiring::new(flash.clone(), secrets),
-    ))
+    );
+    if ota.is_some_and(ota::Ota::on_trial) {
+        info!("native: an update on trial starts without code plugins of the card");
+        native::no_hot_code();
+        return CodePlugins::OnTrial(native::LinkedOnly::new(loader));
+    }
+    if let Some(safe_mode) = safe_mode::check(input::held(safe_mode::KEY)) {
+        warn!(
+            "native: safe mode ({:?}), without code plugins of the card",
+            safe_mode.reason
+        );
+        native::no_hot_code();
+        return CodePlugins::SafeMode(native::LinkedOnly::new(loader), safe_mode);
+    }
+    CodePlugins::Load(loader)
 }
 
 /// The status lines of the X4s by default (see `setting_default_text`):
@@ -1132,10 +1141,12 @@ fn kernel(
         CodePlugins::Load(loader) => {
             builder.code_plugins(native(staged.not_installed), Box::new(loader))
         }
-        CodePlugins::SafeMode(safe_mode) => builder
-            .code_plugins(native(staged.not_installed), Box::new(NoCode))
+        CodePlugins::SafeMode(linked, safe_mode) => builder
+            .code_plugins(native(staged.not_installed), Box::new(linked))
             .safe_mode(safe_mode),
-        CodePlugins::OnTrial => builder.native_after_trial(native(staged.not_installed)),
+        CodePlugins::OnTrial(linked) => {
+            builder.native_after_trial(native(staged.not_installed), Box::new(linked))
+        }
     };
     let builder = staged
         .installs

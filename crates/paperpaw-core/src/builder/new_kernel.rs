@@ -176,7 +176,7 @@ impl BuilderParts {
             firmware: self.firmware.take(),
             native: None,
             native_safe_mode: self.safe_mode.clone(),
-            after_trial: self.after_trial.take(),
+            after_trial: None,
             power: paperpaw_sdk::power::Power::default(),
             work_states: paperpaw_sdk::work::WorkStates::default(),
             reader: false,

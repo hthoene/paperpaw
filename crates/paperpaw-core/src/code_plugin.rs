@@ -167,15 +167,16 @@ pub trait CodeLoader {
     }
 
     /// Called once per start, before the first plugin is asked
-    /// ([`load_native`](Self::load_native)); not in safe
-    /// mode, where no plugin is loaded. A shell that offers host services to
-    /// admission wires them here (`storage`: the card, as an `Rc`), so every
-    /// plugin is admitted against what is wired at this start and not what an
-    /// earlier build left.
+    /// ([`load_native`](Self::load_native)); also in safe mode and while an
+    /// update is on trial, where no plugin of the card is asked but the
+    /// plugins built into the program are admitted after the build. A shell
+    /// that offers host services to admission wires them here (`storage`: the
+    /// card, as an `Rc`), so every plugin is admitted against what is wired at
+    /// this start and not what an earlier build left.
     fn prepare(&mut self, _storage: &alloc::rc::Rc<dyn Storage>) {}
 
-    /// Every code plugin of this start is loaded (in safe mode, none
-    /// was): e.g. say how much room is left for them
+    /// Every code plugin of this start is loaded (in safe mode and on an
+    /// update's trial, none was): e.g. say how much room is left for them
     /// ([`paperpaw_sdk::native::keep_code_room`]).
     fn finish(&mut self, _storage: &dyn Storage) {}
 
@@ -253,6 +254,9 @@ pub(crate) struct CodePlugins {
     pub(crate) loader: Box<dyn CodeLoader>,
     /// This start goes without them.
     pub(crate) safe_mode: Option<SafeMode>,
+    /// This start goes without them because an update is on trial
+    /// ([`KernelBuilder::native_after_trial`](crate::KernelBuilder::native_after_trial)).
+    pub(crate) on_trial: bool,
 }
 
 /// What a start knows of the code among the card's plugins: how it loads
@@ -338,23 +342,18 @@ impl Kernel {
             found = self.refuse_built_in_ids(found, disabled, built_in);
         }
         let Some(CodePlugins {
-            mut native,
+            native,
             mut loader,
             safe_mode,
+            on_trial,
         }) = code
         else {
-            let problem = PluginProblem::Unsupported;
-            for plugin in found {
-                self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
-            }
+            self.list_unsupported(found, disabled);
             return;
         };
         let storage = self.shared.storage.clone();
-        if let Some(mut safe_mode) = safe_mode {
-            self.hold_back(found, disabled, &mut safe_mode);
-            native.safe_mode = Some(safe_mode);
-            self.shared.native = Some(native);
-            loader.finish(storage.as_ref());
+        if on_trial || safe_mode.is_some() {
+            self.hold_card_code(found, disabled, native, loader, safe_mode);
             return;
         }
         // Discovery settled pending install marks before this snapshot. No
@@ -567,6 +566,47 @@ impl Kernel {
         };
         self.list_code_plugin(plugin, &disabled, state, PluginProblem::Unsupported);
         self.set_code_info(&plugin.manifest().id, problem);
+    }
+
+    /// A start that runs no code of the card (safe mode with `safe_mode`, else
+    /// an update on trial): the plugins built into the program do, admitted
+    /// after the build against what `loader` wires now.
+    fn hold_card_code(
+        &mut self,
+        found: Vec<DataPlugin>,
+        disabled: &[String],
+        mut native: Native,
+        mut loader: Box<dyn CodeLoader>,
+        safe_mode: Option<SafeMode>,
+    ) {
+        let storage = self.shared.storage.clone();
+        loader.prepare(&storage);
+        match safe_mode {
+            Some(mut safe_mode) => {
+                self.hold_back(found, disabled, &mut safe_mode);
+                native.safe_mode = Some(safe_mode);
+                self.shared.native = Some(native);
+            }
+            None => {
+                self.list_unsupported(found, disabled);
+                self.shared.after_trial = Some(native);
+            }
+        }
+        loader.finish(storage.as_ref());
+        self.ask_hyphenation_sink(loader.as_mut(), &storage);
+    }
+
+    /// No code is loaded and none is offered: each plugin with code is
+    /// listed as one this start does not support.
+    fn list_unsupported(&mut self, found: Vec<DataPlugin>, disabled: &[String]) {
+        for plugin in found {
+            self.list_code_plugin(
+                &plugin,
+                disabled,
+                PluginState::Failed,
+                PluginProblem::Unsupported,
+            );
+        }
     }
 
     /// Safe mode: no code is loaded; the plugin the crash was in is

@@ -40,7 +40,7 @@ fn a_kept_trial_with_one_interface_7_card_plugin_asks_for_the_restart() {
     let native = Native::new("code.ppn");
     let mut kernel = Kernel::builder(DEVICE)
         .storage(card())
-        .native_after_trial(native.clone())
+        .native_after_trial(native.clone(), Box::new(Interface7Only))
         .build()
         .unwrap();
     // The trial's start loaded no code.
@@ -99,6 +99,89 @@ fn an_interface_7_build_fetched_for_an_update_waits_for_this_firmware() {
     assert!(code_to_load(&card, &native, Some(&X4)));
     // For the X4 Pro nothing waits.
     assert!(fetched_for(&card, &native, Some(&Host::x4_pro(MINOR))).is_empty());
+}
+
+/// A loader that notes what the kernel asks of it.
+struct Noting(alloc::rc::Rc<core::cell::RefCell<alloc::vec::Vec<&'static str>>>);
+impl super::CodeLoader for Noting {
+    fn load_native(
+        &mut self,
+        _: &dyn Storage,
+        _: &super::CodeFile<'_>,
+    ) -> Result<Option<Box<dyn super::NativeAdmission>>, paperpaw_sdk::PluginProblem> {
+        self.0.borrow_mut().push("load");
+        Ok(Some(Box::new(super::Admitted)))
+    }
+
+    fn reads(&self) -> Option<Host> {
+        Some(X4)
+    }
+
+    fn prepare(&mut self, _: &alloc::rc::Rc<dyn Storage>) {
+        self.0.borrow_mut().push("prepare");
+    }
+
+    fn finish(&mut self, _: &dyn Storage) {
+        self.0.borrow_mut().push("finish");
+    }
+
+    fn hyphenation_sink(
+        &mut self,
+        _: &alloc::rc::Rc<dyn Storage>,
+    ) -> Option<crate::native_host::HyphenTables> {
+        self.0.borrow_mut().push("hyphenation");
+        None
+    }
+}
+
+/// The plugins built into the firmware run on an update's trial and in safe
+/// mode (#457): the loader wires what they are admitted against, as at any
+/// start, but no code of the card loads, and on the trial a build fetched for
+/// the update waits until the update is kept (it may still go back).
+#[test]
+fn trial_and_safe_mode_wire_the_built_in_plugins_and_load_no_card_code() {
+    use paperpaw_sdk::native::{SafeMode, SafeModeReason};
+    use paperpaw_sdk::{PluginProblem, PluginState};
+    for safe in [false, true] {
+        let card = card();
+        card.write("plugins/.clock.next/plugin.ini", INI.as_bytes())
+            .unwrap();
+        card.write("plugins/.clock.next/code.ppn", FILE).unwrap();
+        assert!(paperpaw_sdk::native::remember_fetched(
+            &card,
+            "clock",
+            &sha256()
+        ));
+        let asked = alloc::rc::Rc::default();
+        let loader = Box::new(Noting(alloc::rc::Rc::clone(&asked)));
+        let builder = Kernel::builder(DEVICE).storage(card);
+        let mut kernel = if safe {
+            builder
+                .code_plugins(Native::new("code.ppn"), loader)
+                .safe_mode(SafeMode::new(SafeModeReason::KeyHeld))
+        } else {
+            builder.native_after_trial(Native::new("code.ppn"), loader)
+        }
+        .build()
+        .unwrap();
+        assert_eq!(
+            *asked.borrow(),
+            ["prepare", "finish", "hyphenation"],
+            "safe mode {safe}"
+        );
+        let clock = kernel.plugins().get("clock").unwrap();
+        assert_ne!(clock.state, PluginState::Running, "safe mode {safe}");
+        if !safe {
+            assert_eq!(clock.problem, Some(PluginProblem::Unsupported));
+            assert!(kernel.storage().exists("plugins/.clock.next/code.ppn"));
+            kernel.trial_kept();
+            assert!(code_to_load(
+                kernel.storage(),
+                &Native::new("code.ppn"),
+                Some(&X4)
+            ));
+        }
+    }
 }
 
 /// What a card that comes from Beta 3 holds: plugin files of interface 6
@@ -316,7 +399,7 @@ fn a_folder_with_a_built_in_plugins_id_is_refused_on_every_start() {
             .built_in_ids(widgets_is_built_in)
     };
     let mut on_trial = builder(card_with_built_in_id())
-        .native_after_trial(native())
+        .native_after_trial(native(), Box::new(Interface7Only))
         .build()
         .unwrap();
     assert_refused_for_its_id(&mut on_trial);

@@ -639,7 +639,7 @@ fn what_the_firmware_takes_is_told_once_the_update_on_trial_is_kept() {
     // told, and plugins (the store) see what the firmware takes (#164).
     let mut kernel = Kernel::builder(DEVICE)
         .storage(storage())
-        .native_after_trial(Native::new("code.ppn"))
+        .native_after_trial(Native::new("code.ppn"), Box::new(Loader::default()))
         .build()
         .unwrap();
     assert!(kernel.shared.native.is_none());
