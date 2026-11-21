@@ -190,7 +190,8 @@ impl<'a> Notify<'a> {
 }
 
 /// Runtime policies for an own screen instance. A fresh policy clears all
-/// four runtime flags (guards, secret, held edges, grays); declaration-only overlay/readiness bits are excluded.
+/// four runtime flags (guards, secret, held edges, grays) and keeps the status
+/// bar and the row of hints as declared; declaration-only overlay/readiness bits are excluded.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ScreenPolicy {
     flags: u32,
@@ -233,6 +234,14 @@ impl ScreenPolicy {
     #[must_use]
     pub const fn status_bar(mut self, bar: crate::native::declare::StatusBar) -> Self {
         self.flags = (self.flags & !(3 << 11)) | bar.bits();
+        self
+    }
+    /// When the row of button hints shows with the screen (see
+    /// [`ScreenDecl::hints`](crate::native::declare::ScreenDecl::hints));
+    /// not said: as the screen declared. Draft 38.
+    #[must_use]
+    pub const fn hints(mut self, hints: crate::native::declare::HintRow) -> Self {
+        self.flags = (self.flags & !(3 << 13)) | hints.bits();
         self
     }
     pub(crate) const fn flags(self) -> u32 {

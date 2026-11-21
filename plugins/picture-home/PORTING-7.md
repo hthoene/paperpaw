@@ -271,8 +271,9 @@ Blocked, each named (nothing invented):
   something, and the bar that shows after a press: the first key press (not the power key) only shows
   it, and the row of hints with it through `command.show_hints`). Differences: a bar shown after a
   press goes at the first minute tick after its four seconds (`event.tick` is the only clock a screen
-  has, so up to a minute, not four seconds); the row of hints shows after a press or by the kernel's
-  own setting, no contract lets a screen ask for it always or never; the bar is on the dashboard only (not while the picture is made, as the page).
+  has, so up to a minute, not four seconds); the row of hints shows as *Buttons row* says (always,
+  after a press, never: `ScreenPolicy::hints`, draft 38, sent at each show where it changed, #448,
+  as Beta 3's `set_screen_hints`); the bar is on the dashboard only (not while the picture is made, as the page).
   The bar's drawing and taps need a host with a screen stack (`picture-home-bars`, H1).
   X4 measurement list: a shown bar holds two `SERVICE_BUFFER` buffers while the dashboard draws, and
   reads the registry's status items and their values on each draw (heap peak and time unmeasured).

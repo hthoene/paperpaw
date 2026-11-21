@@ -476,15 +476,21 @@ fn a_screen_policy_is_the_submitters_own_and_staged_apart() {
         );
     }
     // Bit 9 (`grays`) is a policy as well, alone or beside the others.
-    for flags in [0x200, 0x212, 0x800, 0x1000, 0x1210] {
+    // So are `hints` (bits 13-14, draft 38): always, on a press, never.
+    for flags in [
+        0x200, 0x212, 0x800, 0x1000, 0x1210, 0x2000, 0x4000, 0x6000, 0x5010,
+    ] {
         let (status, _, policies) = submit_policy(&kernel, 3, &[policy(0, flags)]);
         assert_eq!(status, OK, "{flags:#x}");
         assert_eq!(policies.len(), 1);
         assert_eq!(policies[0].flags, flags);
     }
-    // Bits other than 1, 4, 5, 9 and 11-12, among them 8 (`hints_hidden`:
-    // declared only), alone or beside the allowed ones; `status_bar` 3.
-    for flags in [1, 4, 8, 0x40, 0x100, 0x112, 0x400, 0x600, 0x1800, 0x2000] {
+    // Bits other than 1, 4, 5, 9, 11-12 and 13-14, among them 8
+    // (`hints_hidden`: declared only), alone or beside the allowed ones;
+    // `status_bar` 3.
+    for flags in [
+        1, 4, 8, 0x40, 0x100, 0x112, 0x400, 0x600, 0x1800, 0x8000, 0xa000,
+    ] {
         assert_eq!(
             submit_policy(&kernel, 3, &[policy(0, flags)]).0,
             ERR_INVALID
