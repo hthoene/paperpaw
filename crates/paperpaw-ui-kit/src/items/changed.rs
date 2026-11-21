@@ -59,7 +59,7 @@ fn key_of(item: &Item) -> RowKey {
         Item::Row(row) => {
             let flags = [
                 u8::from(row.stepper),
-                u8::from(row.track.is_some()),
+                u8::from(row.track().is_some()),
                 u8::from(row.disabled),
                 u8::from(row.field),
                 u8::from(row.whole),

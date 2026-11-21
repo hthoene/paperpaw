@@ -98,7 +98,7 @@ impl<'s> WordRows<'s> {
             zone: None,
             icon: None,
             stepper: false,
-            track: None,
+            extra: None,
             wrap_value: false,
             disabled: false,
             on: None,
@@ -106,7 +106,6 @@ impl<'s> WordRows<'s> {
             whole: false,
             small: false,
             plain: false,
-            bold: None,
         }))
     }
 
@@ -160,7 +159,7 @@ impl<'s> WordRows<'s> {
                 zone: None,
                 icon: None,
                 stepper: false,
-                track: None,
+                extra: None,
                 wrap_value: false,
                 disabled: false,
                 on: None,
@@ -168,7 +167,6 @@ impl<'s> WordRows<'s> {
                 whole: false,
                 small: false,
                 plain: false,
-                bold: None,
             });
         }
         Ok(rows)
