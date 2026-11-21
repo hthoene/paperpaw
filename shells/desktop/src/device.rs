@@ -218,6 +218,7 @@ fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
             .open()
             .ok()
             .map(|card| Rc::new(card) as Rc<dyn Storage>),
+        walk: paperpaw_core::LibraryWalk::default(),
     }
 }
 #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
@@ -1274,6 +1275,8 @@ fn build_kernel(
         // admitted in `build`, and is offered what the linked ones are.
         #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
         let prepared = crate::linked::prepare(profile, linked, &pool);
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        let builder = builder.library_walk(linked.walk.clone());
         let kernel = builder.build()?;
         // The first-party plugins that are interface-7 plugins (the app built
         // without their interface-6 form), before the first start.

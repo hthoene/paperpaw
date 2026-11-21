@@ -80,6 +80,7 @@ mod key_guard;
 mod keymap;
 pub mod kit;
 mod language_seed;
+mod library_walk;
 mod lifecycle;
 mod memory_notice;
 mod meter;
@@ -172,6 +173,7 @@ pub use crate::io::{
 };
 use crate::keymap::{InputKey, Keymap, Origin};
 pub use crate::language_seed::{LanguageSeed, Sink};
+pub use crate::library_walk::LibraryWalk;
 use crate::refresh::RefreshPolicy;
 use crate::registry::Registry;
 use crate::screens::{ActiveScreen, uncovered};
