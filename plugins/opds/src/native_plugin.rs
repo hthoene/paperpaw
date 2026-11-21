@@ -550,6 +550,9 @@ impl Opds {
     }
 
     /// An answer to a question the plugin asked.
+    // Out of line: folded into `event` with the offer to go online (#459), the
+    // frame is 2,064 B on the S3, over the 2 KiB band (#4538).
+    #[inline(never)]
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
         // The offer to go online first (it sent `command.go_online` on *Go
         // online*): what was held back is done again, or said to need the
