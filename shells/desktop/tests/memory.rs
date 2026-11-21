@@ -677,7 +677,9 @@ const INSTALL_GROWTH_KIB: f64 = 13.8;
 /// tenth. `install` is 2.7 KiB with the source of #1547 (2.6 without it; QA's train 51
 /// smoke, bisected: #1569 and #1551 leave 2.6): the member is named, the pin set
 /// to what was measured.
-const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 2.7), ("install2", 0.9)];
+// `install` is 2.8 KiB since #4384: the kit's row is 8 B smaller (its slider's
+// track is a thin pointer) and the store's lists grow to other allocator sizes.
+const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 2.8), ("install2", 0.9)];
 
 /// The run prints tenths of a KiB, and the difference of two of them is not
 /// exact as a float (137.3 - 123.7 is 13.600000000000009): half a tenth is

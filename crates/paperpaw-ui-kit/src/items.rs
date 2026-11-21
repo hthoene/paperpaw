@@ -63,10 +63,10 @@ pub struct RowItem {
     /// target, with the value tight between them.
     pub stepper: bool,
     /// A number shown with a slider under its row (touch screens): its value and
-    /// range, the one element of a boxed slice (a field of every row of every
+    /// range, the one element of a boxed array (a field of every row of every
     /// list is a field of every plugin's frame, so it is as small as it can
-    /// be). The row is a stepper too; the track takes a second row.
-    pub track: Option<alloc::boxed::Box<[Track]>>,
+    /// be: a thin pointer). The row is a stepper too; the track takes a second row.
+    pub track: Option<alloc::boxed::Box<[Track; 1]>>,
     /// Shown faint, passed by the focus and not chosen by a tap.
     pub disabled: bool,
     /// A switch: on or off (the row is told as a switch to whoever asks what

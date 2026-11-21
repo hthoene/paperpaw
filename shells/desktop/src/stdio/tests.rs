@@ -418,10 +418,19 @@ fn ready_says_the_protocol_and_profiles() {
         Some(f64::from(PROTOCOL))
     );
     assert!(ready.contains("\"xteink-x4-pro\""));
-    // Built in a checkout: its commit, as Git writes it.
+    // Built in a checkout: its commit, as Git writes it. In a copy of the
+    // files without `.git` (the quick check's build set) there is none, and
+    // `ready` says so (`null`).
     let commit = json::text(&members, "commit").unwrap_or_default();
+    let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .any(|folder| folder.join(".git").exists());
     assert!(
-        commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit()),
+        if checkout {
+            commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit())
+        } else {
+            commit.is_empty() || commit.len() == 40
+        },
         "{ready}"
     );
     assert!(ready.contains("\"release\": true") || ready.contains("\"release\": false"));

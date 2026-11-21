@@ -296,6 +296,9 @@ while [[ -z "$set_dir" ]]; do
 done
 src="$set_dir/src"
 echo "quick-check: build set $set_dir (waited $((SECONDS - t_wait))s)"
+# The copy has no .git: the emulator's build script would say "no commit" and its `ready` test fails. The
+# base commit stands in (one value for every run of a branch, so nothing is built again for it).
+export PAPERPAW_COMMIT="${PAPERPAW_COMMIT:-$mb}"
 # The checkout's files (tracked, and new ones not ignored) into the copy: a file whose content is the same
 # keeps its time, so cargo rebuilds what changed against the set's last run; what is gone goes.
 mkdir -p "$src" || exit 2

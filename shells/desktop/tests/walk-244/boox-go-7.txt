@@ -138,40 +138,40 @@ Row "Appearance" at 0,1478 1264x83
 Row "Manage plugins" at 0,1561 1264x83
 Heading "Display" at 0,0 1264x88
 Row "Turn the screen, Upright, Upright or on its side. With “Only this book” on, it applies to that book alone." (focused) at 0,112 1264x130
-Row "Front light, 0, How bright the front light shines; 0 is off. The emulated screen stays dark." at 0,242 1264x130
-Button "−" at 1075,242 83x83
+Row "Front light, 0, How bright the front light shines; 0 is off. The emulated screen stays dark." at 0,242 1264x213
+Button "−" at 1034,242 83x83
 Button "+" at 1158,242 83x83
-Row "Light colour, 76, How warm (yellow) the light is, kinder to the eyes in the evening." at 0,372 1264x130
-Button "−" at 1075,372 83x83
-Button "+" at 1158,372 83x83
-Row "More" at 0,502 1264x83
-Row "Reset to defaults" at 0,585 1264x83
+Row "Light colour, 76, How warm (yellow) the light is, kinder to the eyes in the evening." at 0,455 1264x213
+Button "−" at 1017,455 83x83
+Button "+" at 1158,455 83x83
+Row "More" at 0,668 1264x83
+Row "Reset to defaults" at 0,751 1264x83
 Heading "Display" at 0,0 1264x88
 Row "Turn the screen, Upright, Upright or on its side. With “Only this book” on, it applies to that book alone." at 0,112 1264x130
-Row "Front light, 1, How bright the front light shines; 0 is off. The emulated screen stays dark." (focused) at 0,242 1264x130
-Button "−" at 1075,242 83x83
+Row "Front light, 1, How bright the front light shines; 0 is off. The emulated screen stays dark." (focused) at 0,242 1264x213
+Button "−" at 1034,242 83x83
 Button "+" at 1158,242 83x83
-Row "Light colour, 76, How warm (yellow) the light is, kinder to the eyes in the evening." at 0,372 1264x130
-Button "−" at 1075,372 83x83
-Button "+" at 1158,372 83x83
-Row "More" at 0,502 1264x83
-Row "Reset to defaults" at 0,585 1264x83
+Row "Light colour, 76, How warm (yellow) the light is, kinder to the eyes in the evening." at 0,455 1264x213
+Button "−" at 1017,455 83x83
+Button "+" at 1158,455 83x83
+Row "More" at 0,668 1264x83
+Row "Reset to defaults" at 0,751 1264x83
 Heading "Display · More" at 0,0 1264x88
 Row "Flash on screen change, Redraw fully when a screen opens: no traces of the last one, but slower." (focused) (on) at 0,112 1264x130
 Row "Full refresh in menus, 0, A flash after this many menu changes removes ghosting; 0 never flashes." at 0,242 1264x130
-Button "−" at 1075,242 83x83
+Button "−" at 1034,242 83x83
 Button "+" at 1158,242 83x83
 Row "Reset to defaults" at 0,372 1264x83
 Heading "Display · More" at 0,0 1264x88
 Row "Flash on screen change, Redraw fully when a screen opens: no traces of the last one, but slower." (focused) (off) at 0,112 1264x130
 Row "Full refresh in menus, 0, A flash after this many menu changes removes ghosting; 0 never flashes." at 0,242 1264x130
-Button "−" at 1075,242 83x83
+Button "−" at 1034,242 83x83
 Button "+" at 1158,242 83x83
 Row "Reset to defaults" at 0,372 1264x83
 Heading "Display · More" at 0,0 1264x88
 Row "Flash on screen change, Redraw fully when a screen opens: no traces of the last one, but slower." (off) at 0,112 1264x130
 Row "Full refresh in menus, 0, A flash after this many menu changes removes ghosting; 0 never flashes." at 0,242 1264x130
-Button "−" at 1075,242 83x83
+Button "−" at 1034,242 83x83
 Button "+" at 1158,242 83x83
 Row "Reset to defaults" (focused) at 0,372 1264x83
 Dialog "" at 0,1307 1264x373
@@ -182,7 +182,7 @@ Row "Cancel" at 0,1573 1264x83
 Heading "Display · More" at 0,0 1264x88
 Row "Flash on screen change, Redraw fully when a screen opens: no traces of the last one, but slower." (off) at 0,112 1264x130
 Row "Full refresh in menus, 0, A flash after this many menu changes removes ghosting; 0 never flashes." at 0,242 1264x130
-Button "−" at 1075,242 83x83
+Button "−" at 1034,242 83x83
 Button "+" at 1158,242 83x83
 Row "Reset to defaults" (focused) at 0,372 1264x83
 Button "Start reading, Choose a book from your library." at 47,378 1170x283

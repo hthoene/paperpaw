@@ -26,7 +26,7 @@ impl Item {
             let mut one = Vec::new();
             one.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
             one.push(track);
-            row.track = Some(one.into_boxed_slice());
+            row.track = one.into_boxed_slice().try_into().ok();
             row.stepper = true;
         }
         Ok(self)
@@ -49,8 +49,8 @@ impl ItemList {
         match self.items.get_mut(index) {
             Some(Item::Row(row)) if row.track.is_some() => {
                 row.value = value;
-                if let Some(track) = row.track.as_mut().and_then(|t| t.first_mut()) {
-                    track.value = number;
+                if let Some(track) = row.track.as_mut() {
+                    track[0].value = number;
                 }
                 true
             }
