@@ -393,7 +393,7 @@ impl Msc {
 /// computer off) after it was up before the mode ends (ms).
 pub const BUS_DOWN_MS: u64 = 4_000;
 /// How long the mode waits for a computer that never came (ms).
-pub const NO_COMPUTER_MS: u64 = 60_000;
+pub const NO_COMPUTER_MS: u64 = 15_000;
 
 /// Why the mode ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

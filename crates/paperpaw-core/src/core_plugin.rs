@@ -374,6 +374,8 @@ fn register_device_actions(r: &mut Staging) -> Result<(), RegisterError> {
     // Only where the device can be a drive (the S3 boards).
     static ENTRY: [MenuEntry; 1] = [MenuEntry::new(menus::TOOLS, USB_DRIVE).order(80)];
     r.add_menu_entries(&ENTRY)?;
+    static ICON: [(Id, &str); 1] = [(USB_DRIVE, "usb")];
+    r.add_icons(&ICON)?;
     r.set_menu_need(
         USB_DRIVE,
         paperpaw_sdk::MenuNeed::Has(paperpaw_sdk::Capability::USB_DRIVE),

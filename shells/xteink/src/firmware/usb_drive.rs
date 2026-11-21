@@ -11,6 +11,7 @@ use paperpaw_fat::Swapped;
 use paperpaw_platform::buttons;
 
 use super::Firmware;
+use crate::usb_power::Sense;
 use crate::{input, now, power};
 
 /// Asked each turn of the drive's loop: whether the reader asks to end it
@@ -34,6 +35,13 @@ impl Firmware {
     #[inline(never)]
     pub(super) fn usb_drive(&mut self) {
         self.state.usb_drive = false;
+        // No cable, no computer: say so at once, not after a minute's wait
+        // (#437). A charger alone still waits, for `NO_COMPUTER_MS`.
+        if !self.usb_power.cable_now() {
+            info!("USB drive: no cable");
+            let effects = self.kernel.usb_drive_refused(now());
+            return self.apply(effects);
+        }
         self.settle_frame();
         // Plugins save and hear `core.suspend`, as before a sleep.
         self.pause_trial();

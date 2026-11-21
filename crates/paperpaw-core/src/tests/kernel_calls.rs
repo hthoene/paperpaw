@@ -246,6 +246,12 @@ fn the_card_goes_to_a_computer_as_a_drive_where_the_device_can() {
     let effects = kernel.usb_drive_ended(Instant(60_000));
     assert!(!effects.usb_drive());
     assert_eq!(*log.borrow(), ["resume", "ended", "library"]);
+    // No cable (#437): the card never left; woken, nothing walked anew.
+    kernel.suspend(Instant(70_000));
+    log.borrow_mut().clear();
+    let effects = kernel.usb_drive_refused(Instant(70_100));
+    assert!(!effects.usb_drive());
+    assert_eq!(*log.borrow(), ["resume"]);
 }
 
 #[test]
