@@ -2,8 +2,8 @@
 //! written with accented letters between brackets, `[Šéţţîñĝš ~~~]`, so
 //! that text too long for its place and text not translated through the
 //! catalogs both show. It is a data plugin that adds a whole language
-//! (`i18n/*.pseudo.ini`, language [`super::PSEUDO`]), put into the
-//! library of sessions in that language.
+//! (`i18n/pseudo.ppcat` and `i18n/*.pseudo.ini`, language
+//! [`super::PSEUDO`]), put into the library of sessions in that language.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -135,32 +135,44 @@ pub fn pseudo(text: &str) -> String {
 }
 
 /// The catalog files of the pseudo-language for `messages` (English, by
-/// key): `i18n/<n>.pseudo.ini`, each below the size a data plugin's file
-/// may have.
-pub fn catalogs(messages: &BTreeMap<String, String>) -> Vec<(String, String)> {
+/// key). All of the app's texts made longer are more than a data plugin's
+/// text catalogs may take together, so they are compiled into
+/// `i18n/pseudo.ppcat` (ADR 0033), as in a language pack; the few longer
+/// than a compiled catalog holds are in `i18n/<n>.pseudo.ini`, each below
+/// the size a data plugin's file may have.
+pub fn catalogs(messages: &BTreeMap<String, String>) -> Result<Files, String> {
     let header = format!(
         "[meta]\nlanguage = {}\nname = {}\nplural = one-other\n\n[messages]\n",
         super::PSEUDO,
         pseudo("Pseudo-language")
     );
-    let mut files: Vec<(String, String)> = Vec::new();
+    let mut files: Files = Vec::new();
+    let mut compiled = header.clone();
     let mut body = String::new();
-    let flush = |body: &mut String, files: &mut Vec<(String, String)>| {
+    let flush = |body: &mut String, files: &mut Files| {
         if !body.is_empty() {
             let name = format!("i18n/{:02}.pseudo.ini", files.len() + 1);
-            files.push((name, format!("{header}{body}")));
+            files.push((name, format!("{header}{body}").into_bytes()));
             body.clear();
         }
     };
     for (key, value) in messages {
-        let line = format!("{key} = {}\n", paperpaw_config::quote(&pseudo(value)));
+        let text = pseudo(value);
+        let line = format!("{key} = {}\n", paperpaw_config::quote(&text));
+        if text.len() <= paperpaw_i18n::MAX_MESSAGE {
+            compiled.push_str(&line);
+            continue;
+        }
         if body.len() + line.len() + header.len() > FILE_BYTES {
             flush(&mut body, &mut files);
         }
         body.push_str(&line);
     }
     flush(&mut body, &mut files);
-    files
+    let compiled = paperpaw_i18n::Catalog::compile(&compiled)
+        .map_err(|e| format!("the pseudo-language's catalog: {e}"))?;
+    files.push(("i18n/pseudo.ppcat".into(), compiled));
+    Ok(files)
 }
 
 /// The plugin's `plugin.ini`.
@@ -168,7 +180,7 @@ fn manifest() -> String {
     format!(
         "[plugin]\nid = {PLUGIN}\nname = Pseudo-language\n\
          description = Every text longer and accented, for paperpaw-dev.\n\
-         version = 0.1.0\nformats = 1\n"
+         version = 0.1.0\nformats = 4\n"
     )
 }
 
@@ -246,8 +258,8 @@ pub fn plugin(context: &Context) -> Result<Files, String> {
     }
     let folder = format!("plugins/{PLUGIN}");
     let mut files = vec![(format!("{folder}/plugin.ini"), manifest().into_bytes())];
-    for (name, text) in catalogs(&messages) {
-        files.push((format!("{folder}/{name}"), text.into_bytes()));
+    for (name, bytes) in catalogs(&messages)? {
+        files.push((format!("{folder}/{name}"), bytes));
     }
     if let Ok(mut made) = MADE.lock() {
         made.push((key, files.clone()));
@@ -279,31 +291,65 @@ mod tests {
         assert!(made.chars().all(|c| (c as u32) < 0x180), "{made}");
     }
 
+    /// A compiled catalog in memory.
+    struct Bytes(Vec<u8>);
+
+    impl paperpaw_i18n::CatalogFile for Bytes {
+        fn read_exact_at(&self, offset: u32, buf: &mut [u8]) -> bool {
+            let start = offset as usize;
+            match self.0.get(start..start + buf.len()) {
+                Some(bytes) => {
+                    buf.copy_from_slice(bytes);
+                    true
+                }
+                None => false,
+            }
+        }
+
+        fn size(&self) -> u32 {
+            u32::try_from(self.0.len()).unwrap()
+        }
+    }
+
     #[test]
-    fn catalogs_are_split_and_parse() {
+    fn catalogs_are_compiled_the_longest_split_and_all_parse() {
         let mut messages = BTreeMap::new();
         for n in 0..3000 {
             messages.insert(format!("p.key-{n:04}"), format!("Message number {n}"));
         }
+        // Longer made pseudo than a compiled catalog holds, more of them
+        // than one text file may take.
+        let long = "A text of help that goes on. ".repeat(80);
+        for n in 0..40 {
+            messages.insert(format!("p.how-{n:02}"), long.clone());
+        }
         messages.insert("p.lines".into(), "Two\nlines".into());
         messages.insert("p.items.one".into(), "{count} item".into());
         messages.insert("p.items.other".into(), "{count} items".into());
-        let files = catalogs(&messages);
-        assert!(files.len() > 1);
+        let files = catalogs(&messages).unwrap();
         let mut keys = 0;
-        for (name, text) in &files {
-            assert!(name.ends_with(".pseudo.ini"), "{name}");
-            assert!(text.len() < 64 * 1024);
-            let catalog = paperpaw_i18n::Catalog::parse(text.clone()).unwrap();
+        let mut texts = 0;
+        for (name, bytes) in &files {
+            let catalog = if name == "i18n/pseudo.ppcat" {
+                paperpaw_i18n::Catalog::open(std::rc::Rc::new(Bytes(bytes.clone()))).unwrap()
+            } else {
+                assert!(name.ends_with(".pseudo.ini"), "{name}");
+                assert!(bytes.len() < 64 * 1024);
+                texts += 1;
+                let text = String::from_utf8(bytes.clone()).unwrap();
+                paperpaw_i18n::Catalog::parse(text).unwrap()
+            };
             assert_eq!(catalog.language(), super::super::PSEUDO);
             keys += catalog.len();
-            if let Some(lines) = catalog.get("p.lines") {
+            if let Some(lines) = catalog.get_copy("p.lines") {
                 assert!(lines.starts_with("[Ţŵö\nļîñéš"), "{lines}");
             }
-            if let Some(one) = catalog.get("p.items.one") {
+            if let Some(one) = catalog.get_copy("p.items.one") {
                 assert!(one.starts_with("[{count} îţém"), "{one}");
             }
         }
+        assert!(files.iter().any(|(name, _)| name == "i18n/pseudo.ppcat"));
+        assert!(texts > 1, "the longest are split: {texts}");
         assert_eq!(keys, messages.len());
     }
 }
