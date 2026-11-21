@@ -12,13 +12,15 @@ use crate::model::{Occ, Show, Store};
 use crate::native_text::{aged, when_text};
 use crate::native_widgets::Env;
 
-/// Where the second block starts (design pixels from the top), and how many
-/// events it shows at most.
-const TOMORROW_AT: u32 = 520;
+/// How many events the second block shows at most.
 const TOMORROW_ROWS: usize = 4;
-/// Where the first block's rows start, and the last y one may end at.
+/// How far above the foot of the page (design pixels) the second block's rule
+/// is: 800 high on the X4, shorter on a screen that is less tall.
+const TOMORROW_ABOVE: u32 = 280;
+/// The design height of the screen the second block gets its place from.
+const TALLEST: u32 = 800;
+/// Where the first block's rows start.
 const FIRST_AT: u32 = 146;
-const FIRST_END: u32 = TOMORROW_AT - 12;
 
 /// Draws the sleep screen.
 ///
@@ -35,6 +37,12 @@ pub fn draw(
     let mut words = Words::new(host)?;
     let mut say = Messages::new()?;
     let today = env.today;
+    // Design pixels high; the foot is at the bottom of it.
+    let high = u32::from(page.area.height) * 480 / u32::from(page.area.width).max(1);
+    let tomorrow_at = high
+        .min(TALLEST)
+        .saturating_sub(TOMORROW_ABOVE)
+        .max(FIRST_AT + 60);
     let weekday = words.weekday(today, false)?;
     let (_, month, date) = paperpaw_sdk::time::civil_from_days(i64::from(today));
     let month = words.month(month, false)?;
@@ -63,7 +71,7 @@ pub fn draw(
         &mut page,
         (host, &mut say, store, env),
         &first,
-        (FIRST_AT, FIRST_END),
+        (FIRST_AT, tomorrow_at - 12),
         false,
     )?;
     if first.is_empty() {
@@ -72,23 +80,23 @@ pub fn draw(
         page.put(row, Face::quiet(22), Align::Left, &none)?;
     }
 
-    page.rule(TOMORROW_AT, 1)?;
+    page.rule(tomorrow_at, 1)?;
     let label = words.copy("calendar.day.tomorrow")?;
-    let row = page.rect(0, TOMORROW_AT + 14, 110, 28);
+    let row = page.rect(0, tomorrow_at + 14, 110, 28);
     page.put(row, Face::quiet(18), Align::Left, &label)?;
     let long = words.date(today + 1, true)?;
-    let row = page.rect(110, TOMORROW_AT + 12, 0, 30);
+    let row = page.rect(110, tomorrow_at + 12, 0, 30);
     page.put(row, Face::bold(20), Align::Left, &long)?;
     let next = store.occurrences(today + 1, today + 1, Show::All)?;
     block(
         &mut page,
         (host, &mut say, store, env),
         &next,
-        (TOMORROW_AT + 54, 740),
+        (tomorrow_at + 54, high.min(TALLEST).saturating_sub(60)),
         true,
     )?;
     if next.is_empty() {
-        let row = page.rect(0, TOMORROW_AT + 54, 0, 36);
+        let row = page.rect(0, tomorrow_at + 54, 0, 36);
         let none = words.copy("calendar.widget.agenda.empty")?;
         page.put(row, Face::quiet(20), Align::Left, &none)?;
     }
