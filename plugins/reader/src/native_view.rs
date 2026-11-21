@@ -97,7 +97,7 @@ const fn root_code(root: Root) -> &'static str {
 }
 
 /// The root code of a book on the card (`root_code`).
-pub const CARD_ROOT: &str = "1";
+const CARD_ROOT: &str = "1";
 
 /// An open book and the page on show.
 #[derive(Debug)]
@@ -794,6 +794,21 @@ impl View {
             Body::Preparing(book) => Some((book.found.path.as_str(), root_code(book.found.root()))),
             Body::Message(_) => None,
         }
+    }
+
+    /// The book on show takes its own settings ("Only this book", and Beta 3's
+    /// `books/<key>/settings.ini`, which the host reads as they are) while the
+    /// reading screen `view` is on top, as in Beta 3; a book not on the card
+    /// has none. The host ends the scope when the screen closes. Where the host
+    /// keeps no scope, the book shows with the settings of every book.
+    #[inline(never)]
+    pub(crate) fn scope_book(host: &Host<'_>, view: Option<&Self>) {
+        let path = view
+            .and_then(Self::book)
+            .filter(|(_, root)| *root == CARD_ROOT)
+            .map(|(path, _)| path);
+        let mut scratch = [0; 768];
+        CommandSender::new(host, &mut scratch).set_scope(path).ok();
     }
 
     /// The screen is opened again with `found`: whether it shows that book
