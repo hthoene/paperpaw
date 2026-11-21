@@ -146,6 +146,7 @@ mod family;
 mod jx;
 mod regs;
 mod slack;
+mod spill;
 mod tables;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -155,7 +156,7 @@ use crate::framelist::in_family;
 use crate::frames::path;
 use crate::frames_xtensa::{Class, entry_frame, length, narrow_class, wide_class};
 pub use family::expand_includes;
-use regs::{Insn, Writes};
+use regs::Insn;
 
 /// `STT_FUNC` and `STT_OBJECT`.
 const STT_FUNC: u8 = 2;
@@ -682,7 +683,8 @@ type Regs = [Held; 16];
 /// register holds, on every path to it: the call is then a direct one to the
 /// literal's address. A forward analysis over the function's own instructions:
 /// the state at the entry is "nothing known"; an `l32r` makes its register hold
-/// its literal; a write of a register, a call (the registers from its rotation
+/// its literal, and a word of the frame a register's literal was stored to and
+/// is loaded back from holds it too (`spill`); a write of a register, a call (the registers from its rotation
 /// up), `entry` or a window register makes the registers it takes unknown; the
 /// state where paths meet keeps a register only if all of them agree. The
 /// flow goes by fall-through and branch targets, and in a function that has
@@ -768,43 +770,32 @@ fn resolve(
             next[n].push(n + 1);
         }
     }
-    let mut state: Vec<Option<Regs>> = vec![None; insns.len()];
+    let floor = spill::floor(insns, &next, &entries);
+    let mut state: Vec<Option<(Regs, spill::Slots)>> = vec![None; insns.len()];
     let mut work: VecDeque<usize> = VecDeque::from([0]);
     for &n in std::iter::once(&0).chain(&entries) {
-        state[n] = Some([Held::Unknown; 16]);
+        state[n] = Some(([Held::Unknown; 16], spill::Slots::new()));
         work.push_back(n);
     }
     while let Some(n) = work.pop_front() {
-        let Some(mut held) = state[n] else { continue };
-        match insns[n].writes() {
-            Writes::Nothing => {}
-            Writes::Reg(r) => {
-                held[r as usize] = match insns[n].l32r() {
-                    Some((_, literal)) => Held::Literal(literal),
-                    None => Held::Unknown,
-                };
-            }
-            Writes::Call(rotation) => {
-                for h in &mut held[rotation as usize..] {
-                    *h = Held::Unknown;
-                }
-            }
-            Writes::Window | Writes::Unknown => held = [Held::Unknown; 16],
-        }
+        let Some((mut held, mut slots)) = state[n].clone() else {
+            continue;
+        };
+        spill::step(insns[n], floor, &mut held, &mut slots);
         for &to in &next[n] {
-            let joined = match state[to] {
-                None => held,
-                Some(old) => {
-                    let mut joined = old;
+            let joined = match &state[to] {
+                None => (held, slots.clone()),
+                Some((old, old_slots)) => {
+                    let mut joined = *old;
                     for (a, b) in joined.iter_mut().zip(&held) {
                         if a != b {
                             *a = Held::Unknown;
                         }
                     }
-                    joined
+                    (joined, spill::join(old_slots, &slots))
                 }
             };
-            if state[to] != Some(joined) {
+            if state[to].as_ref() != Some(&joined) {
                 state[to] = Some(joined);
                 work.push_back(to);
             }
@@ -814,8 +805,8 @@ fn resolve(
         let literal =
             insns[k]
                 .callx()
-                .zip(state[k])
-                .and_then(|(reg, held)| match held[reg as usize] {
+                .zip(state[k].as_ref())
+                .and_then(|(reg, (held, _))| match held[reg as usize] {
                     Held::Literal(literal) => (around.word)(literal),
                     Held::Unknown => None,
                 });
