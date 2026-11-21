@@ -343,7 +343,10 @@ g_firmware() {
 
 g_android() {
     if have_cmd cargo-ndk && [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
-        run "android: clippy the shell" "cargo ndk -t arm64-v8a --platform 26 clippy -p paperpaw-android"
+        # As CI runs it, without `-D warnings`: clippy 1.99 asks for `const` on every
+        # `thread_local!` on aarch64-linux-android, also where its initializer is a
+        # `const` block already (a false positive: silent on the other targets).
+        run "android: clippy the shell" "env -u RUSTFLAGS cargo ndk -t arm64-v8a --platform 26 clippy -p paperpaw-android"
     else
         skip "android: clippy the shell" "cargo-ndk or ANDROID_NDK_HOME missing (APK build is CI only)"
     fi
