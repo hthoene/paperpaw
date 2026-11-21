@@ -125,7 +125,13 @@ fn reading(name: &str, book: &[u8], ini: &str) -> Device {
             ".paperpaw/plugins/reader/state.ini",
             format!("[reader]\nlast = books/{name}\n"),
         )
-        .with("paperpaw.ini", format!("[help]\nshow = false\n{ini}"));
+        // The turn on the press, as the budgets were made: holding a page
+        // button for the next chapter (on at first since #448) moves the turn
+        // to the button's release, outside the press's window measured here.
+        .with(
+            "paperpaw.ini",
+            format!("[help]\nshow = false\n[reader]\nhold-chapters = false\n{ini}"),
+        );
     // English is hyphenated as on a fresh install (the firmware seeds the pack).
     let files = paperpaw_default_packs::english()
         .into_iter()

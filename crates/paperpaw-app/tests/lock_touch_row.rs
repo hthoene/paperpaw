@@ -30,7 +30,7 @@ fn started(touch: bool) -> Kernel {
         .frame_rows(192)
         .row_align(8);
     #[cfg(any(feature = "packs", not(feature = "outline")))]
-    let fonts = paperpaw_app::Fonts::Packs;
+    let fonts = build_fonts();
     #[cfg(all(feature = "outline", not(feature = "packs")))]
     let fonts = paperpaw_app::Fonts::Outline;
     let builder = paperpaw_app::install(builder, fonts);
@@ -131,4 +131,13 @@ fn lock_touch_in_the_panel_locks_and_closes_it() {
         kernel.settings().global("lock.touch"),
         Some(&SettingValue::Bool(false))
     );
+}
+
+/// The fonts this build has: the packs, or the scalable fonts where a
+/// package built with it switches `outline` on and `packs` is off.
+fn build_fonts() -> paperpaw_app::Fonts {
+    #[cfg(any(feature = "packs", not(feature = "outline")))]
+    return paperpaw_app::Fonts::Packs;
+    #[cfg(not(any(feature = "packs", not(feature = "outline"))))]
+    return paperpaw_app::Fonts::Outline;
 }
