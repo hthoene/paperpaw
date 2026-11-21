@@ -1990,8 +1990,9 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-about"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
+ "miniz_oxide 0.9.1",
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
@@ -2926,7 +2927,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-weather"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",

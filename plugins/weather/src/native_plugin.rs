@@ -9,13 +9,14 @@
 //! widgets when what they show has changed (`PORTING-7.md`).
 use crate::{
     declarations::{
-        CHOOSE_PLACE_TOKEN, FORECAST_TOKEN, HTTP_TOKEN, LIFECYCLE_TOKEN, NOW_TOKEN, PLACE_SCREEN,
-        REFRESH_TOKEN, WORK_TOKEN,
+        ABOUT_TOKEN, CHOOSE_PLACE_TOKEN, FORECAST_TOKEN, HTTP_TOKEN, LIFECYCLE_TOKEN, NOW_TOKEN,
+        PLACE_SCREEN, REFRESH_TOKEN, WORK_TOKEN,
     },
     native_fetch::{COORDINATES, Fetched, Fetcher, Looked, PLACE, Searched, Why, setting},
     native_forecast, native_now,
     native_place::{Act, PlaceView, Search},
     native_weather::{self as model},
+    stages::about_lines_v1 as lines,
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -82,6 +83,7 @@ impl Plugin for NativeWeather {
             .chain(image::NAVIGATION)
             .chain(image::WIDGETS)
             .chain(image::EVENTS)
+            .chain(image::ABOUT)
         {
             registrations::submit(host, batch)?;
         }
@@ -140,6 +142,11 @@ impl Plugin for NativeWeather {
                 payload,
                 ..
             } => self.stage(host, payload, reply),
+            Event::StageCall { stage, payload, .. }
+                if token == ABOUT_TOKEN && stage == lines::KEY =>
+            {
+                about(host, payload, reply)
+            }
             Event::ScreenOpened { instance, .. } if token == PLACE_SCREEN => {
                 self.opened(host, instance)
             }
@@ -544,4 +551,19 @@ fn redraw(host: &Host<'_>) -> Result<(), Error> {
         .queue_redraw(RedrawMode::Partial)
         .ok();
     Ok(())
+}
+
+/// Answers `about.lines` with the line that names Open-Meteo and the
+/// licence of its data.
+fn about(host: &Host<'_>, payload: &[u8], reply: &mut Reply<'_>) -> Result<(), Error> {
+    // An ask that is not one of the stage's is not answered.
+    lines::input_decode(payload).map_err(|_| Error::Invalid)?;
+    let text = Messages::new()?.copy(host, "weather.about")?;
+    let mut out = paperpaw_ui_kit::mem::buffer(lines::MAX_REPLY)?;
+    let length = lines::reply_encode(
+        &[lines::Record::LinesLine(lines::LinesLine::new(&text))],
+        &mut out,
+    )
+    .map_err(|_| Error::Invalid)?;
+    reply.write(&out[..length])
 }
