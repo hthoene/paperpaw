@@ -170,6 +170,8 @@ pub struct Dashboard {
     /// Editing the pages: the pencil is *Done*; what is tapped offers the
     /// item's options.
     editing: bool,
+    /// Whether *Back* is named *Done* in the row of button hints.
+    hinted: bool,
     /// The page (the setting that keeps it) to show first.
     first: Option<usize>,
     /// The options of an item, over the page.
@@ -881,6 +883,23 @@ impl Dashboard {
     /// # Errors
     /// Allocation and host errors.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
+        let handled = self.input_step(host, ui, input);
+        crate::native_hint::sync(host, self.editing, &mut self.hinted);
+        handled
+    }
+
+    /// Names *Back* in the row of button hints as the page's state asks (see
+    /// `native_hint`); for a callback that may send commands.
+    pub fn sync_hint(&mut self, host: &Host<'_>) {
+        crate::native_hint::sync(host, self.editing, &mut self.hinted);
+    }
+
+    fn input_step(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        input: &Input<'_>,
+    ) -> Result<Handled, Error> {
         if self.backdrop.making() {
             // The page is not on the screen: the host's own keys (back) apply.
             return Ok(Handled::No);

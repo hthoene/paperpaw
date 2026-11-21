@@ -49,18 +49,21 @@ Text "<time>"
 boox-go-7: screen home.dashboard
 == tools
 Text "Library" at 109,16 114x55
-Text "Show" at 47,128 79x48
-Text "All books · 4 books" at 959,128 258x48
+Text "All books" at 94,128 128x48
 Text "Alice's Adventures in Wonderland" at 164,205 466x48
+Text "New" at 1123,253 47x36
 Text "Lewis Carroll" at 164,253 135x36
 Text "A" at 79,232 28x71
 Text "Alice's Adventures in Wonderland" at 164,353 466x48
+Text "New" at 1123,401 47x36
 Text "Lewis Carroll" at 164,401 135x36
 Text "A" at 79,380 28x71
 Text "Die Verwandlung" at 164,501 238x48
+Text "New" at 1123,549 47x36
 Text "Franz Kafka" at 164,549 122x36
 Text "D" at 78,528 31x71
 Text "Die Verwandlung" at 164,649 238x48
+Text "New" at 1123,697 47x36
 Text "Franz Kafka" at 164,697 122x36
 Text "D" at 78,676 31x71
 Heading "Vocabulary" at 0,0 1264x88
@@ -193,18 +196,21 @@ Text "<time>"
 boox-go-7: screen home.dashboard
 == book
 Text "Library" at 109,16 114x55
-Text "Show" at 47,128 79x48
-Text "All books · 4 books" at 959,128 258x48
+Text "All books" at 94,128 128x48
 Text "Alice's Adventures in Wonderland" at 164,205 466x48
+Text "New" at 1123,253 47x36
 Text "Lewis Carroll" at 164,253 135x36
 Text "A" at 79,232 28x71
 Text "Alice's Adventures in Wonderland" at 164,353 466x48
+Text "New" at 1123,401 47x36
 Text "Lewis Carroll" at 164,401 135x36
 Text "A" at 79,380 28x71
 Text "Die Verwandlung" at 164,501 238x48
+Text "New" at 1123,549 47x36
 Text "Franz Kafka" at 164,549 122x36
 Text "D" at 78,528 31x71
 Text "Die Verwandlung" at 164,649 238x48
+Text "New" at 1123,697 47x36
 Text "Franz Kafka" at 164,697 122x36
 Text "D" at 78,676 31x71
 Text "<time>"
@@ -217,18 +223,20 @@ Text "<time>"
 Text "0 %" at 1178,1617 39x36
 Text "Alice's Adventures in Wonderland" at 47,1617 349x36
 Text "Library" at 109,16 114x55
-Text "Show" at 47,128 79x48
-Text "All books · 4 books" at 959,128 258x48
+Text "All books" at 94,128 128x48
 Text "Alice's Adventures in Wonderland" at 164,205 466x48
 Text "Lewis Carroll" at 164,253 135x36
 Text "A" at 79,232 28x71
 Text "Alice's Adventures in Wonderland" at 164,353 466x48
+Text "New" at 1123,401 47x36
 Text "Lewis Carroll" at 164,401 135x36
 Text "A" at 79,380 28x71
 Text "Die Verwandlung" at 164,501 238x48
+Text "New" at 1123,549 47x36
 Text "Franz Kafka" at 164,549 122x36
 Text "D" at 78,528 31x71
 Text "Die Verwandlung" at 164,649 238x48
+Text "New" at 1123,697 47x36
 Text "Franz Kafka" at 164,697 122x36
 Text "D" at 78,676 31x71
 Button "Continue reading, Alice's Adventures in Wonderland, 0 %" at 47,378 1170x283

@@ -30,6 +30,7 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 pub mod anchored;
 mod cards;
 pub mod chips;
+pub mod choice_chip;
 pub mod covers;
 pub mod dashboard;
 pub mod dav;

@@ -211,6 +211,15 @@ impl NativeFiles {
             }
             Asked::Delete { path } if answer.choice() == 1 => self.delete_book(host, &path),
             Asked::Delete { .. } => Ok(()),
+            Asked::Filter { token, index } => {
+                let at = usize::try_from(answer.choice()).unwrap_or(usize::MAX);
+                match crate::native_model::FILTERS.get(at) {
+                    Some(filter) => self.set_filter(host, token, index, *filter),
+                    // The last choice: find a book.
+                    None if at == crate::native_model::FILTERS.len() => self.ask_search(host),
+                    None => Ok(()),
+                }
+            }
             Asked::With {
                 path,
                 screens,
