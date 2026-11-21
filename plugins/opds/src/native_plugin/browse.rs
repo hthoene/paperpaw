@@ -130,7 +130,7 @@ impl BrowseView {
     }
 
     /// What the line below says.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "linked"))]
     pub(super) fn note(&self) -> &str {
         &self.note
     }
