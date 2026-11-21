@@ -154,8 +154,13 @@ impl Plugin for NativePictureHome {
                 ..
             } => {
                 self.dashboards.shown(DASHBOARD, instance)?;
+                self.ensure_ui(host)?;
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
                 if let Some(dashboard) = self.dashboards.get(instance) {
                     dashboard.shown();
+                    // Laid out here, where the host may be asked, so that the
+                    // draw finds the page ready and asks the card for nothing.
+                    dashboard.ensure(host, ui)?;
                     dashboard.sync_hint(host);
                     // Without the picture the page is
                     // plain, and nothing else fails for it.
@@ -225,7 +230,12 @@ impl Plugin for NativePictureHome {
             self.ensure_ui(host)?;
             let ui = self.ui.as_ref().ok_or(Error::State)?;
             return match self.dashboards.top(token) {
-                Some(dashboard) => dashboard.input(host, ui, &input),
+                Some(dashboard) => {
+                    let handled = dashboard.input(host, ui, &input)?;
+                    // What the input made stale is laid out now, not in the draw.
+                    dashboard.ensure(host, ui)?;
+                    Ok(handled)
+                }
                 None => Ok(Handled::No),
             };
         }
