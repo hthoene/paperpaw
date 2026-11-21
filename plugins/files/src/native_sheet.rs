@@ -22,6 +22,10 @@ pub enum Action {
     Finish,
     /// Clears the mark: the book counts as read in part again.
     Unfinish,
+    /// Puts the book among the favourites.
+    Favourite,
+    /// Takes the book out of the favourites.
+    Unfavourite,
     /// Book information (`files.info`).
     Info,
     /// Moves the book into the archive folder.
@@ -41,6 +45,8 @@ impl Action {
             Self::ForFolder => "files.option.for-folder",
             Self::Finish => "files.option.finished",
             Self::Unfinish => "files.option.unfinished",
+            Self::Favourite => "files.option.favourite",
+            Self::Unfavourite => "files.option.unfavourite",
             Self::Info => "files.option.info",
             Self::Archive => "files.option.archive",
             Self::Delete => "files.option.delete",
@@ -52,6 +58,8 @@ impl Action {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Facts {
     pub finished: bool,
+    /// The book is among the favourites.
+    pub favourite: bool,
     /// An archive folder is set and the book is not in it.
     pub can_archive: bool,
     /// The library's preflight takes the book for one it can delete.
@@ -78,6 +86,14 @@ pub fn actions(facts: Facts) -> Result<Vec<Action>, Error> {
             Action::Unfinish
         } else {
             Action::Finish
+        },
+    )?;
+    push(
+        &mut list,
+        if facts.favourite {
+            Action::Unfavourite
+        } else {
+            Action::Favourite
         },
     )?;
     push(&mut list, Action::Info)?;
@@ -166,6 +182,7 @@ mod tests {
     fn the_sheet_offers_what_the_book_allows() {
         let all = Facts {
             finished: false,
+            favourite: false,
             can_archive: true,
             can_delete: true,
             readers: false,
@@ -175,6 +192,7 @@ mod tests {
             [
                 Action::Open,
                 Action::Finish,
+                Action::Favourite,
                 Action::Info,
                 Action::Archive,
                 Action::Delete
@@ -182,13 +200,19 @@ mod tests {
         );
         let done = Facts {
             finished: true,
+            favourite: true,
             can_archive: false,
             can_delete: false,
             readers: false,
         };
         assert_eq!(
             actions(done).unwrap(),
-            [Action::Open, Action::Unfinish, Action::Info]
+            [
+                Action::Open,
+                Action::Unfinish,
+                Action::Unfavourite,
+                Action::Info
+            ]
         );
         // Two reading apps: which opens it is the reader's choice.
         let readers = Facts {
@@ -203,6 +227,7 @@ mod tests {
                 Action::AlwaysWith,
                 Action::ForFolder,
                 Action::Unfinish,
+                Action::Unfavourite,
                 Action::Info
             ]
         );

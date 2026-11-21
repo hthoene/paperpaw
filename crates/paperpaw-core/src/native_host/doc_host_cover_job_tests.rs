@@ -569,6 +569,26 @@ fn a_held_back_start_is_released_beside_a_list_for_the_list_asks_again() {
 }
 
 #[test]
+fn a_start_held_back_beside_a_list_tells_the_wake_at_the_end_of_the_quiet_time() {
+    world(|w| {
+        w.state.now.set(10_000);
+        w.state.allow_cover_jobs();
+        // The list asked for its covers within the quiet time after the start
+        // and stays up: no input or leaving makes a pass, so the wake is told.
+        w.state.cover_job_held_back();
+        assert_eq!(w.state.cover_job_list(true, 11_000), Some(11_000));
+        // A displacement's quiet moment holds it longer: its end is the wake.
+        w.state.job_resume_at.set(12_000);
+        assert_eq!(w.state.cover_job_list(true, 11_000), Some(12_000));
+        w.state.now.set(12_000);
+        assert_eq!(w.state.cover_job_list(true, 11_000), None, "over");
+        assert!(w.state.cover_jobs_released());
+        // Nothing held back: the list up waits for nothing.
+        assert_eq!(w.state.cover_job_list(true, 13_000), None);
+    });
+}
+
+#[test]
 fn steps_that_cannot_be_made_fail_the_job_and_only_its_book() {
     use crate::native_host::doc_service::PrepareStep;
     use paperpaw_native::host_glue::ERR_BUSY;

@@ -19,7 +19,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode, ResetTarget},
-        fonts::{Font, FontRole},
+        fonts::{Font, FontRole, IconGlyph},
         settings::SettingValue,
         snapshot,
         ui::{HandoverId, Notify, Open, Param, Ui},
@@ -75,6 +75,8 @@ pub struct AddScreen {
     rows: Vec<Row>,
     /// What each row shows: its name and its value.
     labels: Vec<(String, String)>,
+    /// The icon at the start of each row, looked up as the rows are made.
+    icons: Vec<Option<IconGlyph>>,
     focus: ListFocus,
     renderer: ListRenderer,
     mode: Mode,
@@ -159,6 +161,19 @@ impl AddScreen {
         let mut messages = Messages::new()?;
         let title = messages.copy(host, kind.as_deref().unwrap_or("home.edit.add"))?;
         let labels = Self::labels(host, &mut messages, &rows, &entries)?;
+        let mut icons = Vec::new();
+        icons
+            .try_reserve_exact(rows.len())
+            .map_err(|_| Error::NoMemory)?;
+        for row in &rows {
+            let name = add::icon(row, &entries, |action| {
+                shown.src.tool_look(action).icon.as_str()
+            });
+            icons.push(match name {
+                Some(name) => paperpaw_ui_kit::icons::glyph(host, name)?,
+                None => None,
+            });
+        }
         let mode = match kind.as_deref() {
             Some(kind) if kind != TOOLS_KIND => Mode::Pending,
             _ => Mode::List,
@@ -170,6 +185,7 @@ impl AddScreen {
             entries,
             rows,
             labels,
+            icons,
             focus: ListFocus::default(),
             renderer: ListRenderer::default(),
             mode,
@@ -225,11 +241,12 @@ impl AddScreen {
             return Ok(());
         }
         // The renderer takes the key of the title and translates it itself.
-        self.renderer.draw(
+        self.renderer.draw_with_icons(
             host,
             frame,
             self.kind.as_deref().unwrap_or("home.edit.add"),
             &self.labels,
+            &self.icons,
             self.focus.focus(),
             true,
         )

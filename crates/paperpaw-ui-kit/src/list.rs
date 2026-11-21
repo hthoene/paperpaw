@@ -8,7 +8,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, FrameRect},
         commands::{CommandSender, RedrawMode},
-        fonts::{Font, FontRole},
+        fonts::{Font, FontRole, IconGlyph},
         snapshot,
     },
 };
@@ -115,6 +115,29 @@ impl ListRenderer {
         focus: usize,
         shown: bool,
     ) -> Result<(), Error> {
+        self.draw_with_icons(host, frame, title, rows, &[], focus, shown)
+    }
+
+    /// [`Self::draw`] with an icon at the start of each row that `icons` has
+    /// one for (by the row's index; a row past its end has none), as the
+    /// rows of a menu show theirs.
+    ///
+    /// # Errors
+    /// As [`Self::draw`].
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "callback plus current list model"
+    )]
+    pub fn draw_with_icons(
+        &mut self,
+        host: &Host<'_>,
+        frame: &mut DrawFrame<'_>,
+        title: &str,
+        rows: &[(String, String)],
+        icons: &[Option<IconGlyph>],
+        focus: usize,
+        shown: bool,
+    ) -> Result<(), Error> {
         if !matches!(frame.purpose, DrawPurpose::Screen) {
             return Ok(());
         }
@@ -181,12 +204,12 @@ impl ListRenderer {
                 &font,
                 &style,
                 rect,
-                (label, value),
+                (label, value, icons.get(first + slot).copied().flatten()),
                 (focused, cards.map(|_| first + slot + 1 < end)),
             )?;
         }
 
-        paint::replay(frame, &font, header.paint.iter().chain(body.iter()))?;
+        paint::replay_with_icons(host, frame, &font, header.paint.iter().chain(body.iter()))?;
         font.release()?;
         // Only hit geometry survives the draw callback.
         header.paint = Vec::new();
@@ -273,7 +296,14 @@ pub fn row(
     value: &str,
     focused: bool,
 ) -> Result<(), Error> {
-    row_as(paint, font, style, rect, (title, value), (focused, None))
+    row_as(
+        paint,
+        font,
+        style,
+        rect,
+        (title, value, None),
+        (focused, None),
+    )
 }
 
 fn row_as(
@@ -281,7 +311,7 @@ fn row_as(
     font: &Font<'_>,
     style: &Style,
     rect: Rect,
-    (title, value): (&str, &str),
+    (title, value, icon): (&str, &str, Option<IconGlyph>),
     (focused, cards): (bool, Option<bool>),
 ) -> Result<(), Error> {
     if let Some(more) = cards {
@@ -290,7 +320,25 @@ fn row_as(
         backdrop(paint, style, rect, focused)?;
     }
     paint::describe(paint, style.describing, PartRole::Row, rect, focused, false)?;
-    columns(paint, font, style, rect, title, value, ink(style, focused))
+    let ink = ink(style, focused);
+    let text = match icon {
+        // The icon at the row's start, the words after it (mirrored where
+        // the interface runs right to left).
+        Some(glyph) => {
+            let shift = crate::items::row_icon(paint, style, (rect, rect), glyph, ink)?;
+            style.flip(
+                rect,
+                Rect::new(
+                    rect.x.saturating_add(shift),
+                    rect.y,
+                    rect.width.saturating_sub(shift),
+                    rect.height,
+                ),
+            )
+        }
+        None => rect,
+    };
+    columns(paint, font, style, text, title, value, ink)
 }
 
 /// The ink of text on a row that is focused or not.
