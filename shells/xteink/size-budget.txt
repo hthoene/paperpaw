@@ -73,4 +73,7 @@ image x4-classic 6395632
 # UltraChip panels' drivers. Measured on `fw/368-boox-picco` (local build of the
 # release-like image, as above): 6,583,184; the line is that plus 16,000. Picture
 # places (#369) then made it 6,600,048 in CI; the line is that plus 16,000.
-image picco 6616048
+# The landings after 474aa295d (each a few KB, #448 and #459 among them)
+# took it to 6,618,496 in CI (run 44933255403, c9c22313e); the line is that
+# plus 16,000.
+image picco 6634496
