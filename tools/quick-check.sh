@@ -50,8 +50,8 @@
 #             C3 as CI builds them and packed: a frame of 2,048 B or more is refused  [plugins/, ui-kit, sdk, core native, text, layout]
 #   frames-s3 the same plugins built for the X4 Pro / Classic (ESP32-S3, espup's `esp` toolchain,
 #             `tools/plugin-files7/build.sh x4-pro`) and packed for target 9: a frame over the limit
-#             that only the S3's code shows. Its own build directory under ~/.cache (QUICK_CHECK_S3_TARGET
-#             overrides it) keeps the second run warm; the first one is cold (about 3 min for `store`)
+#             that only the S3's code shows. Its build directory is the set's `s3` (QUICK_CHECK_S3_TARGET
+#             overrides it); in a cold set it takes about 3 min for `store`
 # Every step runs whatever the one before did; the summary lists them with their
 # times, and the script exits 1 if any failed, 0 if all passed. Logs: the
 # directory it prints.
@@ -65,16 +65,32 @@
 #    lane each for the plugin frames, `frames` (C3) and `frames-s3` (Xtensa). On a cold directory
 #    `frames-s3` alone takes ~2 min (115 s for `store`, #3864): behind doc and wasm32 it was the step the
 #    budget cut, so the first run of a branch failed and the second, warm, passed;
+#  - the builds do not run in the checkout but in a copy of its files at a fixed path, a "build set" under
+#    ~/.cache/paperpaw-quick-check/setN (QUICK_CHECK_HOME), with the lanes' build directories next to it (#444).
+#    The sets outlive the checkouts, so a fresh checkout or a new worktree builds warm: on Nov 21 every lane
+#    ran cold in the members' clones (their target-qc-lane* had been deleted for disk space) and was cut after
+#    443 s, 3-4 times per hand-over. The copy is what makes sharing safe: cargo trusts file times and paths
+#    (a test of one tree read the goldens of another through CARGO_MANIFEST_DIR), so the copy keeps its path,
+#    and a file is rewritten, with the time of now, only where its content differs (rsync --checksum).
+#    A run holds its set with flock for as long as it lives; a second run at the same time takes the next set
+#    (QUICK_CHECK_SETS, 2) and waits only if all are busy. After the run the whole folder is cut to
+#    QUICK_CHECK_CACHE_GB (40): what the sets no longer use goes (the per-worktree S3 directories of the
+#    script before the sets, sets over QUICK_CHECK_SETS), then the largest build directories of the sets no
+#    run holds. fmt, generated and python run in the checkout itself (they need
+#    Git and build nothing);
 #  - rustc goes through sccache (tools/sccache-wrap.sh, as the other agents use it; RUSTC_WRAPPER of the
-#    environment wins) with incremental builds off: another worktree's build of the same crate, also of
-#    the workspace's own, is a hit, so a fresh worktree is not a cold build. Build directories are not
-#    shared between worktrees: cargo trusts file times, and two trees with other sources would reuse
-#    each other's artifacts;
+#    environment wins) with incremental builds off: another set's build of the same crate is a hit. A server
+#    that takes requests and compiles nothing (Nov 21: every client waited for an hour) is found by a
+#    compile of a few lines before the run: then a server of the quick check's own (port
+#    QUICK_CHECK_SCCACHE_PORT, the same store), and plain rustc if that one does not answer either;
+#  - the crates are fetched once in front (cargo fetch --locked) and the lanes build offline, so they do not
+#    queue on the package cache's lock; every step's process group ends with the script (PlainBoard kills
+#    the script at its limit; the steps of such runs lived on for an hour, holding sccache and the CPU);
 #  - a library change (ui-kit, SDK, core ...) builds the frames of `store` alone, the largest plugin
 #    and the one at the limit; changed plugins are built themselves (at most 4);
-#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 440 s) and the whole run a budget
-#    (QUICK_CHECK_BUDGET, 470 s: with the ~25 s of the python checks in front of it, the whole quick-check
-#    command ends within 8.5 minutes, PlainBoard's limit being 10). A step that is cut, or not started for the budget, FAILS the run with
+#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 450 s) and the whole run a budget
+#    (QUICK_CHECK_BUDGET, 480 s, the wait for a set and the fetch in it: with the ~25 s of the python checks in front of it, the whole quick-check
+#    command ends within 9 minutes, PlainBoard's limit being 10). A step that is cut, or not started for the budget, FAILS the run with
 #    a message (exit 1): it checked nothing, and the build directories are warm for the next run. NOT checked here: the S3 `allow indirect` band
 # (tools/check-s3-budget.sh: it needs a full Xtensa firmware build of the whole
 # kernel, far beyond a quick check; CI and the landing check keep it), the
@@ -82,8 +98,8 @@
 # job, the other shells, the fuzzers.
 #
 # --all runs every step (for a measurement or after a base merge); --list says
-# what would run and why; --only/--skip take step names. Use the build directory
-# of the worktree (CARGO_TARGET_DIR) so the second run is warm. Exit 2: usage.
+# what would run and why; --only/--skip take step names. CARGO_TARGET_DIR is not
+# used: the build directories are the set's. Exit 2: usage.
 set -uo pipefail
 
 root="$(git rev-parse --show-toplevel 2> /dev/null)" || { echo "quick-check: not inside a git worktree" >&2; exit 2; }
@@ -100,8 +116,8 @@ export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-20G}"
 # script landed runs its own, older script, with no limits: run the base's copy instead,
 #   git show origin/abi7/integration:tools/quick-check.sh > ~/qc.sh && bash ~/qc.sh )
 t_start=$SECONDS
-budget="${QUICK_CHECK_BUDGET:-470}"
-step_limit="${QUICK_CHECK_STEP_LIMIT:-440}"
+budget="${QUICK_CHECK_BUDGET:-480}"
+step_limit="${QUICK_CHECK_STEP_LIMIT:-450}"
 
 base=origin/abi7/integration
 all=0 list=0 only="" skip=""
@@ -156,7 +172,7 @@ while read -r n d lib core; do
     [[ "$d" == plugins/* && -f "tools/plugin-files7/src/bin/${d#plugins/}.rs" ]] && plugin_ids+=("${d#plugins/}")
 done <<< "$picked"
 
-if ((all && ${#pkg_names[@]} == 0)); then pkg_names=(paperpaw-sdk paperpaw-emulator); pkg_libs=(paperpaw-sdk); fi
+if ((all && ${#pkg_names[@]} == 0)); then pkg_names=(paperpaw-sdk paperpaw-emulator); pkg_libs=(paperpaw-sdk); pkg_core=1; fi
 
 # CI's wasm32/riscv32 build: the app with the standard feature set and the libraries it names.
 wasm_pkgs=(-p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics
@@ -213,11 +229,118 @@ if [[ -z "${RUSTC_WRAPPER:-}" ]]; then
 fi
 echo "quick-check: base $base ($(wc -l <<< "$files") changed files); logs in $logs"
 jobs_n="${QUICK_CHECK_JOBS:-8}"
-lane2_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane2"
-lane3_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane3"
-lane4_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane4"
-lane5_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane5"
-lane6_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane6"
+main_pid=$$
+# Is process PID alive? Not `kill -0`: the container's process 1 reaps nobody, so a killed script stays a
+# zombie, and `kill -0` says yes to a zombie (Nov 21: the steps of killed runs lived on for an hour).
+alive() { local s; { read -r s < "/proc/$1/stat"; } 2> /dev/null || return 1; s="${s##*) }"; [[ "${s%% *}" != [ZX] ]]; }
+# Does a compile of a few lines through the wrapper end in time? (A hung sccache server answers
+# `--show-stats` and starts no compiler: its clients wait without end.)
+wrapper_answers() { # [PORT]
+    local d
+    d="$(mktemp -d "$logs/probe.XXXXXX")" || return 1
+    [[ -z "${1:-}" ]] || export SCCACHE_SERVER_PORT="$1"
+    printf 'pub fn probe() -> u64 { %s }\n' "$RANDOM$RANDOM" > "$d/probe.rs"
+    timeout -k 2 "${QUICK_CHECK_PROBE_LIMIT:-20}" "$RUSTC_WRAPPER" rustc --crate-type lib --crate-name qc_probe \
+        --edition 2021 --out-dir "$d" "$d/probe.rs" > "$d/log" 2>&1 < /dev/null
+}
+# The quick check's own server is asked at the same time, so a hung one costs the probe's time once.
+if [[ -n "${RUSTC_WRAPPER:-}" ]]; then
+    wrapper_answers "${QUICK_CHECK_SCCACHE_PORT:-4231}" &
+    own_probe=$!
+    if ! wrapper_answers; then
+        echo "quick-check: the compiler wrapper does not answer within ${QUICK_CHECK_PROBE_LIMIT:-20}s (a hung sccache server?): a server of the quick check's own"
+        export SCCACHE_SERVER_PORT="${QUICK_CHECK_SCCACHE_PORT:-4231}"
+        if ! wait "$own_probe"; then
+            echo "quick-check: that one does not answer either: building with rustc alone"
+            export RUSTC_WRAPPER=""
+        fi
+    fi
+fi
+# The crates once, up front; then the lanes build offline and hold the package cache's lock only for a moment.
+if timeout -k 5 "${QUICK_CHECK_FETCH_LIMIT:-60}" cargo fetch --locked -q > "$logs/fetch.log" 2>&1 < /dev/null \
+    && (cd tools/plugin-files7 && timeout -k 5 "${QUICK_CHECK_FETCH_LIMIT:-60}" cargo fetch --locked -q) >> "$logs/fetch.log" 2>&1 < /dev/null; then
+    export CARGO_NET_OFFLINE=true
+else
+    echo "quick-check: cargo fetch did not finish (the builds fetch for themselves): $(tail -n 2 "$logs/fetch.log" | tr '\n' ' ')"
+fi
+
+# A build set: the copy of the checkout's files at a fixed path and the lanes' build directories, held by a
+# process of this script (flock) until it ends. The lock is not on a descriptor of the script: cargo, and an
+# sccache server it starts, would inherit it and hold the set after the script.
+qc_home="${QUICK_CHECK_HOME:-$HOME/.cache/paperpaw-quick-check}"
+set_dir=""
+take_set() { # N: 0 if set N is now held by this script
+    local d="$qc_home/set$1" holder i
+    mkdir -p "$d" || return 1
+    rm -f "$d/held.$main_pid"
+    flock -n "$d/lock" bash -c "$(declare -f alive)"'; : > "$1"; while alive "$2"; do sleep 2; done' _ "$d/held.$main_pid" "$main_pid" \
+        > /dev/null 2>&1 < /dev/null &
+    holder=$!
+    for ((i = 0; i < 50; i++)); do
+        [[ -f "$d/held.$main_pid" ]] && { rm -f "$d/held.$main_pid"; set_dir="$d"; return 0; }
+        kill -0 "$holder" 2> /dev/null || return 1
+        sleep 0.1
+    done
+    kill "$holder" 2> /dev/null
+    return 1
+}
+sets_n="${QUICK_CHECK_SETS:-2}" t_wait=$SECONDS
+while [[ -z "$set_dir" ]]; do
+    for ((n = 1; n <= sets_n; n++)); do take_set "$n" && break; done
+    [[ -n "$set_dir" ]] && break
+    if ((budget - (SECONDS - t_start) < 120)); then
+        echo "quick-check: FAILED: all $sets_n build sets in $qc_home are busy since $((SECONDS - t_wait))s (QUICK_CHECK_SETS); nothing was checked"
+        exit 1
+    fi
+    sleep 5
+done
+src="$set_dir/src"
+echo "quick-check: build set $set_dir (waited $((SECONDS - t_wait))s)"
+# The checkout's files (tracked, and new ones not ignored) into the copy: a file whose content is the same
+# keeps its time, so cargo rebuilds what changed against the set's last run; what is gone goes.
+mkdir -p "$src" || exit 2
+git ls-files -z -co --exclude-standard > "$logs/files.list"
+if ! rsync -rlpc --from0 --files-from="$logs/files.list" --ignore-missing-args ./ "$src/" > "$logs/sync.log" 2>&1 \
+    || ! python3 -I - "$src" "$logs/files.list" >> "$logs/sync.log" 2>&1 <<'PY'
+import os, sys
+src, listed = sys.argv[1], sys.argv[2]
+keep = {p for p in open(listed, "rb").read().decode("utf-8", "surrogateescape").split("\0") if p}
+for folder, dirs, names in os.walk(src, topdown=False):
+    rel = os.path.relpath(folder, src)
+    for name in names + [d for d in dirs if os.path.islink(os.path.join(folder, d))]:
+        if os.path.normpath(os.path.join(rel, name)) not in keep:
+            os.unlink(os.path.join(folder, name))
+    if folder != src and not os.listdir(folder):
+        os.rmdir(folder)
+PY
+then
+    echo "quick-check: copying the files into $src failed: $(tail -n 3 "$logs/sync.log" | tr '\n' ' ')"
+    exit 2
+fi
+lane1_target="$set_dir/lane1"
+lane2_target="$set_dir/lane2"
+lane3_target="$set_dir/lane3"
+lane4_target="$set_dir/lane4"
+lane5_target="$set_dir/lane5"
+lane6_target="$set_dir/lane6"
+unset CARGO_BUILD_TARGET_DIR
+# Ends the process group of a step (its first argument runs in it) when the script is gone: PlainBoard
+# kills the script at its time limit, and steps in groups of their own lived on for an hour.
+guarded() {
+    set +m
+    local group=$BASHPID guard rc=0
+    (
+        trap '' TERM
+        while alive "$main_pid"; do sleep 2; done
+        kill -TERM -- "-$group" 2> /dev/null
+        sleep 3
+        kill -KILL -- "-$group" 2> /dev/null
+    ) &
+    guard=$!
+    "$@" || rc=$?
+    kill -KILL "$guard" 2> /dev/null
+    return $rc
+}
 # One step: run in its own process group, cut after its time limit or when the total budget is used up.
 # Writes "$logs/NAME.res": the summary line of the step, FAIL or ok.
 step() { # NAME COMMAND...
@@ -231,7 +354,7 @@ step() { # NAME COMMAND...
     fi
     ((left < limit)) && limit=$left
     set -m
-    "$@" > "$logs/$name.log" 2>&1 &
+    guarded "$@" > "$logs/$name.log" 2>&1 &
     local pid=$!
     set +m
     while kill -0 "$pid" 2> /dev/null; do
@@ -382,10 +505,9 @@ frames_of() {
     return $rc
 }
 frames_step() { CARGO_TARGET_DIR="$lane3_target" frames_of x4; }
-# One persistent build directory for the Xtensa plugin builds, per worktree (two trees with other
-# sources must not share one: cargo would reuse the other's artifacts).
+# The set's build directory for the Xtensa plugin builds.
 frames_s3_step() {
-    local dir="${QUICK_CHECK_S3_TARGET:-$HOME/.cache/paperpaw-quick-check/s3-$(basename "$root")-$(printf %s "$root" | cksum | cut -d' ' -f1)}"
+    local dir="${QUICK_CHECK_S3_TARGET:-$set_dir/s3}"
     mkdir -p "$dir" && echo "S3 build directory: $dir"
     # The Xtensa linker comes with espup's toolchain, which is not on PATH by itself
     # (espup's export-esp.sh does that; the toolchain's own folder is found here).
@@ -399,13 +521,15 @@ frames_s3_step() {
 
 # The lanes run side by side: each has one cargo at a time and its own build directory, so none waits
 # on another's lock, and a slow step (a cold Xtensa build) is not queued behind the others.
-lane() { local s; for s in "$@"; do run_step "$s" && step "$s" "${s//-/_}_step"; done; return 0; }
+# fmt, generated and python in the checkout (Git, no build); the rest in the set's copy.
+lane() { local s; for s in "$@"; do alive "$main_pid" || return 0; run_step "$s" && step "$s" "${s//-/_}_step"; done; return 0; }
+lane python fmt generated &
+lane_py=$!
+cd "$src" || exit 2
 lane frames-s3 &
 lane_s3=$!
 lane pkgtests &
 lane_pkg=$!
-lane python &
-lane_py=$!
 lane frames &
 lane_frames=$!
 lane doc &
@@ -419,8 +543,38 @@ lane_wasm=$!
     lane desktop memory app snapshots
 ) &
 lane_tests=$!
-lane fmt generated clippy interface checks libs
+(
+    export CARGO_TARGET_DIR="$lane1_target"
+    lane clippy interface checks libs
+)
 wait "$lane_s3" "$lane_pkg" "$lane_py" "$lane_frames" "$lane_doc" "$lane_wasm" "$lane_tests"
+cd "$root" || exit 2
+# Disk: the whole folder down to QUICK_CHECK_CACHE_GB. What is cut is moved aside at once (a set no run holds
+# only under its lock) and deleted in the background.
+trim_cache() {
+    local cap_kb=$((${QUICK_CHECK_CACHE_GB:-40} * 1024 * 1024)) total=0 d n kb gone=() cut=()
+    for d in "$qc_home"/s3-* "$qc_home"/set*; do
+        [[ -d "$d" ]] || continue
+        if [[ "$d" == "$qc_home"/set* ]]; then
+            n="${d##*/set}"
+            [[ "$n" =~ ^[0-9]+$ ]] && ((n <= sets_n)) && continue
+            flock -n "$d/lock" mv "$d" "$qc_home/trash.$main_pid.${d##*/}" 2> /dev/null && cut+=("${d##*/}")
+        elif [[ -z "$(find "$d" -maxdepth 0 -mmin -30)" ]]; then # not in use by a run of the script before the sets
+            mv "$d" "$qc_home/trash.$main_pid.${d##*/}" && cut+=("${d##*/}")
+        fi
+    done
+    while read -r kb d; do total=$((total + kb)); done < <(timeout 60 du -sk "$qc_home"/set* 2> /dev/null)
+    while ((total > cap_kb)) && read -r kb d; do
+        [[ "$d" == "$qc_home"/set*/@(lane*|s3) ]] || continue
+        n="${d#"$qc_home"/}"
+        if [[ "${d%/*}" == "$set_dir" ]]; then mv "$d" "$qc_home/trash.$main_pid.${n/\//-}" || continue
+        else flock -n "${d%/*}/lock" mv "$d" "$qc_home/trash.$main_pid.${n/\//-}" 2> /dev/null || continue; fi
+        total=$((total - kb)) && cut+=("$n")
+    done < <(timeout 60 du -sk "$qc_home"/set*/* 2> /dev/null | sort -rn)
+    ((${#cut[@]})) && echo "  NOTE: $qc_home cut to ${QUICK_CHECK_CACHE_GB:-40} GiB (QUICK_CHECK_CACHE_GB, now $((total / 1024 / 1024)) GiB): removed ${cut[*]}"
+    while IFS= read -r -d '' d; do gone+=("$d"); done < <(find "$qc_home" -maxdepth 1 -name 'trash.*' -print0)
+    ((${#gone[@]})) && setsid rm -rf "${gone[@]}" > /dev/null 2>&1 < /dev/null &
+}
 
 echo
 echo "quick-check summary ($((SECONDS - t_start))s of ${budget}s):"
@@ -441,5 +595,6 @@ if [[ -n "$raised" ]]; then
     echo "        callee are no trait object; a real vtable or fn-pointer call is a finding), not just the CI count:"
     sed 's/^/        /' <<< "$raised"
 fi
+trim_cache
 ((failed)) && { echo "quick-check: FAILED"; exit 1; }
 echo "quick-check: passed"
