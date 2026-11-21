@@ -2,13 +2,12 @@
 //! that lay pages out for `native_index`, and the page numbers the host's
 //! report and the status lines carry once the count is complete.
 
-use paperpaw_sdk::digest::fnv1a64;
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::native::device::{Device, DeviceClass};
 use paperpaw_sdk::native::files::Files;
-use paperpaw_sdk::native::registry::{PageCursor, Registry, RegistryPluginState};
+use paperpaw_sdk::native::fonts::{Font, FontRole};
 use paperpaw_sdk::native::storage::{DataStorage, Root};
-use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
+use paperpaw_ui_kit::mem::buffer;
 
 use super::{Body, Documents, Host, Open, Setup, View};
 use crate::native_chapter::{self, Chapter};
@@ -19,7 +18,7 @@ use crate::native_index::{self, Counter, Edition, Laid, Step};
 pub(super) struct Asked {
     /// The device's memory class (none where the host does not tell).
     class: Option<Option<DeviceClass>>,
-    /// The book's file and the packs running, for the index's name
+    /// The book's file and the packs drawn, for the index's name
     /// ([`Edition`]); asked again once a pack came (`packs_changed`).
     file: Option<(u64, Option<u64>)>,
     packs: Option<u64>,
@@ -29,10 +28,26 @@ pub(super) struct Asked {
     recount: bool,
 }
 
-/// The most pages of plugins the registry is asked for.
-const MOST_PLUGIN_PAGES: usize = 16;
-/// The input of a registry call.
-const REGISTRY_INPUT: usize = 256;
+impl Asked {
+    /// The book's file and the packs drawn, asked before the book's
+    /// document is opened: the stat's buffers then do not add to its peak.
+    pub(super) fn for_book(host: &Host<'_>, path: &str) -> Self {
+        Self {
+            file: Some(book_file(host, path).unwrap_or((0, None))),
+            packs: Some(packs_drawn(host)),
+            ..Self::default()
+        }
+    }
+}
+
+/// A letter of each pack of letters the store has (`tools/script-pack.py`):
+/// which of them the reading font draws, with its fallbacks, tells which packs
+/// the pages are laid out with. Asked of the font (`text.covers`, nothing
+/// allocated): a listing of the registry would keep about 10 KiB.
+const PACK_LETTERS: [char; 29] = [
+    'Ɓ', 'ა', 'ա', 'ж', 'α', 'ạ', 'ع', 'א', 'ก', 'ሀ', '한', '们', '們', 'あ', 'ক', 'क', 'ក', 'ກ',
+    'က', 'ཀ', 'ક', 'ਕ', 'କ', 'க', 'క', 'ಕ', 'ക', 'ක', '뷁',
+];
 
 impl Open {
     /// The count of the layout now: the one open is kept if it is this
@@ -113,7 +128,7 @@ impl Open {
             .count
             .file
             .get_or_insert_with(|| book_file(host, path).unwrap_or((0, None)));
-        let packs = *self.count.packs.get_or_insert_with(|| packs_running(host));
+        let packs = *self.count.packs.get_or_insert_with(|| packs_drawn(host));
         Edition {
             conversion: self.conversion,
             size,
@@ -255,36 +270,23 @@ fn book_file(host: &Host<'_>, path: &str) -> Option<(u64, Option<u64>)> {
     found
 }
 
-/// The packs of letters, fonts and hyphenation running, as one hash of their
-/// ids and versions in no order: another pack, other widths or breaks. 0
-/// where the registry cannot tell.
-fn packs_running(host: &Host<'_>) -> u64 {
-    let Ok(registry) = Registry::open(host) else {
+/// Which packs of letters the reading font draws ([`PACK_LETTERS`], a bit
+/// each): another pack, other widths. 0 where the font cannot tell.
+fn packs_drawn(host: &Host<'_>) -> u64 {
+    let Ok(font) = Font::acquire_role(host, FontRole::Reading) else {
         return 0;
     };
-    let packs = (|| {
-        let (mut input, mut out) = (buffer(REGISTRY_INPUT).ok()?, buffer(SERVICE_BUFFER).ok()?);
-        let mut sum = 0u64;
-        let mut cursor = PageCursor::start();
-        for _ in 0..MOST_PLUGIN_PAGES {
-            let page = registry.plugins(host, cursor, &mut input, &mut out).ok()?;
-            for plugin in page.rows() {
-                let id = plugin.id();
-                let letters = id.starts_with("font-")
-                    || id.starts_with("script-")
-                    || crate::native_script_hint::is_pack(id);
-                if letters && plugin.state() == RegistryPluginState::Running {
-                    sum = sum.wrapping_add(fnv1a64(id) ^ fnv1a64(plugin.version()).rotate_left(1));
-                }
-            }
-            match page.end().next_cursor() {
-                Some(next) => cursor = next,
-                None => break,
-            }
+    let mut drawn = 0u64;
+    for (at, letter) in PACK_LETTERS.iter().enumerate() {
+        let mut bytes = [0u8; 4];
+        let letter = letter.encode_utf8(&mut bytes);
+        if font
+            .covers(&*letter)
+            .is_ok_and(|covered| covered == letter.len())
+        {
+            drawn |= 1 << at;
         }
-        Some(sum)
-    })()
-    .unwrap_or(0);
-    registry.release(host).ok();
-    packs
+    }
+    font.release().ok();
+    drawn
 }

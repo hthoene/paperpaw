@@ -135,8 +135,8 @@ pub struct Edition {
     pub size: u64,
     /// The file's time, where the card tells it.
     pub modified: Option<u64>,
-    /// The packs of letters, fonts and hyphenation running (a hash, 0 where
-    /// none is known): another pack, other widths or breaks.
+    /// The packs of letters the reading font draws (a bit each, 0 where it
+    /// cannot tell): another pack, other widths.
     pub packs: u64,
 }
 
