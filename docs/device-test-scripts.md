@@ -155,6 +155,6 @@ The suite sets Hints off, Sleep after 0 and Switch off after Never (X4), and doe
 
 `tools/pps/hil/` holds the quick, on-demand run with hard limits (#37): `00-settle` (covers made, log quiet), `01-home-focus`
 (≤ 1 s, 1 frame), `02-turn` (text page turn ≤ 1 s, median of 10: the planned Full does not count), `03-back-home` (first frame
-≤ 1.2 s), `04-heap` (largest free block at Home ≥ 40,000 B), `05-crashes` (not above the count before the flash), `99-leave`
+≤ 1.2 s), `04-heap` (largest free block at Home ≥ 40,000 B), `05-crashes` (20 forced light sleeps `nap:3` survived, then crashes.txt not above the count before the flash), `99-leave`
 (night mode off, sleep 0, switch-off never). A limit changes only by a change to these files. The command that builds, flashes,
 runs and writes `verdict.md` is `~/dt-jobs/hil/run.sh [IMAGE.bin | --build]` (on the dt machine; see `ops/hil-run.md` in paperpaw-notes).
