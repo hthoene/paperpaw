@@ -22,6 +22,7 @@ mod changed;
 mod empty;
 mod extra;
 mod grip;
+mod pages;
 mod row;
 pub(crate) use row::draw_row;
 mod stepper;
@@ -311,6 +312,8 @@ pub struct ItemList {
     /// functions that change an item grew the frame of every plugin that has a
     /// list past the band of the X4 (#288).
     kept: Option<alloc::boxed::Box<band::Kept>>,
+    /// The arrow keys stay on the page (`focus::keep_arrows_stay`).
+    arrows_stay: Option<bool>,
 }
 
 impl ItemList {
@@ -466,13 +469,6 @@ impl ItemList {
         (0..from).rev().find(|i| self.items[*i].selectable())
     }
 
-    fn page_of(&self, item: usize) -> usize {
-        self.starts
-            .iter()
-            .rposition(|start| *start <= item)
-            .unwrap_or(0)
-    }
-
     /// What `input` means, without doing anything about it. Page actions go to
     /// the first row of the next or previous page of the last frame.
     #[must_use]
@@ -488,8 +484,12 @@ impl ItemList {
                     "core.confirm" if self.items.get(self.focus).is_some_and(Item::selectable) => {
                         return ItemStep::Chosen(self.focus);
                     }
-                    "core.down" | "core.next" | "core.right" => self.after(self.focus),
-                    "core.up" | "core.previous" | "core.left" => self.before(self.focus),
+                    "core.down" | "core.next" | "core.right" => {
+                        self.on_page(self.after(self.focus), true)
+                    }
+                    "core.up" | "core.previous" | "core.left" => {
+                        self.on_page(self.before(self.focus), false)
+                    }
                     "core.next-page" => first_of(page + 1).or_else(|| self.after(self.focus)),
                     "core.prev-page" if page > 0 => first_of(page - 1),
                     "core.prev-page" => self.before(self.focus),
@@ -588,6 +588,7 @@ impl ItemList {
     /// # Errors
     /// Propagates command queueing errors; the focus is unchanged then.
     pub fn input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<ItemStep, Error> {
+        crate::focus::keep_arrows_stay(host, &mut self.arrows_stay, input);
         let step = self.decide(input);
         match step {
             ItemStep::Focus(to) => {

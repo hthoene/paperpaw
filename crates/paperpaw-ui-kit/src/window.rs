@@ -3,7 +3,9 @@
 //! memory. Rows are all one height (title, and one line of note below when
 //! the list has notes), so the page size is known without building any row.
 use crate::{
-    Messages, Page, Paint, Style, header,
+    Messages, Page, Paint, Style,
+    focus::step_in_pages,
+    header,
     items::{ItemStep, RowItem},
     paint, text,
 };
@@ -94,6 +96,8 @@ pub struct WindowList {
     header: Page,
     /// Whether rows have a line for a note.
     notes: bool,
+    /// The arrow keys stay on the page (`focus::keep_arrows_stay`).
+    arrows_stay: Option<bool>,
 }
 
 impl WindowList {
@@ -138,10 +142,17 @@ impl WindowList {
         let page = self.per_page.max(1);
         match *input {
             Input::Action { action, .. } => {
+                let stays = self.arrows_stay == Some(true);
+                let rows = self.per_page;
                 let target = match action {
                     "core.confirm" if len > 0 => return ItemStep::Chosen(focus),
-                    "core.down" | "core.next" | "core.right" => (focus + 1).min(last),
-                    "core.up" | "core.previous" | "core.left" => focus.saturating_sub(1),
+                    "core.down" | "core.next" | "core.right" => {
+                        let below = Some(focus + 1).filter(|to| *to < len);
+                        step_in_pages(stays, focus, below, true, rows, len)
+                    }
+                    "core.up" | "core.previous" | "core.left" => {
+                        step_in_pages(stays, focus, focus.checked_sub(1), false, rows, len)
+                    }
                     "core.next-page" => ((focus / page + 1) * page).min(last),
                     "core.prev-page" => (focus / page).saturating_sub(1) * page,
                     _ => return ItemStep::Ignored,
@@ -186,6 +197,7 @@ impl WindowList {
         len: usize,
         input: &Input<'_>,
     ) -> Result<ItemStep, Error> {
+        crate::focus::keep_arrows_stay(host, &mut self.arrows_stay, input);
         let step = self.decide(len, input);
         match step {
             ItemStep::Focus(to) => {
@@ -439,6 +451,33 @@ mod tests {
             list(6, 13).decide(2000, &action("core.prev-page")),
             ItemStep::Focus(6)
         );
+    }
+
+    #[test]
+    fn where_the_arrows_stay_on_the_page_they_go_round_it() {
+        // Two pages of six rows: 0-5 and 6-9.
+        for stays in [false, true] {
+            let at = |focus| WindowList {
+                arrows_stay: Some(stays),
+                ..list(6, focus)
+            };
+            let down = |focus| at(focus).decide(10, &action("core.down"));
+            let up = |focus| at(focus).decide(10, &action("core.up"));
+            assert_eq!(
+                down(5),
+                ItemStep::Focus(if stays { 0 } else { 6 }),
+                "{stays}"
+            );
+            assert_eq!(up(6), ItemStep::Focus(if stays { 9 } else { 5 }), "{stays}");
+            assert_eq!(
+                down(9),
+                ItemStep::Focus(if stays { 6 } else { 9 }),
+                "{stays}"
+            );
+            assert_eq!(up(0), ItemStep::Focus(if stays { 5 } else { 0 }), "{stays}");
+            let page = at(5).decide(10, &action("core.next-page"));
+            assert_eq!(page, ItemStep::Focus(6), "{stays}");
+        }
     }
 
     #[test]

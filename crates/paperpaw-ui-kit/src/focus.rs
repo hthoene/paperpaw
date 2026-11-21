@@ -5,6 +5,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{Input, InputGestureKind},
         commands::CommandSender,
+        settings::{self, SettingValue},
     },
 };
 
@@ -27,6 +28,8 @@ pub enum ListInput {
 #[derive(Debug, Default)]
 pub struct ListFocus {
     focus: usize,
+    /// The arrow keys stay on the page (`keep_arrows_stay`).
+    arrows_stay: Option<bool>,
 }
 
 impl ListFocus {
@@ -59,10 +62,21 @@ impl ListFocus {
                 let rows = renderer.rows().max(1);
                 let last = len.saturating_sub(1);
                 let focus = self.focus.min(last);
+                let stays = self.arrows_stay == Some(true);
                 let target = match action {
                     "core.confirm" if len > 0 => return Step::Chosen(focus),
-                    "core.down" | "core.next" | "core.right" => focus.saturating_add(1),
-                    "core.up" | "core.previous" | "core.left" => focus.saturating_sub(1),
+                    "core.down" | "core.next" | "core.right" => {
+                        let below = focus.checked_add(1).filter(|to| *to < len);
+                        step_in_pages(stays, focus, below, true, renderer.rows(), len)
+                    }
+                    "core.up" | "core.previous" | "core.left" => step_in_pages(
+                        stays,
+                        focus,
+                        focus.checked_sub(1),
+                        false,
+                        renderer.rows(),
+                        len,
+                    ),
                     "core.next-page" => focus.saturating_add(rows),
                     "core.prev-page" => focus.saturating_sub(rows),
                     _ => return Step::Ignored,
@@ -98,6 +112,7 @@ impl ListFocus {
         len: usize,
         input: &Input<'_>,
     ) -> Result<ListInput, Error> {
+        keep_arrows_stay(host, &mut self.arrows_stay, input);
         match self.decide(renderer, len, input) {
             Step::Ignored => Ok(ListInput::Ignored),
             Step::Chosen(index) => {
@@ -120,6 +135,63 @@ impl ListFocus {
             }
         }
     }
+}
+
+/// Keeps in `kept` the reader's choice that the arrow keys stay on the page of
+/// a list (`core.arrows-stay-on-page`): read once, at the first key the list
+/// takes, not at every one, and kept as long as the list (a screen builds its
+/// list anew where it opens). A refused read reads as off and is tried again
+/// at the next key.
+#[inline(never)]
+pub(crate) fn keep_arrows_stay(host: &Host<'_>, kept: &mut Option<bool>, input: &Input<'_>) {
+    if kept.is_some() || !matches!(input, Input::Action { .. }) {
+        return;
+    }
+    let mut scratch = [0; 32];
+    let key = paperpaw_sdk::builtin::settings::ARROWS_STAY_ON_PAGE.static_str();
+    *kept = match settings::read_setting(host, key, &mut scratch) {
+        Ok(SettingValue::Bool(on)) => Some(on),
+        Ok(_) => Some(false),
+        Err(_) => None,
+    };
+}
+
+/// Where an arrow key that steps to `target` (onwards with `forward`; `None`
+/// past the list's end) takes the focus where the arrow keys stay on the page
+/// whose rows the focus may rest on run from `first` to `last`: there while it
+/// is on the page, else to the page's other end, as in Beta 3. The page keys
+/// still turn the page.
+pub(crate) fn round_page(
+    target: Option<usize>,
+    forward: bool,
+    (first, last): (usize, usize),
+) -> usize {
+    match target {
+        Some(to) if (first..=last).contains(&to) => to,
+        _ if forward => first,
+        _ => last,
+    }
+}
+
+/// Where an arrow key that steps from `focus` to `target` takes the focus in a
+/// list of `len` rows that all take it, in pages of `rows` rows (0 before the
+/// first frame): to the page's other end where the arrow keys stay on the page
+/// (`stays`) and the step leaves it ([`round_page`]), else to `target`, or
+/// nowhere past the list's ends.
+pub(crate) fn step_in_pages(
+    stays: bool,
+    focus: usize,
+    target: Option<usize>,
+    forward: bool,
+    rows: usize,
+    len: usize,
+) -> usize {
+    if !stays || rows == 0 {
+        return target.unwrap_or(focus);
+    }
+    let first = focus - focus % rows;
+    let last = first.saturating_add(rows).min(len).saturating_sub(1);
+    round_page(target, forward, (first, last))
 }
 
 /// What a list made of an input, before anything is done about it.
@@ -267,6 +339,27 @@ mod tests {
             list.decide(&renderer, 3, &action("core.down")),
             Step::Focus(2)
         );
+    }
+
+    #[test]
+    fn where_the_arrows_stay_on_the_page_they_go_round_it() {
+        // Two pages of five rows: 0-4 and 5-7.
+        let renderer = ListRenderer::geometry(Rect::new(0, 50, 300, 200), 40, 0, 5);
+        for stays in [false, true] {
+            let at = |focus| ListFocus {
+                focus,
+                arrows_stay: Some(stays),
+            };
+            let down = |focus| at(focus).decide(&renderer, 8, &action("core.down"));
+            let up = |focus| at(focus).decide(&renderer, 8, &action("core.up"));
+            assert_eq!(down(4), Step::Focus(if stays { 0 } else { 5 }), "{stays}");
+            assert_eq!(up(5), Step::Focus(if stays { 7 } else { 4 }), "{stays}");
+            assert_eq!(down(7), Step::Focus(if stays { 5 } else { 7 }), "{stays}");
+            assert_eq!(up(0), Step::Focus(if stays { 4 } else { 0 }), "{stays}");
+            assert_eq!(down(2), Step::Focus(3), "{stays}");
+            let page = at(4).decide(&renderer, 8, &action("core.next-page"));
+            assert_eq!(page, Step::Focus(7), "{stays}");
+        }
     }
 
     #[test]
