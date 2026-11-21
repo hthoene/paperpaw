@@ -539,7 +539,8 @@ fn holding(config: &'static str) -> Kernel {
 }
 
 /// A hold puts the sleep off until it ends; let go, closed with its
-/// screen, ignored with the setting off or a battery nearly empty.
+/// screen, ignored with a battery nearly empty. No switch turns holds off
+/// while no plugin of interface 7 can hold the device (#459).
 #[test]
 fn holds_put_sleep_off_within_bounds() {
     let config = "[core]\nsleep-after = 1\n";
@@ -568,10 +569,9 @@ fn holds_put_sleep_off_within_bounds() {
     kernel.close_screen(key);
     kernel.count_awake();
     assert_eq!(kernel.sleep_due(), Some(Instant(60_000)));
-    // Not with the setting off.
-    let kernel = holding("[core]\nsleep-after = 1\nawake-holds = off\n");
-    assert_eq!(kernel.sleep_due(), Some(Instant(60_000)));
-    // Nor with the battery nearly empty.
+    // No switch for them is offered.
+    assert!(kernel.shared.settings.spec("core.awake-holds").is_none());
+    // Not with the battery nearly empty.
     let mut kernel = holding(config);
     let status = paperpaw_platform::SystemStatus::default()
         .with_battery(Some(paperpaw_platform::Battery::new(8, false, None)));

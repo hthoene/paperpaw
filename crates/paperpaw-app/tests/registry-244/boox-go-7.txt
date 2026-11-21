@@ -549,7 +549,6 @@ setting picture-home.group | picture-home.page-2 Text default=Text("home.tools")
 setting picture-home.group | picture-home.page-3 Text default=Text("") Advanced scoped=false guarded=false secret=false kept=false title=picture-home.setting.page-3
 setting picture-home.group | picture-home.page-4 Text default=Text("") Advanced scoped=false guarded=false secret=false kept=false title=picture-home.setting.page-4
 setting power.group | core.sleep-after Int { min: 0, max: 120 } default=Int(10) Basic scoped=false guarded=false secret=false kept=false title=core.setting.sleep-after
-setting power.group | core.awake-holds Bool default=Bool(true) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.awake-holds
 setting power.group | power.mode Choice(Fixed(["power.mode.auto", "power.mode.normal", "power.mode.saving", "power.mode.offline"])) default=Text("power.mode.auto") Basic scoped=false guarded=false secret=false kept=false title=power.setting.mode
 setting power.group | power.saving-below Int { min: 5, max: 50 } default=Int(20) Basic scoped=false guarded=false secret=false kept=false title=power.setting.saving-below
 setting power.group | power.offline-below Int { min: 0, max: 30 } default=Int(10) Basic scoped=false guarded=false secret=false kept=false title=power.setting.offline-below

@@ -5,6 +5,9 @@ use crate::{
     native_model, native_sheet,
 };
 
+/// The reader's choice that the arrow keys stay on the page.
+const ARROWS_STAY: &str = "core.arrows-stay-on-page";
+
 impl NativeFiles {
     /// Whether the books show as a grid of covers (`files.view`).
     pub(super) fn grid(host: &Host<'_>) -> Result<bool, Error> {
@@ -13,6 +16,16 @@ impl NativeFiles {
             SettingValue::Text(key) => key == VIEW_COVERS,
             _ => false,
         })
+    }
+
+    /// Whether the arrow keys stay on the page (`core.arrows-stay-on-page`,
+    /// off unless the reader turned it on).
+    pub(super) fn arrows_stay(host: &Host<'_>) -> Result<bool, Error> {
+        let mut scratch = [0; 32];
+        Ok(matches!(
+            settings::read_setting(host, ARROWS_STAY, &mut scratch)?,
+            SettingValue::Bool(true)
+        ))
     }
 
     /// Whether the card answers: the probe of `files.md` section 3 (`stat` of
@@ -175,7 +188,8 @@ impl NativeFiles {
         )?;
         browser.empty = built.empty;
         browser.empty_text = built.empty_text;
-        browser.list = BookList::new(built.cells, Self::grid(host)?);
+        browser.list =
+            BookList::new(built.cells, Self::grid(host)?).arrows_staying(Self::arrows_stay(host)?);
         Ok(())
     }
 

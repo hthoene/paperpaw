@@ -296,6 +296,8 @@ pub struct BookList {
     pub(crate) touch: bool,
     /// Where the chip and the lens of the filter row were drawn.
     pub(crate) chip: Option<paperpaw_ui_kit::choice_chip::Parts>,
+    /// The arrow keys stay on the page (`core.arrows-stay-on-page`).
+    arrows_stay: bool,
 }
 
 impl BookList {
@@ -309,6 +311,14 @@ impl BookList {
         };
         list.focus = list.cells.iter().position(Cell::selectable).unwrap_or(0);
         list
+    }
+
+    /// With the arrow keys staying on the page or not
+    /// (`core.arrows-stay-on-page`).
+    #[must_use]
+    pub const fn arrows_staying(mut self, on: bool) -> Self {
+        self.arrows_stay = on;
+        self
     }
 
     /// Whether the filter row is a chip that opens a list of the filters (a
@@ -398,6 +408,34 @@ impl BookList {
             .unwrap_or(0)
     }
 
+    /// The first and the last cell the focus may rest on of the page `cell`
+    /// is on, as the last frame laid it out.
+    fn page_ends(&self, cell: usize) -> Option<(usize, usize)> {
+        let page = self.page_of(cell);
+        let start = self.starts.get(page).copied().unwrap_or(0);
+        let end = self
+            .starts
+            .get(page + 1)
+            .copied()
+            .unwrap_or(self.cells.len());
+        let rests = |i: &usize| self.cells.get(*i).is_some_and(Cell::selectable);
+        Some(((start..end).find(rests)?, (start..end).rev().find(rests)?))
+    }
+
+    /// Where an arrow key that steps to `target` (onwards with `forward`)
+    /// takes the focus: there, unless the arrow keys stay on the page and it
+    /// is off the page (or there is none): then the page's other end, as in
+    /// Beta 3. The page keys still turn the page.
+    fn on_page(&self, target: Option<usize>, forward: bool) -> Option<usize> {
+        let page = self.page_of(self.focus);
+        if !self.arrows_stay || target.is_some_and(|to| self.page_of(to) == page) {
+            return target;
+        }
+        self.page_ends(self.focus)
+            .map(|(first, last)| if forward { first } else { last })
+            .or(target)
+    }
+
     /// A step by a row in a grid: the book a row below or above, else the
     /// next cell that way.
     fn vertical(&self, down: bool) -> Option<usize> {
@@ -443,10 +481,10 @@ impl BookList {
                             _ => ListStep::Menu,
                         };
                     }
-                    "core.down" => self.vertical(true),
-                    "core.up" => self.vertical(false),
-                    "core.next" | "core.right" => self.after(self.focus),
-                    "core.previous" | "core.left" => self.before(self.focus),
+                    "core.down" => self.on_page(self.vertical(true), true),
+                    "core.up" => self.on_page(self.vertical(false), false),
+                    "core.next" | "core.right" => self.on_page(self.after(self.focus), true),
+                    "core.previous" | "core.left" => self.on_page(self.before(self.focus), false),
                     "core.next-page" => first_of(page + 1).or_else(|| self.after(self.focus)),
                     "core.prev-page" if page > 0 => first_of(page - 1),
                     "core.prev-page" => self.before(self.focus),
@@ -623,6 +661,34 @@ mod tests {
             action: "core.nothing",
         };
         assert_eq!(list.decide(&other), ListStep::Ignored);
+    }
+
+    #[test]
+    fn where_the_arrows_stay_on_the_page_they_go_round_it() {
+        let down = Input::Action {
+            now_ms: 0,
+            action: "core.down",
+        };
+        let up = Input::Action {
+            now_ms: 0,
+            action: "core.up",
+        };
+        // Two pages: books 0-4 and 5-7.
+        for stays in [false, true] {
+            let mut list = BookList::new(books(8), false).arrows_staying(stays);
+            list.metrics = Some(metrics());
+            list.starts = vec![0, 5];
+            list.set_focus(4);
+            let past_last = if stays { 0 } else { 5 };
+            assert_eq!(list.decide(&down), ListStep::Focus(past_last), "{stays}");
+            list.set_focus(5);
+            let before_first = if stays { 7 } else { 4 };
+            assert_eq!(list.decide(&up), ListStep::Focus(before_first), "{stays}");
+            // The list's end goes round its last page.
+            list.set_focus(7);
+            let past_end = if stays { 5 } else { 7 };
+            assert_eq!(list.decide(&down), ListStep::Focus(past_end), "{stays}");
+        }
     }
 
     #[test]
