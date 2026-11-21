@@ -8,7 +8,7 @@ pub(crate) fn draw_row(
     rect: Rect,
     row: &RowItem,
     focused: bool,
-) -> Result<Option<(Rect, Rect)>, Error> {
+) -> Result<Option<Buttons>, Error> {
     draw_row_as(paint, font, style, rect, row, focused, None)
 }
 
@@ -20,7 +20,7 @@ pub(super) fn draw_row_as(
     row: &RowItem,
     focused: bool,
     cards: Option<bool>,
-) -> Result<Option<(Rect, Rect)>, Error> {
+) -> Result<Option<Buttons>, Error> {
     let own = looked(style, row);
     let style = own.as_ref().unwrap_or(style);
     if let Some(more) = cards.filter(|_| !row.field || focused) {
@@ -75,17 +75,54 @@ pub(super) fn draw_row_as(
         switch_pill(paint, style, band, on, (ink, ground))?;
         cols = Rect::new(band.x, band.y, band.width.saturating_sub(room), band.height);
     }
+    let mut noted = band;
     if row.stepper {
-        let (free, pair) = draw_stepper(paint, (font, style), band, row, ink)?;
+        let (free, (minus, plus)) = draw_stepper(paint, (font, style), band, row, ink)?;
         cols = free;
-        buttons = Some(pair);
+        let track = match row.track.as_deref().and_then(<[Track]>::first) {
+            Some(&track) => {
+                // The track in the row under the buttons, and the note under it.
+                noted.height = noted.height.saturating_add(style.row);
+                Some(draw_track(paint, style, (rect, band), track, ink)?)
+            }
+            None => None,
+        };
+        buttons = Some((minus, plus, track));
     }
     draw_title(paint, (font, style), cols, row, &title_block, ink)?;
     if row.note.is_empty() {
         return Ok(buttons);
     }
-    draw_note(paint, font, style, (rect, band, note_at), row, focused)?;
+    draw_note(paint, font, style, (rect, noted, note_at), row, focused)?;
     Ok(buttons)
+}
+
+/// The minus, the plus and the track of a stepper row.
+pub(super) type Buttons = (Rect, Rect, Option<Rect>);
+
+/// Draws the track of a slider row in the row under `band`, across almost
+/// the whole width of `rect`, and gives it.
+fn draw_track(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    (rect, band): (Rect, Rect),
+    track: Track,
+    ink: paperpaw_sdk::Color,
+) -> Result<Rect, Error> {
+    let low = Rect::new(
+        rect.x,
+        band.y.saturating_add(band.height),
+        rect.width,
+        band.height,
+    );
+    let place = low.inset(style.margin, band.height / 8);
+    let radius = crate::slider::knob_radius(place);
+    let knob = crate::slider::knob_x(place, track.value, track.range).clamp(0, i32::from(u16::MAX));
+    let start = place.x.saturating_add(radius);
+    let end = place.x.saturating_add(place.width).saturating_sub(radius);
+    let line = Rect::new(start, place.y, end.saturating_sub(start), place.height);
+    crate::parts::slider(paint, style, line, (knob as u16, radius), &[], ink)?;
+    Ok(place)
 }
 
 fn draw_note(
@@ -141,7 +178,7 @@ fn draw_note(
 #[derive(Default)]
 pub(super) struct Drawn {
     pub(super) hits: Vec<(Rect, usize)>,
-    pub(super) steps: Vec<(Rect, Rect, usize)>,
+    pub(super) steps: Vec<Stepped>,
     pub(super) grips: Vec<(Rect, usize)>,
     pub(super) y: u16,
 }
@@ -185,7 +222,7 @@ pub(super) fn paint_rows(
             }
             Item::Row(row) => {
                 let grip = (index < list.grips).then_some((&mut drawn.grips, index));
-                if let Some((minus, plus)) = draw_row_with_grip(
+                if let Some((minus, plus, track)) = draw_row_with_grip(
                     body,
                     font,
                     style,
@@ -203,7 +240,7 @@ pub(super) fn paint_rows(
                     grip,
                 )? {
                     drawn.steps.try_reserve(1).map_err(|_| Error::NoMemory)?;
-                    drawn.steps.push((minus, plus, index));
+                    drawn.steps.push((minus, plus, index, track));
                 }
                 drawn.hits.try_reserve(1).map_err(|_| Error::NoMemory)?;
                 drawn.hits.push((rect, index));
