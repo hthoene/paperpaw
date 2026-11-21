@@ -166,7 +166,7 @@ impl NativeReader {
         // book): the book it shows stays open; another book's document is
         // given back first, so the host has room for the new one.
         if let Some(view) = self.screens.get(instance) {
-            if view.keeps(&found)? {
+            if view.keeps(host, docs, &found)? {
                 self.start_count(host);
                 return Ok(());
             }
@@ -367,7 +367,7 @@ impl NativeReader {
         let (handled, outcome) = view.input(host, docs, input)?;
         if let Outcome::Go(place) = outcome {
             if let Some(reading) = self.screens.top(SCREEN) {
-                reading.go_to((place.section, place.offset))?;
+                reading.go_to(host, docs, (place.section, place.offset))?;
                 if reading.take_turned() {
                     self.start_quiet(host);
                 }
@@ -434,8 +434,8 @@ impl NativeReader {
         };
         let (handled, outcome) = view.input(host, self.library.as_ref(), input)?;
         if let NotesOutcome::Go(place) = outcome {
-            if let Some(reading) = self.screens.top(SCREEN) {
-                reading.go_to((place.section, place.offset))?;
+            if let (Some(reading), Some(docs)) = (self.screens.top(SCREEN), &self.docs) {
+                reading.go_to(host, docs, (place.section, place.offset))?;
                 if reading.take_turned() {
                     self.start_quiet(host);
                 }
@@ -535,9 +535,14 @@ impl NativeReader {
         };
         let (handled, outcome) = view.input(host, input)?;
         if let SearchOutcome::Go(place, end) = outcome {
-            if let Some(reading) = self.screens.top(SCREEN) {
+            if let (Some(reading), Some(docs)) = (self.screens.top(SCREEN), &self.docs) {
                 // The page that shows the match marks it.
-                reading.go_to_match((place.section, place.offset), (place.section, end))?;
+                reading.go_to_match(
+                    host,
+                    docs,
+                    (place.section, place.offset),
+                    (place.section, end),
+                )?;
                 if reading.take_turned() {
                     self.start_quiet(host);
                 }

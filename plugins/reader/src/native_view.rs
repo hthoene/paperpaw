@@ -679,19 +679,36 @@ impl View {
         Ok(Handled::Yes)
     }
 
-    /// Goes to `place` (a jump from the table of contents): the page before is
-    /// kept to turn back to, the place is reported and written as any turn's.
+    /// Goes to `place`, far from here (the table of contents, a search hit, a
+    /// highlight, a page number): the page shown starts with the whole line
+    /// `place` is in, and *Back* returns to the page left, as in Beta 3 (#441).
+    /// The place is reported and written as any turn's.
     ///
     /// # Errors
     /// `NoMemory`, and the host's refusal to redraw.
-    pub fn go_to(&mut self, place: (u32, u32)) -> Result<(), Error> {
+    pub fn go_to(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        place: (u32, u32),
+    ) -> Result<(), Error> {
         let Body::Open(open) = &mut self.body else {
             return Ok(());
         };
         if place.0 >= open.sections || place == open.at {
             return Ok(());
         }
-        open.trail.push(open.at)?;
+        let place = match open.settings.setup(host) {
+            Ok(setup) => open.line_start(host, docs, &setup, place).unwrap_or(place),
+            Err(_) => place,
+        };
+        if place == open.at {
+            return Ok(());
+        }
+        open.marking.jumped(Locator::new(open.at.0, open.at.1))?;
+        open.marking.reset();
+        open.marking.landed(Locator::new(place.0, place.1));
+        open.trail.clear();
         open.at = place;
         open.page = None;
         open.unsaved = true;
@@ -702,14 +719,19 @@ impl View {
         Ok(())
     }
 
-    /// [`go_to`](Self::go_to) the page that starts at `start`, with the match
-    /// from `start` to `end` marked on it (a search hit chosen); the mark goes
-    /// with the next page.
+    /// [`go_to`](Self::go_to) the match from `start` to `end` (a search hit
+    /// chosen), marked on the page; the mark goes with the next page.
     ///
     /// # Errors
     /// `NoMemory`, and the host's refusal to redraw.
-    pub fn go_to_match(&mut self, start: (u32, u32), end: (u32, u32)) -> Result<(), Error> {
-        self.go_to(start)?;
+    pub fn go_to_match(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        start: (u32, u32),
+        end: (u32, u32),
+    ) -> Result<(), Error> {
+        self.go_to(host, docs, start)?;
         if let Body::Open(open) = &mut self.body
             && start.0 < open.sections
             && start < end
@@ -770,7 +792,12 @@ impl View {
     ///
     /// # Errors
     /// `NoMemory`.
-    pub(crate) fn keeps(&mut self, found: &Handover) -> Result<bool, Error> {
+    pub(crate) fn keeps(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        found: &Handover,
+    ) -> Result<bool, Error> {
         let same = self
             .book()
             .is_some_and(|(path, root)| path == found.path && root == root_code(found.root()));
@@ -778,7 +805,7 @@ impl View {
             return Ok(false);
         }
         if let native_open::Start::At(place) = native_open::start(|key| found.get(key)) {
-            self.go_to((place.section, place.offset))?;
+            self.go_to(host, docs, (place.section, place.offset))?;
         }
         Ok(true)
     }

@@ -507,3 +507,32 @@ fn a_highlight_of_one_word_a_beta3_card_wrote_is_drawn_on_its_page() {
     let path = card.join(format!(".paperpaw/annotations/{HASH}.txt"));
     assert_eq!(fs::read_to_string(path).unwrap(), file);
 }
+
+#[test]
+fn back_after_a_jump_from_the_contents_returns_to_the_page_left() {
+    // #441: as in Beta 3, a jump (the contents, a search hit, a page number)
+    // keeps the page left for *Back*; Beta 4 closed the book on *Back*.
+    let card = new_card("jump-back");
+    let left_shot = card.join("left.png");
+    session(&card, &left_shot, &turns(3));
+    let left = page(&left_shot);
+    // Each look starts on the page left: a session may save its place.
+    let place = fs::read(positions(&card)).unwrap();
+    let mut keys = run("reader.show-toc");
+    for key in ["right", "right", "confirm"] {
+        keys.extend(press(key));
+    }
+    keys.push("{\"op\": \"wait\", \"ms\": 1500}".to_string());
+    let jumped = card.join("jumped.png");
+    session(&card, &jumped, &keys);
+    fs::write(positions(&card), &place).unwrap();
+    assert_ne!(page(&jumped), left, "the contents did not jump");
+    keys.extend(press("back"));
+    keys.push("{\"op\": \"wait\", \"ms\": 1500}".to_string());
+    let returned = card.join("returned.png");
+    session(&card, &returned, &keys);
+    assert!(
+        page(&returned) == left,
+        "Back after the jump did not return to the page left"
+    );
+}

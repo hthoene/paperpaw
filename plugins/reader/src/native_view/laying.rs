@@ -26,18 +26,49 @@ impl Open {
         start: (u32, u32),
     ) -> Result<(Page, bool), Error> {
         let area = self.area(setup).ok_or(Error::NoSpace)?;
+        self.with_faces(host, setup, |faces| {
+            let page = self.lay_with(host, docs, faces, setup, start, area)?;
+            Ok((page, faces.take_failed()))
+        })
+    }
+
+    /// The start of the line `at` falls in, the text set as the page is: a
+    /// page shown from a place far from here (a search hit, a highlight, a
+    /// percentage) starts with its whole line, as in Beta 3 (#441).
+    pub(super) fn line_start(
+        &self,
+        host: &Host<'_>,
+        docs: &Documents,
+        setup: &Setup,
+        at: (u32, u32),
+    ) -> Result<(u32, u32), Error> {
+        let area = self.area(setup).ok_or(Error::NoSpace)?;
+        self.with_faces(host, setup, |faces| {
+            let start = self.with_context(host, docs, faces, setup, at, area, |cx| {
+                paperpaw_sdk::layout::line_start(cx, Locator::new(at.0, at.1))
+            })?;
+            Ok((start.section, start.offset))
+        })
+    }
+
+    /// `then` with the faces of `setup`, the host's fonts let go of after it.
+    fn with_faces<R>(
+        &self,
+        host: &Host<'_>,
+        setup: &Setup,
+        then: impl FnOnce(&Faces<&HostFonts<'_>>) -> Result<R, Error>,
+    ) -> Result<R, Error> {
         let tables = self.settings.tables();
         let fonts = HostFonts::acquire(host)?;
-        let page = Faces::with_tables(&fonts, setup.base(), setup.reading.spacing_factor(), tables)
+        let done = Faces::with_tables(&fonts, setup.base(), setup.reading.spacing_factor(), tables)
             .and_then(|faces| {
                 let faces = faces
                     .word_spacing(setup.reading.word_factor())
                     .with_letters(setup.reading.letters);
-                let page = self.lay_with(host, docs, &faces, setup, start, area)?;
-                Ok((page, faces.take_failed()))
+                then(&faces)
             });
         let released = fonts.release();
-        page.and_then(|page| released.map(|()| page))
+        done.and_then(|done| released.map(|()| done))
     }
 
     /// Lays out the page after the one on show and keeps it for the next
@@ -113,6 +144,27 @@ impl Open {
         start: (u32, u32),
         area: native_pages::Box,
     ) -> Result<Page, Error> {
+        self.with_context(host, docs, faces, setup, start, area, |cx| {
+            layout_page(cx, Locator::new(start.0, start.1), f32::from(area.height))
+        })
+    }
+
+    /// `lay` with the context the page at `start` is laid out in (the book's
+    /// blocks through the filters and text stages, the style, the hyphenation).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "lay_with's, and the one thing done in its context"
+    )]
+    fn with_context<R>(
+        &self,
+        host: &Host<'_>,
+        docs: &Documents,
+        faces: &Faces<&HostFonts<'_>>,
+        setup: &Setup,
+        start: (u32, u32),
+        area: native_pages::Box,
+        lay: impl Fn(&LayoutContext<'_>) -> Result<R, paperpaw_sdk::document::DocumentError>,
+    ) -> Result<R, Error> {
         let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?
             .filtered(&self.filters, &self.path)
             .layered(&self.layers);
@@ -149,19 +201,17 @@ impl Open {
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces)
             .hyphenate(on.then_some(&hyphenate as Hyphenate<'_>));
         let lay = || {
-            layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(
-                |error| match document_error_kind(&error) {
-                    Some(kind) => kind,
-                    None => Error::Invalid,
-                },
-            )
+            lay(&cx).map_err(|error| match document_error_kind(&error) {
+                Some(kind) => kind,
+                None => Error::Invalid,
+            })
         };
-        let page = lay()?;
+        let laid = lay()?;
         // A block read beyond what was asked ahead: asked now, laid out once more.
         if self.prepare_missed(host, &document) {
             return lay();
         }
-        Ok(page)
+        Ok(laid)
     }
 
     pub(super) fn draw(
