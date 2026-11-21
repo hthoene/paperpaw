@@ -335,6 +335,7 @@ pub const WAYS: &[Way] = &[
         needs: "the shelves' By author row opened (the names of a kind of shelf)",
         settings: &[],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -352,6 +353,7 @@ pub const WAYS: &[Way] = &[
         needs: "a name of the shelves' By author row opened (the books of one shelf)",
         settings: &[],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -371,6 +373,7 @@ pub const WAYS: &[Way] = &[
                 row, whose picker is home's own screen",
         settings: &[],
         files: &[],
+        network: Network::None,
         steps: &[
             "long:confirm",
             "to:Settings",
