@@ -266,6 +266,9 @@ pub struct Loader {
     /// `core.secrets`: sealed with the device key (`crate::secrets`).
     #[cfg(feature = "ppn5")]
     secrets: crate::secrets::Wiring,
+    /// The kernel's catalog work as `core.library` reads it (`CardCatalog`).
+    #[cfg(feature = "ppn5")]
+    walk: paperpaw_core::LibraryWalk,
 }
 
 /// The device-wide table of handles, one for the whole firmware: the code
@@ -333,7 +336,16 @@ impl Loader {
             device,
             #[cfg(feature = "ppn5")]
             secrets,
+            #[cfg(feature = "ppn5")]
+            walk: paperpaw_core::LibraryWalk::default(),
         }
+    }
+
+    /// Where the kernel notes its catalog work for `core.library`
+    /// (`KernelBuilder::library_walk`): the handle this loader wires it with.
+    #[cfg(feature = "ppn5")]
+    pub fn library_walk(&self) -> paperpaw_core::LibraryWalk {
+        self.walk.clone()
     }
 
     /// The device's table of handles as the loader holds it, for the
@@ -376,16 +388,24 @@ fn new_resources(
     Some(resources)
 }
 
-/// What the card cannot tell the catalog reads, on the X4: the walk is the
-/// kernel's own (nothing to show here) and a book is new by the date the clock
-/// has, when it has one.
+/// What the card cannot tell the catalog reads, on the X4: how far the
+/// kernel's first walk is and whether its work went quiet (read from the
+/// kernel's notes and the clock the kernel runs on), and a book is new by the
+/// date the clock has, when it has one.
 #[cfg(feature = "ppn5")]
-struct CardCatalog;
+struct CardCatalog {
+    walk: paperpaw_core::LibraryWalk,
+    storage: alloc::rc::Rc<dyn Storage>,
+}
 
 #[cfg(feature = "ppn5")]
 impl paperpaw_core::native_host::shell_wiring::CatalogEnv for CardCatalog {
     fn walking(&self) -> Option<u32> {
-        None
+        self.walk.walking(&*self.storage)
+    }
+
+    fn stalled(&self) -> bool {
+        self.walk.stalled(crate::now().millis())
     }
 
     fn today(&self) -> Option<u32> {
@@ -475,7 +495,13 @@ impl Loader {
                 crate::DEVICE.memory,
                 u32::from(display.width.max(display.height)),
             )
-            .library(storage.clone(), Rc::new(CardCatalog))
+            .library(
+                storage.clone(),
+                Rc::new(CardCatalog {
+                    walk: self.walk.clone(),
+                    storage: storage.clone(),
+                }),
+            )
             .files(storage.clone());
         match resources.wire(wiring) {
             Ok(_) => crate::device_host::wired_card(),

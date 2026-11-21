@@ -429,6 +429,8 @@ struct Catalog {
     /// The archive folders the views of the sorted books leave out
     /// ([`library::sorted`]), those asked for last first.
     archives: core::cell::RefCell<Vec<String>>,
+    /// What the library service reads of the work: each step is noted in it.
+    seen: crate::LibraryWalk,
 }
 
 impl Catalog {
@@ -524,8 +526,20 @@ impl Catalog {
         }
     }
 
-    /// One step of the job.
+    /// One step of the job, noted for the library service ([`crate::LibraryWalk`]).
     fn step(&self, env: &Place<'_>, out: &mut Asks) -> paperpaw_sdk::work::Step {
+        let step = self.run_step(env, out);
+        let progress = self
+            .job
+            .borrow()
+            .as_ref()
+            .and_then(CatalogJob::progress_ppm);
+        self.seen.stepped(env.now().millis(), &step, progress);
+        step
+    }
+
+    /// The step of the job itself.
+    fn run_step(&self, env: &Place<'_>, out: &mut Asks) -> paperpaw_sdk::work::Step {
         use paperpaw_sdk::work::Step;
         let storage = env.storage();
         let mut job = self.job.borrow_mut();
@@ -724,6 +738,20 @@ pub(crate) struct State {
     /// does not change it reads nothing. Forgotten when the book opens,
     /// closes or changes.
     recorded: core::cell::RefCell<Option<(String, u8)>>,
+}
+
+impl State {
+    /// The state of a kernel whose catalog work the library service reads
+    /// through `walk`.
+    pub(crate) fn watched_by(walk: crate::LibraryWalk) -> Self {
+        Self {
+            catalog: Catalog {
+                seen: walk,
+                ..Catalog::default()
+            },
+            ..Self::default()
+        }
+    }
 }
 
 fn register_reading(r: &mut Staging) -> Result<(), RegisterError> {

@@ -1131,6 +1131,8 @@ fn kernel(
     let builder = builder.built_in_ids(paperpaw_app::is_linked_id);
     let builder = match code {
         CodePlugins::Load(loader) => {
+            #[cfg(feature = "ppn5")]
+            let builder = builder.library_walk(loader.library_walk());
             builder.code_plugins(native(staged.not_installed), Box::new(loader))
         }
         CodePlugins::SafeMode(safe_mode) => builder
