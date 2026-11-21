@@ -30,7 +30,10 @@ the activation of native plugins and the host's sockets and library (`tests/acce
   (one read at a time), a character cut in two by a piece waits for the rest; a book is read with
   `read_file` into `incoming` of the plugin's data and put in the library with `Library::import` (`Replace`
   for a book Calibre sent before, `Refuse` otherwise: a file there that Calibre did not send is told,
-  `calibre.not-replaced`); a book Calibre deletes goes through `Library::delete` (with its notes) or, for
+  `calibre.not-replaced`). A book received under Beta 3 has no importer in the library, which refuses
+  to replace it (`Denied`): it is deleted first (without the reader's marks: one with marks stays and
+  is told as not replaced) and the new one takes its name (#459; its reading position starts again,
+  as for a book deleted and sent anew); a book Calibre deletes goes through `Library::delete` (with its notes) or, for
   a file the library does not take for a book, from the card. The password is a secret (`core.secrets`,
   name `password`, wiped; shown nowhere); a device that keeps none says so (`core.secrets-unsupported`).
   The screen is a list on the kit's `ItemList` (status as the heading, the library and the books received
