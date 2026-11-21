@@ -2157,7 +2157,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2928,7 +2928,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-widgets"
-version = "1.0.11"
+version = "1.0.12"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
