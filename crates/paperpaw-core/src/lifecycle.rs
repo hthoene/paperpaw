@@ -1,6 +1,6 @@
 //! The kernel's sleep, wake and stop.
 
-use crate::{Effects, Instant, Kernel, events, meter};
+use crate::{Ask, Effects, Instant, Kernel, events, meter};
 
 impl Kernel {
     /// The device goes to sleep or the app to the background; plugins hear
@@ -84,6 +84,19 @@ impl Kernel {
         self.count_free_again(now);
         self.native_work_woke();
         self.output.emit(&events::RESUME, ());
+    }
+
+    /// The shell found no cable for [`Effects::usb_drive`]: the card was
+    /// never lent. As on waking, and the reader is told at once.
+    pub fn usb_drive_refused(&mut self, now: Instant) -> Effects {
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.woke(now);
+        self.with_env(|env, out| {
+            out.push(Ask::Notify(alloc::string::String::from(
+                env.i18n().tr("core.usb-drive.none"),
+            )));
+        });
+        self.finish()
     }
 
     /// The card is PaperPaw's again after a computer had it as a USB drive

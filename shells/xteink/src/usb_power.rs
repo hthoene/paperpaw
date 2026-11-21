@@ -26,6 +26,11 @@ pub trait Sense {
     fn charging(&self) -> bool;
     /// A cable seems to be in (see the module).
     fn cable(&self) -> bool;
+    /// A cable is in right now: [`Sense::cable`] without the grace after
+    /// starting (the USB drive asks, which has nothing to show without one).
+    fn cable_now(&self) -> bool {
+        self.cable()
+    }
     /// What the inputs say by themselves, for the diagnostics page; nothing
     /// where the board has but one input.
     fn readings(&self) -> Readings {
@@ -166,6 +171,10 @@ mod outer {
                     .duration_since_epoch()
                     .as_millis()
                     < START_MS
+        }
+
+        fn cable_now(&self) -> bool {
+            self.charging() || self.looked().moving()
         }
 
         fn readings(&self) -> Readings {
