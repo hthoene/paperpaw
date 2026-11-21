@@ -225,7 +225,7 @@ impl Firmware {
                 // plugin check), which the loader's own lists and the families
                 // wired by now decide (`paperpaw_x4::host_jobs`). Not where no
                 // code loads (an update on trial, safe mode): refused then.
-                let wired = crate::device_host::wired_families(false);
+                let wired = crate::device_host::wired_families(false, false);
                 // With what this firmware's loader reads (`native::reads`).
                 if let Some(loader) = crate::native::reads()
                     && !paperpaw_x4::host_jobs::offer_plugin_jobs(

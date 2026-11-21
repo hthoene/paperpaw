@@ -702,6 +702,11 @@ impl Kernel {
         if self.bluetooth_answer(event, params) {
             return;
         }
+        // What the radio tells the Bluetooth manager of native commands is
+        // its alone (`native_host/bluetooth_events.rs`).
+        if self.native_bluetooth_event(event, params) {
+            return;
+        }
         // (The firmware confirmation's answer is not an event anyone can
         // send: `with_screen` takes it from the confirmation screen alone.)
         // A page turned, also by itself, is use.
