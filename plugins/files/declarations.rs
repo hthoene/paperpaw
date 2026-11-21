@@ -32,6 +32,8 @@ pub const BY_SERIES_TOKEN: u32 = 23;
 pub const BY_TAG_TOKEN: u32 = 24;
 /// Asks for words and lists the books that have them.
 pub const SEARCH_TOKEN: u32 = 25;
+/// Lists the letters the titles start with: a letter opens the library there.
+pub const FIND_TOKEN: u32 = 26;
 /// The subscription to the library's changes.
 pub const EVENTS_TOKEN: u32 = 3;
 
@@ -158,12 +160,14 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     ))?;
     d.action(ActionDecl::new("by-tag", "files.by-tag", BY_TAG_TOKEN))?;
     d.action(ActionDecl::new("search", "files.search", SEARCH_TOKEN))?;
+    d.action(ActionDecl::new("find", "files.list.find", FIND_TOKEN))?;
     d.icon("files.shelves", "books")?;
     d.icon("files.favourites", "star")?;
     d.icon("files.by-author", "user")?;
     d.icon("files.by-series", "list-details")?;
     d.icon("files.by-tag", "tag")?;
     d.icon("files.search", "search")?;
+    d.icon("files.find", "letter-case")?;
     d.icon(SORT, "sort-ascending")?;
     d.icon(VIEW, "layout-grid")?;
     // Gray covers or black and white only where the panel is black and
@@ -181,11 +185,13 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
         entry.order = order;
         d.menu_entry(entry)?;
     }
-    // The library's own menu: where interface 6 offered the search.
-    // Only what is about the library: night mode and home are the device's.
+    // The library's own menu: where interface 6 offered the search and the
+    // find by letter. Only what is about the library: night mode and home are
+    // the device's.
     for (order, item) in [
         (10, SORT),
         (11, VIEW),
+        (20, "files.find"),
         (21, "files.search"),
         // The kernel's action: the catalog made anew (`LOOK_AGAIN`, #277).
         (25, "core.library.look-again"),

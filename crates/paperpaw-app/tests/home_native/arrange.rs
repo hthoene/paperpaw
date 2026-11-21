@@ -544,3 +544,39 @@ fn edit_home_screen_in_the_main_menu_opens_editing_from_elsewhere() {
         }
     }
 }
+
+/// The columns from `from` to `to` with ink in the band `top..bottom`.
+fn inked(app: &mut App, (from, to): (i32, i32), (top, bottom): (i32, i32)) -> Vec<i32> {
+    (from..to)
+        .filter(|&x| (top..bottom).any(|y| app.dark(x, y)))
+        .collect()
+}
+
+#[test]
+fn a_kind_and_a_page_action_show_their_icon_before_the_name() {
+    for device in DEVICES {
+        let mut app = App::new(device, Shared::memory(PAGE, &[]));
+        edit(&mut app);
+        open_add(&mut app);
+        for label in ["Books", "Add a page"] {
+            let row = app
+                .parts()
+                .into_iter()
+                .find(|p| p.label.split(", ").next() == Some(label))
+                .unwrap_or_else(|| panic!("no {label}:\n{}", app.described()))
+                .area;
+            // The row's band without its rule below; the start of the row.
+            let (x, y) = (i32::from(row.x), i32::from(row.y));
+            let band = (y + 4, y + i32::from(row.height) - 4);
+            let ink = inked(&mut app, (x, x + 160), band);
+            // The icon, then a gap wider than any between words, then the
+            // name: without its icon the name's own letters come first.
+            let gap = ink.windows(2).map(|w| w[1] - w[0]).max().unwrap_or(0);
+            assert!(
+                !ink.is_empty() && gap >= 14,
+                "{label}: ink at {ink:?} on {}",
+                device.name
+            );
+        }
+    }
+}

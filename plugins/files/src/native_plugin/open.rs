@@ -209,7 +209,9 @@ impl NativeFiles {
                     None => Ok(()),
                 }
             }
-            Asked::Delete { path } if answer.choice() == 1 => self.delete_book(host, &path),
+            Asked::Delete { path } if answer.choice() == super::DELETE => {
+                self.delete_book(host, &path)
+            }
             Asked::Delete { .. } => Ok(()),
             Asked::Filter { token, index } => {
                 let at = usize::try_from(answer.choice()).unwrap_or(usize::MAX);
