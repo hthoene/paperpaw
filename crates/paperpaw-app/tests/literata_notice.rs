@@ -43,7 +43,7 @@ fn settle(kernel: &mut Kernel, mut effects: Effects, mut now: u64) {
 fn start(storage: MemoryStorage) -> Kernel {
     let storage = storage.with("paperpaw.ini", CONFIG);
     let (builder, card) = native_activation::quiet_on(DEVICE, storage, CONFIG);
-    let builder = paperpaw_app::install(builder, build_fonts());
+    let builder = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs);
     let mut kernel = native_activation::build_on(builder, card);
     let effects = kernel.start(Instant(0));
     settle(&mut kernel, effects, 0);
@@ -85,13 +85,4 @@ fn first_run_setup_is_not_covered_by_the_hint() {
     kernel.tick(Instant(100));
     assert!(!kernel.screens().any(|s| s.as_str() == NOTICE));
     assert!(!seen(&kernel));
-}
-
-/// The fonts this build has: the packs, or the scalable fonts where a
-/// package built with it switches `outline` on and `packs` is off.
-fn build_fonts() -> paperpaw_app::Fonts {
-    #[cfg(any(feature = "packs", not(feature = "outline")))]
-    return paperpaw_app::Fonts::Packs;
-    #[cfg(not(any(feature = "packs", not(feature = "outline"))))]
-    return paperpaw_app::Fonts::Outline;
 }

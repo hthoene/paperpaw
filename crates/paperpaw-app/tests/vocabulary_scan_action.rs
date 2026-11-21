@@ -32,7 +32,7 @@ fn the_scan_action_opens_the_update_screen_of_the_card_files() {
         .frame_rows(192)
         .row_align(8);
     #[cfg(any(feature = "packs", not(feature = "outline")))]
-    let fonts = build_fonts();
+    let fonts = paperpaw_app::Fonts::Packs;
     #[cfg(all(feature = "outline", not(feature = "packs")))]
     let fonts = paperpaw_app::Fonts::Outline;
     let builder = paperpaw_app::install(builder, fonts);
@@ -49,13 +49,4 @@ fn the_scan_action_opens_the_update_screen_of_the_card_files() {
         kernel.active_screen().map(ToString::to_string).as_deref(),
         Some("vocabulary.sd-card")
     );
-}
-
-/// The fonts this build has: the packs, or the scalable fonts where a
-/// package built with it switches `outline` on and `packs` is off.
-fn build_fonts() -> paperpaw_app::Fonts {
-    #[cfg(any(feature = "packs", not(feature = "outline")))]
-    return paperpaw_app::Fonts::Packs;
-    #[cfg(not(any(feature = "packs", not(feature = "outline"))))]
-    return paperpaw_app::Fonts::Outline;
 }
