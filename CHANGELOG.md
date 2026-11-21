@@ -4762,6 +4762,8 @@ change the plugin SDK.
 
 - **"Skip setup" leaves the setup assistant again** (#433). The answer of a question reaches the asking plugin as an event, and an event had no screen stack, so its close was refused: the setup assistant stayed on its first page and the setup was never marked done; typing the lock's password and removing a stored secret in Settings did not leave their screen either. The answer's callback may now close the asker's own screen (as an action may), and the dialog's own close is applied before the answer is delivered.
 
+- **A picture that never showed until the page was turned away and back** (#438). A picture is decoded when a page first shows it. When the page was laid out again while another screen covered the book (a reading setting changed in Settings, for example), or laid out only while it was drawn, a picture that came onto it was never asked for, and its box stayed empty. A picture that could not be given for the moment (no memory, the card, the book busy) was not asked for again either. Such pictures are asked for when the book shows again or right after the draw, a few times at most, and only their boxes are refreshed.
+
 - **USB drive: an icon, and no minute-long wait without a cable** (#437). The Tools entry had no icon. Without a USB cable the reader now says "No USB cable connected" at once instead of showing the "card is on the computer" notice and waiting a minute; with a cable but no computer (a plain charger) it gives up after 15 s, not 60 s.
 
 - The sleep screens of Calendar, Tasks, Reading statistics, Reading goal, All notes, News and Smart home read what they show when they open, not while they draw (#421). Updates of those store plugins.
