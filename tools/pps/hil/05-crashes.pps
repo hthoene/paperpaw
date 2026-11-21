@@ -1,5 +1,8 @@
-# HIL run (tools/pps/hil, #37), limit: no more entries in crashes.txt than before the flash (run.sh gives --baseline: the count read before it).
+# HIL run (tools/pps/hil, #37, #434), limit: 20 forced light sleeps in a row are all survived (`boot` says place 10) and crashes.txt has no more entries than before the flash (run.sh gives --baseline: the count read before it). The run is on USB with sleep 0, so nothing else would ever sleep lightly.
 test:05-crashes {
+  repeat:20 {
+    nap:3
+  }
   crashes
   assert:crashes.count<=baseline:no new crashes
 }
