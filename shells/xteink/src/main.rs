@@ -62,6 +62,7 @@ mod card;
 #[path = "card_pro.rs"]
 mod card;
 mod clock;
+mod cpu_clock;
 mod crash;
 mod device;
 #[cfg(feature = "ppn5")]
@@ -1159,8 +1160,8 @@ fn kernel(
     builder.build().expect("kernel")
 }
 
-/// What the X4 shells change by the power level: the buttons' reading, and
-/// the X4 Pro's front light.
+/// What the X4 shells change by the power level: the buttons' reading, the
+/// X4 Pro's front light and the clock of the ESP32-C3 devices.
 fn power_controls() -> paperpaw_sdk::power::PowerControls {
-    paperpaw_x4::controls::power_controls(cfg!(feature = "x4-pro"))
+    paperpaw_x4::controls::power_controls(cfg!(feature = "x4-pro"), cfg!(feature = "esp32c3"))
 }

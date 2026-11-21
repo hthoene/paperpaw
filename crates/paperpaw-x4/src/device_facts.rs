@@ -218,11 +218,11 @@ mod tests {
     #[test]
     fn the_controls_are_the_kernels() {
         assert_eq!(
-            controls_bits(&crate::controls::power_controls(false)),
-            0b0100
+            controls_bits(&crate::controls::power_controls(false, true)),
+            0b0110
         );
         assert_eq!(
-            controls_bits(&crate::controls::power_controls(true)),
+            controls_bits(&crate::controls::power_controls(true, false)),
             0b1100
         );
         assert_eq!(controls_bits(&PowerControls::default()), 0);
@@ -323,7 +323,7 @@ mod tests {
                 catalog: "x4",
                 class: class_of(MemoryClass::Small),
                 caps: caps_for(&features),
-                controls: controls_bits(&crate::controls::power_controls(false)),
+                controls: controls_bits(&crate::controls::power_controls(false, true)),
                 tls_sessions: 1,
                 keys: &["back"],
                 values: &[],
@@ -338,7 +338,7 @@ mod tests {
         device
             .device(&mut |facts| seen = Some((facts.class, facts.controls)))
             .unwrap();
-        assert_eq!(seen, Some((0, 0b0100)));
+        assert_eq!(seen, Some((0, 0b0110)));
     }
 
     /// A device whose Wi-Fi and Bluetooth parts are not told to it yet says so

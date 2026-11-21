@@ -90,7 +90,14 @@ speed about 20 mA on the X4 (*measured*), the radio receiving about
    (`CpuClock::max()`): 160 MHz on the X4, 240 MHz on the X4 Pro. On
    battery it light-sleeps at most 30 ms at a time (the buttons are read
    on each wake): about 33 wakes a second. Counting a book's pages after
-   opening runs in 2 ms steps, too short to sleep in.
+   opening runs in 2 ms steps, too short to sleep in. *Update (#452):*
+   on the ESP32-C3 devices (X4, X3) the clock follows the work: 160 MHz
+   while the main loop works, the crystal's 40 MHz divided by two while it
+   waits awake (its rest when it does not light-sleep, the panel's
+   refresh), divided by four in Saving and Offline; full while a radio is
+   on. The mode *Performance* (`core.performance`, level Normal) keeps
+   160 MHz. One place switches the clock (`shells/xteink/src/cpu_clock.rs`);
+   the X4 Pro and Classic stay at their maximum.
 6. **Every wake is a start**: the SD card mounted, the book reopened, a
    half refresh, kosync's pull, SNTP on the X4.
 7. **Small**: the SD card written 2 s after each change, the battery

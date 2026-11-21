@@ -58,6 +58,7 @@ fn automatic_marks_the_choice_as_the_batterys() {
         choice,
         Choice {
             level: Level::Normal,
+            performance: false,
             automatic: true
         }
     );
@@ -105,11 +106,38 @@ fn automatic_follows_the_system_saver() {
 }
 
 #[test]
+fn performance_is_chosen_by_hand_only_and_wears_its_own_preset() {
+    let policy = Policy {
+        mode: "power.mode.performance",
+        ..POLICY
+    };
+    for percent in [1, 50, 100] {
+        let choice = choose(&policy, battery(percent, false), Level::Normal);
+        assert_eq!(
+            choice,
+            Choice {
+                level: Level::Normal,
+                performance: true,
+                automatic: false
+            }
+        );
+        assert_eq!(choice.preset(), "core.performance");
+        assert!(!must_wear(choice, "core.performance", false));
+        assert!(must_wear(choice, "core.normal", false));
+    }
+    assert_eq!(
+        choose(&POLICY, battery(50, false), Level::Normal).preset(),
+        "core.normal"
+    );
+}
+
+#[test]
 fn no_battery_means_normal() {
     assert_eq!(
         choose(&POLICY, None, Level::Offline),
         Choice {
             level: Level::Normal,
+            performance: false,
             automatic: true
         }
     );
@@ -128,6 +156,7 @@ fn a_mode_chosen_by_hand_stays_whatever_the_battery() {
                 choose(&policy, battery(percent, true), Level::Normal),
                 Choice {
                     level,
+                    performance: false,
                     automatic: false
                 }
             );

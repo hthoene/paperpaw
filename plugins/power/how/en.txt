@@ -1,6 +1,6 @@
-Power chooses how PaperPaw spends the battery: Normal, Saving or Offline. Saving does what can wait at better moments; Offline keeps the radio off. Auto chooses by the battery.
+Power chooses how PaperPaw spends the battery: Normal, Saving, Offline or Performance. Saving does what can wait at better moments; Offline keeps the radio off; Performance keeps the processor at full speed, at the battery's cost. Auto chooses by the battery, never Performance.
 
-Change the mode in the quick panel, where Power shows the modes side by side, or in Settings under Power. There you also set the levels where Auto switches to Saving and to Offline, and whether it stays Normal while charging.
+Change the mode in the quick panel or in Settings under Power. There you also set the levels where Auto switches to Saving and to Offline, and whether it stays Normal while charging.
 
 In the status lines, Power mode shows a leaf while saving and a crossed-out Wi-Fi while offline, and nothing in Normal.
 
