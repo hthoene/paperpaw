@@ -182,9 +182,11 @@ fn sleep_until(deadline: Instant) -> bool {
     // clocks and regulators. The RTC alarm wakes the hardware without
     // a CPU interrupt; sample_now reads the buttons after waking.
     #[cfg(feature = "x4")]
-    critical_section::with(|_| low_power.sleep_light(RtcSleepConfig::default()));
+    critical_section::with(|_| {
+        crate::cpu_clock::across_sleep(|| low_power.sleep_light(RtcSleepConfig::default()))
+    });
     #[cfg(not(feature = "x4"))]
-    low_power.sleep_light(RtcSleepConfig::default());
+    crate::cpu_clock::across_sleep(|| low_power.sleep_light(RtcSleepConfig::default()));
     critical_section::with(|cs| LOW_POWER.replace(cs, Some(low_power)));
     mark(at::WOKEN);
     crate::stack::arm_band();
@@ -206,7 +208,9 @@ pub fn sleep_asleep(until_ms: u64) -> bool {
     };
     low_power.set_wakeup_deadline(Instant::EPOCH + Duration::from_millis(until_ms));
     mark(at::NAP_IDLE);
-    let down = crate::input::power_nap(|| low_power.sleep_light(RtcSleepConfig::default()));
+    let down = crate::input::power_nap(|| {
+        crate::cpu_clock::across_sleep(|| low_power.sleep_light(RtcSleepConfig::default()))
+    });
     low_power.clear_wakeup_deadline();
     critical_section::with(|cs| LOW_POWER.replace(cs, Some(low_power)));
     mark(at::WOKEN);

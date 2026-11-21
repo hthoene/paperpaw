@@ -62,6 +62,18 @@ pub fn wait() {
     }
 }
 
+/// Runs `sleep`, a light sleep, with the CPU on the crystal and the PLL
+/// powered down, and configures the PLL again after the wake (#434), as
+/// ESP-IDF's `esp_sleep_start` does (`rtc_clk_cpu_freq_set_xtal` before,
+/// `rtc_clk_cpu_freq_set_config` after) and esp-hal does from its PR #6558
+/// on. The sleep powers the PLL down in any case; esp-hal 1.2.2 keeps the CPU
+/// on it and runs the wake on it, and the first code after the wake (the
+/// ROM's `ets_delay_us`) then traps with instructions read wrong. The clock
+/// of a wait ([`wait`]) is set again after the wake.
+pub fn across_sleep<R>(sleep: impl FnOnce() -> R) -> R {
+    chip::across_sleep(DIVIDER.load(Ordering::Relaxed), sleep)
+}
+
 fn switch(divider: u32) {
     critical_section::with(|_| chip::set(divider));
     #[cfg(feature = "remote")]
@@ -114,6 +126,33 @@ mod chip {
         store_apb_hz(mhz * 1_000_000);
     }
 
+    /// See [`super::across_sleep`]. The switches go through esp-hal's clock
+    /// tree, the owner of the PLL, which still has the CPU on the PLL when
+    /// [`set`] put it on the crystal: its switch to the crystal writes all of
+    /// the CPU's clock registers, so it starts from either.
+    pub fn across_sleep<R>(divider: u32, sleep: impl FnOnce() -> R) -> R {
+        use esp_hal::clock::ll::{ClockTree, CpuClkConfig, configure_cpu_clk};
+
+        let before = ClockTree::with(|clocks| {
+            let before = clocks.cpu_clk();
+            configure_cpu_clk(clocks, CpuClkConfig::Xtal);
+            before
+        });
+        let woken = sleep();
+        // The interrupts stay off until the divider is back, so none sees the
+        // full clock in a wait.
+        critical_section::with(|_| {
+            if let Some(before) = before {
+                // Back on the PLL, the PLL configured again.
+                ClockTree::with(|clocks| configure_cpu_clk(clocks, before));
+            }
+            if divider != 0 {
+                set(divider);
+            }
+        });
+        woken
+    }
+
     /// rtc_clk_apb_freq_update: the APB frequency where the ROM reads it.
     #[esp_hal::ram]
     fn store_apb_hz(hz: u32) {
@@ -129,6 +168,10 @@ mod chip {
 #[cfg(not(feature = "esp32c3"))]
 mod chip {
     pub fn set(_divider: u32) {}
+
+    pub fn across_sleep<R>(_divider: u32, sleep: impl FnOnce() -> R) -> R {
+        sleep()
+    }
 }
 
 /// The time at the slow clock, for measuring it on a device (`remote`
