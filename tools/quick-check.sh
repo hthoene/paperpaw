@@ -228,6 +228,9 @@ fi
 echo "quick-check: base $base ($(wc -l <<< "$files") changed files); logs in $logs"
 jobs_n="${QUICK_CHECK_JOBS:-8}"
 main_pid=$$
+# Is process PID alive? Not `kill -0`: the container's process 1 reaps nobody, so a killed script stays a
+# zombie, and `kill -0` says yes to a zombie (Nov 21: the steps of killed runs lived on for an hour).
+alive() { local s; { read -r s < "/proc/$1/stat"; } 2> /dev/null || return 1; s="${s##*) }"; [[ "${s%% *}" != [ZX] ]]; }
 # Does a compile of a few lines through the wrapper end in time? (A hung sccache server answers
 # `--show-stats` and starts no compiler: its clients wait without end.)
 wrapper_answers() { # [PORT]
@@ -268,7 +271,7 @@ take_set() { # N: 0 if set N is now held by this script
     local d="$qc_home/set$1" holder i
     mkdir -p "$d" || return 1
     rm -f "$d/held.$main_pid"
-    flock -n "$d/lock" bash -c ': > "$1"; while kill -0 "$2" 2> /dev/null; do sleep 2; done' _ "$d/held.$main_pid" "$main_pid" \
+    flock -n "$d/lock" bash -c "$(declare -f alive)"'; : > "$1"; while alive "$2"; do sleep 2; done' _ "$d/held.$main_pid" "$main_pid" \
         > /dev/null 2>&1 < /dev/null &
     holder=$!
     for ((i = 0; i < 50; i++)); do
@@ -326,7 +329,7 @@ guarded() {
     local group=$BASHPID guard rc=0
     (
         trap '' TERM
-        while kill -0 "$main_pid" 2> /dev/null; do sleep 2; done
+        while alive "$main_pid"; do sleep 2; done
         kill -TERM -- "-$group" 2> /dev/null
         sleep 3
         kill -KILL -- "-$group" 2> /dev/null
@@ -517,7 +520,7 @@ frames_s3_step() {
 # The lanes run side by side: each has one cargo at a time and its own build directory, so none waits
 # on another's lock, and a slow step (a cold Xtensa build) is not queued behind the others.
 # fmt, generated and python in the checkout (Git, no build); the rest in the set's copy.
-lane() { local s; for s in "$@"; do kill -0 "$main_pid" 2> /dev/null || return 0; run_step "$s" && step "$s" "${s//-/_}_step"; done; return 0; }
+lane() { local s; for s in "$@"; do alive "$main_pid" || return 0; run_step "$s" && step "$s" "${s//-/_}_step"; done; return 0; }
 lane python fmt generated &
 lane_py=$!
 cd "$src" || exit 2
