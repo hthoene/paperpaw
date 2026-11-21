@@ -196,6 +196,29 @@ pub fn rows(
     Ok(rows)
 }
 
+/// The icon a row shows at its start, as on interface 6: a kind's own (the
+/// tools' the apps, a kind of a plugin's own the puzzle piece), a tool's own
+/// (`tool_icon` of its action; empty where it names none), the plus and the
+/// bin for the pages and the arrows going round for the landscape layout. A
+/// widget's row has none: the gallery shows the widget itself.
+pub fn icon<'a>(
+    row: &Row,
+    entries: &[Entry],
+    tool_icon: impl Fn(&str) -> &'a str,
+) -> Option<&'a str> {
+    match row {
+        Row::Kind(kind, _) if kind == TOOLS_KIND => Some("apps"),
+        Row::Kind(kind, _) => Some(categories::icon(kind).unwrap_or("puzzle")),
+        Row::Add(index) => match &entries.get(*index)?.what {
+            What::Tool(action) => Some(tool_icon(action)).filter(|icon| !icon.is_empty()),
+            _ => None,
+        },
+        Row::AddPage => Some("plus"),
+        Row::RemovePage => Some("trash"),
+        Row::ResetWide => Some("refresh"),
+    }
+}
+
 /// The layout a change is kept in: the pages shown, and the grids of the
 /// screen as it is and of one on its side.
 #[derive(Debug)]

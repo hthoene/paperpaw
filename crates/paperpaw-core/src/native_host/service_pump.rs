@@ -305,8 +305,9 @@ impl crate::Kernel {
         self.native_cover_list();
         // A document a format is preparing takes a step (`doc_pump`).
         let doc_more = self.native_doc_pump();
-        // A cover job whose preparation is over ends here (`doc_cover_job`).
-        self.native_cover_job_pump();
+        // A cover job whose preparation is over ends here (`doc_cover_job`);
+        // what it told the library is taken in another pass.
+        let cover_more = self.native_cover_job_pump();
         // The host's details job begins on the next native book whose details
         // are unread (`details_job_pump`); never "more", a timed wake at most.
         self.native_details_job_pump();
@@ -329,6 +330,7 @@ impl crate::Kernel {
                 || speech_more
                 || moves_more
                 || doc_more
+                || cover_more
                 || dialog_more
                 || wifi_more
                 || firmware_more,

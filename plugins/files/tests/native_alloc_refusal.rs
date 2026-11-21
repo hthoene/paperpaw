@@ -224,19 +224,7 @@ fn the_cells_the_covers_the_sheet_and_the_chooser_survive_refused_allocations() 
         let mut covers = native_covers::Covers::new(8, 3)?;
         covers.set(1, native_covers::Slot::Ready(kept[0]));
         covers.drop_all(|_| {});
-        for finished in [false, true] {
-            let actions = native_sheet::actions(native_sheet::Facts {
-                finished,
-                can_archive: true,
-                can_delete: true,
-                readers: true,
-            })?;
-            assert!(actions.contains(&Action::Open));
-        }
-        for attempt in 0..3 {
-            native_sheet::archive_path("books/Archive", &lone, attempt)?;
-        }
-        native_sheet::choices(&words)?;
+        the_sheet(&lone, &words)?;
         native_choose::picks("books", 40)?;
         native_choose::join("books", "Crime")?;
         native_choose::join("", "Crime")?;
@@ -244,6 +232,26 @@ fn the_cells_the_covers_the_sheet_and_the_chooser_survive_refused_allocations() 
         native_choose::folder_name("...")?;
         Ok(())
     });
+}
+
+/// What the sheet of a book offers (finished and a favourite, or neither), the
+/// archive's names for it and the choices' words.
+fn the_sheet(lone: &str, words: &[String]) -> Result<(), Error> {
+    for marked in [false, true] {
+        let actions = native_sheet::actions(native_sheet::Facts {
+            finished: marked,
+            favourite: marked,
+            can_archive: true,
+            can_delete: true,
+            readers: true,
+        })?;
+        assert!(actions.contains(&Action::Open));
+    }
+    for attempt in 0..3 {
+        native_sheet::archive_path("books/Archive", lone, attempt)?;
+    }
+    native_sheet::choices(words)?;
+    Ok(())
 }
 
 /// 250 books, 96 to a reply; the cursor is the offset.

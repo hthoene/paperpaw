@@ -17,20 +17,25 @@ const START_SETTLE_PASSES: u32 = 6;
 
 impl crate::Kernel {
     /// One look at the background job; nothing to do for a pass that finds
-    /// none.
+    /// none. `true` where it told the library something for the screens (a
+    /// held-back job released, a job ended): the library's pump came before
+    /// it in this pass, so the change is taken in another, which must come
+    /// now (an idle device has no next tick soon, and a list waits for its
+    /// covers until then).
     #[inline(never)]
-    pub(crate) fn native_cover_job_pump(&mut self) {
+    pub(crate) fn native_cover_job_pump(&mut self) -> bool {
         let instances = &self.shared.native_instances;
         // Never inside a callback: the next pass looks again.
         if instances.depth() != 0 {
-            return;
+            return false;
         }
         let Some(hosts) = instances.hosts() else {
-            return;
+            return false;
         };
         let Some(documents) = hosts.documents() else {
-            return;
+            return false;
         };
+        let mut told = false;
         // A job held back (the start, a book open for reading, a displacement)
         // may begin again: the screens are told to ask again (bit 6).
         if let Some(library) = hosts.library() {
@@ -40,10 +45,11 @@ impl crate::Kernel {
             }
             if documents.0.cover_jobs_released() {
                 library.0.cover_jobs_began();
+                told = true;
             }
         }
         if !documents.0.cover_job_active() {
-            return;
+            return told;
         }
         let step = {
             let env = self.shared.place(self.shared.now);
@@ -69,11 +75,13 @@ impl crate::Kernel {
                     .and_then(|h| h.library())
                 {
                     library.0.cover_job_ended(ready, key);
+                    told = true;
                 }
             }
             JobStep::DetailsEnded { filled, key } => self.native_details_job_ended(filled, key),
             JobStep::None | JobStep::Wait => {}
         }
+        told
     }
 }
 
