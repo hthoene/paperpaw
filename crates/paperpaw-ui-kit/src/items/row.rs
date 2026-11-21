@@ -97,6 +97,56 @@ pub(super) fn draw_row_as(
     Ok(buttons)
 }
 
+/// The title and the value: on one line, or the lines a long title was
+/// wrapped to, centred in the band, the value beside the first.
+fn draw_title(
+    paint: &mut Vec<Paint>,
+    (font, style): (&Font<'_>, &Style),
+    cols: Rect,
+    row: &RowItem,
+    lines: &[String],
+    ink: paperpaw_sdk::Color,
+) -> Result<(), Error> {
+    // Text a page reads out takes the room of both margins, no more.
+    let alone = row.whole && page_text(row) && row.value.is_empty();
+    let line_of = |paint: &mut Vec<Paint>, rect: Rect, text: &str, value: &str| {
+        if alone {
+            let x = f32::from(rect.x) + f32::from(style.margin);
+            text::label_in(
+                paint,
+                font,
+                style.rtl,
+                rect,
+                text,
+                style.text,
+                x,
+                rect,
+                ink,
+                Some(rect),
+            )
+        } else {
+            columns(paint, font, style, rect, text, value, ink)
+        }
+    };
+    if lines.is_empty() {
+        if let Some(bold) = row.bold.filter(|_| !alone) {
+            let title = (row.title.as_str(), bold);
+            return marked_columns(paint, font, style, cols, title, shown_value(row), ink);
+        }
+        return line_of(paint, cols, &row.title, shown_value(row));
+    }
+    let line = crate::geometry::line_px(font, style.text)?;
+    let block = line.saturating_mul(lines.len() as u16);
+    let top = cols.y.saturating_add(cols.height.saturating_sub(block) / 2);
+    for (index, text) in lines.iter().enumerate() {
+        let at = top.saturating_add(line.saturating_mul(index as u16));
+        let rect = Rect::new(cols.x, at, cols.width, line);
+        let value = if index == 0 { shown_value(row) } else { "" };
+        line_of(paint, rect, text, value)?;
+    }
+    Ok(())
+}
+
 /// The minus, the plus and the track of a stepper row.
 pub(super) type Buttons = (Rect, Rect, Option<Rect>);
 

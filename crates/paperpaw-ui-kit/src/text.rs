@@ -190,6 +190,86 @@ pub fn label_in(
     )
 }
 
+/// Where the bytes `bold` of `title` are in `shown`, the title as [`fit`]
+/// gave it (whole, or a start of it and `…`): the part of them it shows, `None`
+/// where it shows none or they are no span of whole characters of `title`.
+#[must_use]
+pub(crate) fn shown_span(
+    title: &str,
+    shown: &str,
+    (from, to): (u16, u16),
+) -> Option<(usize, usize)> {
+    let kept = if shown == title {
+        title.len()
+    } else {
+        shown.len().saturating_sub('…'.len_utf8())
+    };
+    let (from, to) = (usize::from(from), usize::from(to).min(kept));
+    let whole = title.is_char_boundary(from) && title.is_char_boundary(to);
+    (whole && from < to).then_some((from, to))
+}
+
+/// `text`, which fits `area` from `x`, in three runs side by side: its bytes
+/// `bold` drawn bold between the rest; laid out as [`label_in`] lays out one
+/// run (mirrored in `outer` where `rtl` says so).
+///
+/// # Errors
+/// [`Error::NoMemory`] or a refused font reply.
+pub(crate) fn marked_label_in(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    (rtl, outer): (bool, Rect),
+    (text, bold): (&str, (usize, usize)),
+    size: f32,
+    (x, area): (f32, Rect),
+    color: Color,
+) -> Result<(), Error> {
+    let baseline = run_baseline(font, size, area)?;
+    let extra = crate::paint::bold_extra(size) as f32;
+    let runs = [
+        (text.get(..bold.0), false),
+        (text.get(bold.0..bold.1), true),
+        (text.get(bold.1..), false),
+    ];
+    let mut at = x;
+    for (run, strong) in runs {
+        let Some(run) = run.filter(|run| !run.is_empty()) else {
+            continue;
+        };
+        let wide = font.measure_text(size, run)? + if strong { extra } else { 0.0 };
+        let origin = TextOrigin::new(crate::style::flip_span(rtl, outer, at, wide), baseline);
+        let text = copy(run)?;
+        let run = if strong {
+            Paint::Bold {
+                text,
+                size,
+                origin,
+                color,
+            }
+        } else {
+            Paint::Text {
+                text,
+                size,
+                origin,
+                color,
+                clip: Some(outer),
+            }
+        };
+        crate::paint::push(paint, run)?;
+        at += wide;
+    }
+    Ok(())
+}
+
+/// The baseline of a line of text in `size` centred in `area`.
+fn run_baseline(font: &Font<'_>, size: f32, area: Rect) -> Result<i32, Error> {
+    let (ascent, descent, _) = crate::geometry::line_metrics(font, size)?;
+    Ok(
+        i32::from(area.y)
+            .saturating_add(((f32::from(area.height) + ascent - descent) / 2.0) as i32),
+    )
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "one measured text run and its target geometry"
@@ -204,9 +284,7 @@ pub(crate) fn push_run(
     color: Color,
     clip: Option<Rect>,
 ) -> Result<(), Error> {
-    let (ascent, descent, _) = crate::geometry::line_metrics(font, size)?;
-    let baseline = i32::from(area.y)
-        .saturating_add(((f32::from(area.height) + ascent - descent) / 2.0) as i32);
+    let baseline = run_baseline(font, size, area)?;
     paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
     paint.push(Paint::Text {
         text,
@@ -565,6 +643,26 @@ mod tests {
     /// Every character is ten wide.
     fn measure(text: &str) -> Result<f32, Error> {
         Ok(text.chars().count() as f32 * 10.0)
+    }
+
+    #[test]
+    fn a_bold_span_is_drawn_where_the_title_shows_it() {
+        let title = "…the quiet wörd in the valley…";
+        let word = title.find("wörd").unwrap();
+        let bold = (word as u16, (word + "wörd".len()) as u16);
+        let span = (word, word + "wörd".len());
+        // The whole title shows the whole word.
+        assert_eq!(shown_span(title, title, bold), Some(span));
+        // A title cut after the word, and one cut inside it.
+        let cut = concat(&[&title[..span.1 + 3], "…"]).unwrap();
+        assert_eq!(shown_span(title, &cut, bold), Some(span));
+        let inside = concat(&[&title[..word + 3], "…"]).unwrap();
+        assert_eq!(shown_span(title, &inside, bold), Some((word, word + 3)));
+        // A title cut before it, and bytes inside a letter, show none.
+        let before = concat(&[&title[..word], "…"]).unwrap();
+        assert_eq!(shown_span(title, &before, bold), None);
+        let split = (bold.0 + 2, bold.1);
+        assert_eq!(shown_span(title, title, split), None);
     }
 
     #[test]

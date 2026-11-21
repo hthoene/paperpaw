@@ -86,6 +86,7 @@ pub fn items(name: &str, help: &str) -> Result<Vec<Item>, Error> {
             whole: false,
             small: false,
             plain: false,
+            bold: None,
         }),
     )?;
     Ok(items)

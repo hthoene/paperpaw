@@ -1,7 +1,7 @@
 //! Lists of headings and rows with notes, at their own heights, in pages.
 use crate::{
     Messages, Page, Paint, Style, header,
-    list::{self, backdrop, columns, ink},
+    list::{self, backdrop, columns, ink, marked_columns},
     paint, text,
 };
 use alloc::{string::String, vec::Vec};
@@ -85,6 +85,9 @@ pub struct RowItem {
     /// Text the page reads out, not a row to choose: passed by the focus and
     /// not chosen by a tap, but in the full ink, not faint like `disabled`.
     pub plain: bool,
+    /// The bytes of the title drawn bold where they are shown (the word found
+    /// in a search hit's snippet); `None` for a title all in one weight.
+    pub bold: Option<(u16, u16)>,
 }
 
 /// Room above the rows of the first page that the owner fills with something it
@@ -143,6 +146,22 @@ impl Item {
             whole: false,
             small: false,
             plain: false,
+            bold: None,
+        }))
+    }
+
+    /// A row of title and value with the bytes `bold` of the title drawn bold
+    /// (the word found in a search hit's snippet).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the texts cannot be copied.
+    pub fn row_marked(title: &str, value: &str, bold: (u16, u16)) -> Result<Self, Error> {
+        Ok(Self::Row(RowItem {
+            bold: Some(bold),
+            ..match Self::row(title, value)? {
+                Self::Row(row) => row,
+                Self::Heading(_) => RowItem::default(),
+            }
         }))
     }
 
@@ -1294,52 +1313,6 @@ pub(crate) fn heading(
         style.muted,
         None,
     )
-}
-
-/// The title and the value: on one line, or the lines a long title was
-/// wrapped to, centred in the band, the value beside the first.
-fn draw_title(
-    paint: &mut Vec<Paint>,
-    (font, style): (&Font<'_>, &Style),
-    cols: Rect,
-    row: &RowItem,
-    lines: &[String],
-    ink: paperpaw_sdk::Color,
-) -> Result<(), Error> {
-    // Text a page reads out takes the room of both margins, no more.
-    let alone = row.whole && page_text(row) && row.value.is_empty();
-    let line_of = |paint: &mut Vec<Paint>, rect: Rect, text: &str, value: &str| {
-        if alone {
-            let x = f32::from(rect.x) + f32::from(style.margin);
-            text::label_in(
-                paint,
-                font,
-                style.rtl,
-                rect,
-                text,
-                style.text,
-                x,
-                rect,
-                ink,
-                Some(rect),
-            )
-        } else {
-            columns(paint, font, style, rect, text, value, ink)
-        }
-    };
-    if lines.is_empty() {
-        return line_of(paint, cols, &row.title, shown_value(row));
-    }
-    let line = crate::geometry::line_px(font, style.text)?;
-    let block = line.saturating_mul(lines.len() as u16);
-    let top = cols.y.saturating_add(cols.height.saturating_sub(block) / 2);
-    for (index, text) in lines.iter().enumerate() {
-        let at = top.saturating_add(line.saturating_mul(index as u16));
-        let rect = Rect::new(cols.x, at, cols.width, line);
-        let value = if index == 0 { shown_value(row) } else { "" };
-        line_of(paint, rect, text, value)?;
-    }
-    Ok(())
 }
 
 /// The title's band and the note's area of a row with `shift` pixels taken at

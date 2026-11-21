@@ -329,10 +329,10 @@ impl SearchView {
         };
         while self.places.len() < search.hits().len() {
             let index = self.places.len();
-            let Some(start) = search
+            let Some((start, found)) = search
                 .hits()
                 .get(index)
-                .map(|hit| ((hit.start, hit.end.offset), hit.percent))
+                .map(|hit| (((hit.start, hit.end.offset), hit.percent), hit.found))
             else {
                 break;
             };
@@ -340,7 +340,7 @@ impl SearchView {
                 break;
             };
             let value = text::format(format_args!("{} %", start.1))?;
-            let row = Item::row(&snippet, &value)?;
+            let row = Item::row_marked(&snippet, &value, found)?;
             drop(snippet);
             self.places.try_reserve(1).map_err(|_| Error::NoMemory)?;
             self.list.push(row)?;

@@ -77,7 +77,12 @@ proptest! {
         // Where the match is in the snippet, in characters.
         let (from, to) = snippet_at(&text, start, end);
         let found: String = shown.chars().skip(from).take(to - from).collect();
-        prop_assert_eq!(found, hit);
+        prop_assert_eq!(&found, &hit);
+        // The row it is cut to still says where the match is.
+        for width in [6.0, 20.0, 60.0, 400.0] {
+            let (row, at) = with_hit(&mut Ruler, &shown, (from, to), width).unwrap();
+            prop_assert_eq!(row.get(at.0..at.1), Some(hit.as_str()), "{}", row);
+        }
     }
 }
 
@@ -136,20 +141,23 @@ impl Measure for Ruler {
 fn a_snippet_that_fits_is_left_as_it_is() {
     let shown = "a short line with word in it";
     let at = (18, 22);
-    assert_eq!(with_hit(&mut Ruler, shown, at, 60.0).unwrap(), shown);
+    let (kept, found) = with_hit(&mut Ruler, shown, at, 60.0).unwrap();
+    assert_eq!((&*kept, &kept[found.0..found.1]), (shown, "word"));
 }
 
 #[test]
 fn a_snippet_that_does_not_fit_begins_later_so_the_word_is_in_the_row() {
     let shown = "…the long road to the quiet word in the valley below the hills…";
-    let start = shown.find("word").unwrap();
+    // Where the word is, in characters.
+    let start = shown[..shown.find("word").unwrap()].chars().count();
     let at = (start, start + 4);
-    let cut = with_hit(&mut Ruler, shown, at, 30.0).unwrap();
-    assert!(cut.starts_with('…') && cut.contains("word"), "{cut}");
-    assert!(cut.len() < shown.len());
+    let (cut, found) = with_hit(&mut Ruler, shown, at, 30.0).unwrap();
+    assert!(cut.starts_with('…') && cut.len() < shown.len(), "{cut}");
+    // The match is still where the row shows it bold.
+    assert_eq!(&cut[found.0..found.1], "word");
     // A match wider than the row: from its start.
-    let wide = with_hit(&mut Ruler, "…abc defghij klm…", (5, 11), 6.0).unwrap();
-    assert!(wide.contains("defghi"), "{wide}");
+    let (wide, found) = with_hit(&mut Ruler, "…abc defghij klm…", (5, 11), 6.0).unwrap();
+    assert_eq!(&wide[found.0..found.1], "defghi");
 }
 
 /// A book of sections of blocks (one block a line), each block its own text.
@@ -253,6 +261,7 @@ fn the_scan_reads_the_book_and_keeps_the_hits_in_order() {
         }
     );
     assert_eq!(hits[0].snippet, "One Cat sat.");
+    assert_eq!(hits[0].found, (4, 7));
     assert_eq!(
         hits[1].start,
         Place {

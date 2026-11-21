@@ -479,6 +479,7 @@ pub fn plugin_row(
         whole: false,
         small: false,
         plain: false,
+        bold: None,
     })
 }
 
@@ -513,6 +514,7 @@ pub fn top_row(say: &mut dyn Say, top: Top, order: Order, help: &str) -> Result<
         whole: false,
         small: false,
         plain: false,
+        bold: None,
     })
 }
 
