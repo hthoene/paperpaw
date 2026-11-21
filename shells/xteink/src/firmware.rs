@@ -157,6 +157,11 @@ pub struct State {
     /// shortest seen, see [`Firmware::refresh`]): the processor sleeps
     /// about that long while the next one goes (on battery).
     refresh_ms: [u64; 3],
+    /// A restart the kernel asked for (`Effects::restart`, the firmware
+    /// command): carried out by the main loop at its top (`step`), not where
+    /// the effects are applied, so that `Kernel::stop` and the events it
+    /// delivers to plugins run on the loop's shallow stack (#2619).
+    restart_wanted: bool,
     /// An update was kept after its trial, which started without code
     /// plugins, and there are some to load: a start at a calm moment.
     restart_for_code: bool,
@@ -257,6 +262,11 @@ impl Firmware {
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
     fn step(&mut self) {
+        // A restart asked for while effects were applied: from here, with the
+        // frames of this one function and the kernel under the stop.
+        if self.state.restart_wanted {
+            self.restart();
+        }
         // Power held 8 s (G12): out, whatever else is going on. The timer's
         // readings reset the processor if this is not reached in time.
         if input::escape_requested() {
@@ -338,6 +348,10 @@ impl Firmware {
         self.usb();
         self.tick();
         self.poll_frame();
+        // Restart at once (at the top of the next loop), not after the rest.
+        if self.state.restart_wanted {
+            return;
+        }
         self.rest(battery, installing);
     }
 
@@ -477,31 +491,39 @@ impl Firmware {
         }
     }
 
-    /// An update or a restart the kernel asked for.
+    /// An update or a restart the kernel asked for. The update's own work
+    /// (`install_state`) has a frame of its own, so that this one, which the
+    /// effects are applied from, stays small: it lies under every plugin's
+    /// work for the effects (the X4's stack, #2619).
     #[inline(never)]
     fn firmware(&mut self, command: FirmwareCommand) {
+        if let Some(state) = self.install_state(command) {
+            let effects = self.kernel.firmware_state(now(), state);
+            self.apply(effects);
+        }
+    }
+
+    /// What the update asked for comes to: `None` for a restart (asked for
+    /// at the top of the next loop) or a command this firmware does not know.
+    #[inline(never)]
+    fn install_state(&mut self, command: FirmwareCommand) -> Option<FirmwareState> {
         match command {
             FirmwareCommand::Install {
                 path, key, older, ..
-            } => {
-                let state = match &mut self.ota {
-                    Some(ota) => ota.begin(self.kernel.storage(), &path, key.as_ref(), older),
-                    None => FirmwareState::Failed(InstallFailure::Write),
-                };
-                let effects = self.kernel.firmware_state(now(), state);
-                self.apply(effects);
+            } => Some(match &mut self.ota {
+                Some(ota) => ota.begin(self.kernel.storage(), &path, key.as_ref(), older),
+                None => FirmwareState::Failed(InstallFailure::Write),
+            }),
+            FirmwareCommand::InstallForeign { path, .. } => Some(match &mut self.ota {
+                Some(ota) => ota.begin_foreign(self.kernel.storage(), &path),
+                None => FirmwareState::Failed(InstallFailure::Write),
+            }),
+            FirmwareCommand::Restart => {
+                self.state.restart_wanted = true;
+                None
             }
-            FirmwareCommand::InstallForeign { path, .. } => {
-                let state = match &mut self.ota {
-                    Some(ota) => ota.begin_foreign(self.kernel.storage(), &path),
-                    None => FirmwareState::Failed(InstallFailure::Write),
-                };
-                let effects = self.kernel.firmware_state(now(), state);
-                self.apply(effects);
-            }
-            FirmwareCommand::Restart => self.restart(),
             // A command this firmware does not know: nothing done.
-            _ => {}
+            _ => None,
         }
     }
 
@@ -515,6 +537,7 @@ impl Firmware {
             .is_some_and(|screen| screen.as_str() == "reader.screen")
     }
 
+    #[inline(never)]
     fn restart(&mut self) -> ! {
         info!("restarting");
         crate::safe_mode::clean_exit();
@@ -526,15 +549,21 @@ impl Firmware {
         esp_hal::system::software_reset();
     }
 
-    /// How an update goes.
+    /// How an update goes. Its step (`ota_step`) has a frame of its own, so
+    /// that this one, which the effects are applied from, stays small.
     #[inline(never)]
     fn firmware_step(&mut self) {
-        if let Some(ota) = &mut self.ota
-            && let Some(state) = ota.step(self.kernel.storage())
-        {
+        if let Some(state) = self.ota_step() {
             let effects = self.kernel.firmware_state(now(), state);
             self.apply(effects);
         }
+    }
+
+    /// One step of the update being written, if there is one.
+    #[inline(never)]
+    fn ota_step(&mut self) -> Option<FirmwareState> {
+        let ota = self.ota.as_mut()?;
+        ota.step(self.kernel.storage())
     }
 
     /// The battery and the time, every [`STATUS_MS`], once the clock was
@@ -1018,7 +1047,9 @@ impl Firmware {
                 self.settle_frame();
             }
             if effects.restart() {
-                self.restart();
+                // At the top of the next loop (`step`): nothing more is shown.
+                self.state.restart_wanted = true;
+                return;
             }
             // Turned (the setting): the same screens, made anew for the
             // turned size and drawn whole, instead of what was asked.
@@ -1130,6 +1161,7 @@ impl Firmware {
 
     /// Shows the busy mark in `area` and lets the kernel work while the
     /// panel refreshes; what the work brought.
+    #[inline(never)]
     fn show_busy(&mut self, area: Rect) -> Effects {
         power::mark(power::at::SHOWING);
         let send_again = !self.panel.keeps_frame();
@@ -1187,6 +1219,7 @@ impl Firmware {
             .is_some_and(|id| id.as_str() == "sleep.screen")
     }
 
+    #[inline(never)]
     fn show_gray(&mut self, area: Rect, clean: bool) {
         power::mark(power::at::SHOWING);
         let started = now();
