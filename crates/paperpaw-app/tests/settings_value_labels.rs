@@ -29,7 +29,7 @@ fn keyboard_settings(language: &str, value: &str) -> Kernel {
         .frame_rows(192)
         .row_align(8);
     #[cfg(any(feature = "packs", not(feature = "outline")))]
-    let fonts = paperpaw_app::Fonts::Packs;
+    let fonts = build_fonts();
     #[cfg(all(feature = "outline", not(feature = "packs")))]
     let fonts = paperpaw_app::Fonts::Outline;
     let builder = paperpaw_app::install(builder, fonts);
@@ -69,4 +69,13 @@ fn keyboard_layout_values_have_names_in_both_ui_languages() {
             assert!(!row.label.contains("keyboard.layout."), "{}", row.label);
         }
     }
+}
+
+/// The fonts this build has: the packs, or the scalable fonts where a
+/// package built with it switches `outline` on and `packs` is off.
+fn build_fonts() -> paperpaw_app::Fonts {
+    #[cfg(any(feature = "packs", not(feature = "outline")))]
+    return paperpaw_app::Fonts::Packs;
+    #[cfg(not(any(feature = "packs", not(feature = "outline"))))]
+    return paperpaw_app::Fonts::Outline;
 }

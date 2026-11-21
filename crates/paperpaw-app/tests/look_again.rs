@@ -37,7 +37,7 @@ impl App {
         let builder = Kernel::builder(device)
             .storage(card.clone())
             .user_config("[help]\nshow=false\n[core]\nlanguage=en\n[reader]\nopen-last=false\n");
-        let builder = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs);
+        let builder = paperpaw_app::install(builder, build_fonts());
         let handle = card.handle();
         let mut kernel = native_activation::build_on(builder, card.handle());
         let effects = kernel.start(Instant(0));
@@ -95,4 +95,13 @@ fn look_for_new_books_is_in_the_library_menu_and_finds_a_book_copied_in() {
         .run_action(Instant(app.now), Id::new_static("core.library.look-again"));
     app.settle(effects);
     assert!(app.catalog().contains("second.txt"), "{}", app.catalog());
+}
+
+/// The fonts this build has: the packs, or the scalable fonts where a
+/// package built with it switches `outline` on and `packs` is off.
+fn build_fonts() -> paperpaw_app::Fonts {
+    #[cfg(any(feature = "packs", not(feature = "outline")))]
+    return paperpaw_app::Fonts::Packs;
+    #[cfg(not(any(feature = "packs", not(feature = "outline"))))]
+    return paperpaw_app::Fonts::Outline;
 }

@@ -393,9 +393,16 @@ pub fn paint(
     if strips.iter().all(Option::is_none) {
         return Ok(());
     }
-    let texts = Texts::new(host, facts)?;
     let font = Font::acquire_role(host, FontRole::Status)?;
     let drawn = shown(&font).and_then(|shown| {
+        // The pages left in the chapter are said only where a line shows
+        // them: a page turn asks the host no more than before (#448).
+        let left = (0..2).any(|at| strips[at].is_some() && shows_left(&shown.config, state, at));
+        let facts = &Facts {
+            chapter_left: facts.chapter_left.filter(|_| left),
+            ..*facts
+        };
+        let texts = Texts::new(host, facts)?;
         paint_each(
             host,
             ui,
@@ -407,6 +414,23 @@ pub fn paint(
     });
     let released = font.release();
     drawn.and(released)
+}
+
+/// Whether the line showing at place `at` (0: the top) shows the pages left
+/// in the chapter: the line of the rest of the chapter, or a line of items
+/// that lists them.
+fn shows_left(config: &Config, state: &State, at: usize) -> bool {
+    let showing = state.showing(at == 0, &config.lines[at]);
+    match kind(showing) {
+        Some(Line::Chapter) => true,
+        Some(Line::Items) => {
+            let parts = &config.parts[at];
+            [&parts.left, &parts.center, &parts.right]
+                .iter()
+                .any(|list| choice::rotation(list).any(|id| id == items::CHAPTER_LEFT))
+        }
+        _ => false,
+    }
 }
 
 /// What a paint of the lines reads from the settings: the lists of the lines

@@ -49,7 +49,7 @@ impl App {
             storage,
             &format!("[core]\nlanguage = en\n{config}"),
         );
-        let builder = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs);
+        let builder = paperpaw_app::install(builder, build_fonts());
         let mut kernel = native_activation::build_on(builder, card);
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
@@ -174,4 +174,13 @@ fn a_picture_opens_as_a_book_of_the_pictures_after_it() {
     app.kernel.render(&mut |_, _| {});
     let labels: Vec<String> = app.kernel.describe().into_iter().map(|p| p.label).collect();
     assert!(labels.iter().any(|l| l.contains("33 %")), "{labels:?}");
+}
+
+/// The fonts this build has: the packs, or the scalable fonts where a
+/// package built with it switches `outline` on and `packs` is off.
+fn build_fonts() -> paperpaw_app::Fonts {
+    #[cfg(any(feature = "packs", not(feature = "outline")))]
+    return paperpaw_app::Fonts::Packs;
+    #[cfg(not(any(feature = "packs", not(feature = "outline"))))]
+    return paperpaw_app::Fonts::Outline;
 }

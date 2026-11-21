@@ -44,7 +44,7 @@ fn settle(kernel: &mut Kernel, mut effects: Effects, mut now: u64) -> u64 {
 fn start(config: &str) -> (Kernel, u64) {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let (builder, card) = native_activation::quiet_on(DEVICE, storage, config);
-    let builder = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs);
+    let builder = paperpaw_app::install(builder, build_fonts());
     let mut kernel = native_activation::build_on(builder, card);
     let effects = kernel.start(Instant(0));
     let now = settle(&mut kernel, effects, 0);
@@ -74,4 +74,13 @@ fn the_screen_chosen_later_is_shown_asleep() {
         .unwrap();
     let now = settle(&mut kernel, effects, now + 50);
     assert_eq!(asleep(&mut kernel, now), CARD);
+}
+
+/// The fonts this build has: the packs, or the scalable fonts where a
+/// package built with it switches `outline` on and `packs` is off.
+fn build_fonts() -> paperpaw_app::Fonts {
+    #[cfg(any(feature = "packs", not(feature = "outline")))]
+    return paperpaw_app::Fonts::Packs;
+    #[cfg(not(any(feature = "packs", not(feature = "outline"))))]
+    return paperpaw_app::Fonts::Outline;
 }
