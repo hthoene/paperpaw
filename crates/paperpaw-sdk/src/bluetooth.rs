@@ -876,6 +876,15 @@ pub struct BtRequest {
     from: Option<Id>,
 }
 
+/// A command the kernel makes itself: a native plugin's, from its wire
+/// command (the sender is filled in with [`BtRequest::set_from`]).
+#[cfg(feature = "kernel")]
+impl From<BtCommand> for BtRequest {
+    fn from(command: BtCommand) -> Self {
+        command.command()
+    }
+}
+
 #[cfg(feature = "kernel")]
 impl BtRequest {
     pub fn command(&self) -> &BtCommand {

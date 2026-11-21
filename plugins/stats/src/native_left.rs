@@ -7,7 +7,7 @@
 //! The speed is worked out when a book is opened and now and then while
 //! reading, never as a status line is drawn: the stage only does the sum.
 use crate::files::DataFolder;
-use crate::native_screens::utc_day;
+use crate::native_screens::{day_in, today_in};
 use crate::store;
 use crate::texts::{HostWords, Words, duration};
 use alloc::string::String;
@@ -21,6 +21,7 @@ use paperpaw_sdk::native::ui::Param;
 use paperpaw_sdk::native::ui::stages::{StatusAnswer, StatusCall};
 use paperpaw_sdk::native::{Error, Host};
 use paperpaw_ui_kit::text;
+use paperpaw_ui_kit::widget::LocalZone;
 
 /// The items' ids (`stats.` and the names of the declarations).
 pub(crate) const CHAPTER: &str = "stats.status.left-chapter";
@@ -85,19 +86,20 @@ impl<'a> Context<'a> {
 /// Seconds a page, from the reading of the last [`DAYS`] days, if enough was
 /// read. Where the heap refused, `previous` stays: a refusal is no answer.
 fn speed(host: &Host<'_>, previous: Option<Option<f32>>) -> Option<Option<f32>> {
-    let today = match capture_snapshot(host) {
-        Ok(snapshot) => snapshot
-            .unix_seconds()
-            .and_then(|unix| u32::try_from(unix).ok())
-            .map(utc_day),
+    let local = capture_snapshot(host).and_then(|snapshot| {
+        let zone = LocalZone::read(host, &snapshot)?;
+        Ok((zone, today_in(zone, &snapshot)))
+    });
+    let (zone, today) = match local {
+        Ok(local) => local,
         Err(Error::NoMemory) => return previous,
-        Err(_) => None,
+        Err(_) => (LocalZone::fixed(0), None),
     };
     let Some(today) = today else {
         return Some(None);
     };
     let storage = DataStorage::new(host);
-    let days = match store::days(&DataFolder(&storage), utc_day) {
+    let days = match store::days(&DataFolder(&storage), day_in(zone)) {
         Ok(days) => days,
         Err(StorageError::TooLarge) => return previous,
         // A log that cannot be read shows as no days (as interface 6 did).

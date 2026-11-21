@@ -15,6 +15,7 @@ use paperpaw_sdk::native::{Error, Host};
 use paperpaw_sdk::{Handled, Rect, Storage, StorageError};
 use paperpaw_ui_kit::list::{backdrop, columns};
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
+use paperpaw_ui_kit::widget::LocalZone;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Page, Paint, Style, header, paint, text,
 };
@@ -38,9 +39,28 @@ pub(crate) fn failed(error: StorageError) -> Error {
     }
 }
 
-/// UTC days until the system time zone comes with the snapshot (draft 25).
-pub(crate) fn utc_day(unix: u32) -> i32 {
-    (unix / 86_400) as i32
+/// The local time zone, read once, and today in it (none until the device
+/// knows the time). Days are the user's local days, as in Beta 3 (#459).
+///
+/// # Errors
+/// Host refusals.
+pub(crate) fn local_today(host: &Host<'_>) -> Result<(LocalZone, Option<i32>), Error> {
+    let snapshot = snapshot::capture_snapshot(host)?;
+    let zone = LocalZone::read(host, &snapshot)?;
+    Ok((zone, today_in(zone, &snapshot)))
+}
+
+/// Today in `zone` by `snapshot`, none until the device knows the time.
+pub(crate) fn today_in(zone: LocalZone, snapshot: &snapshot::Snapshot) -> Option<i32> {
+    snapshot
+        .unix_seconds()
+        .and_then(|unix| u32::try_from(unix).ok())
+        .map(day_in(zone))
+}
+
+/// The local day in `zone` of a moment in Unix seconds, as the log is read.
+pub(crate) fn day_in(zone: LocalZone) -> impl Fn(u32) -> i32 + Copy {
+    move |unix| zone.day_of(i64::from(unix))
 }
 
 /// The books with reading time, the last one read first.
@@ -57,16 +77,21 @@ impl BooksView {
     /// # Errors
     /// Allocation and storage failures; nothing is shown from a partial read.
     pub(crate) fn new(host: &Host<'_>, data: &dyn Storage) -> Result<Self, Error> {
-        Self::build(&mut HostWords::new(host)?, data)
+        let (zone, _) = local_today(host)?;
+        Self::build(&mut HostWords::new(host)?, data, zone)
     }
 
-    /// As [`Self::new`], with the texts given.
-    pub(crate) fn build(words: &mut impl Words, data: &dyn Storage) -> Result<Self, Error> {
+    /// As [`Self::new`], with the texts and the time zone given.
+    pub(crate) fn build(
+        words: &mut impl Words,
+        data: &dyn Storage,
+        zone: LocalZone,
+    ) -> Result<Self, Error> {
         let books = crate::book_list::recent(data).map_err(failed)?;
         let seconds = totals::seconds_by_id(data, books.len(), |at| books.get(at).map(|r| r.id))
             .map_err(failed)?;
         let places = crate::book_list::order(&books, &seconds)?;
-        let items = crate::book_list::items(words, &books, &seconds, &places, utc_day)?;
+        let items = crate::book_list::items(words, &books, &seconds, &places, day_in(zone))?;
         let mut ids = Vec::new();
         ids.try_reserve_exact(places.len())
             .map_err(|_| Error::NoMemory)?;
@@ -175,13 +200,15 @@ impl BookView {
     /// Allocation and storage failures; a book that is not there is a view
     /// that says so.
     pub(crate) fn new(host: &Host<'_>, data: &dyn Storage, id: Option<u16>) -> Result<Self, Error> {
-        Self::build(&mut HostWords::new(host)?, data, id)
+        let (zone, _) = local_today(host)?;
+        Self::build(&mut HostWords::new(host)?, data, zone, id)
     }
 
-    /// As [`Self::new`], with the texts given.
+    /// As [`Self::new`], with the texts and the time zone given.
     pub(crate) fn build(
         words: &mut impl Words,
         data: &dyn Storage,
+        zone: LocalZone,
         id: Option<u16>,
     ) -> Result<Self, Error> {
         let none = words.copy("stats.no-books")?;
@@ -198,7 +225,7 @@ impl BookView {
                 header: Page::default(),
             });
         };
-        let totals = totals::of_book(data, book, utc_day).map_err(failed)?;
+        let totals = totals::of_book(data, book, day_in(zone)).map_err(failed)?;
         let rows = rows_of(words, book, &totals)?;
         let chart = chart_of(words, &totals)?;
         Ok(Self {

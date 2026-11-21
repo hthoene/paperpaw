@@ -297,8 +297,8 @@ mod x4 {
         // and of the features only the families it may reach
         // (`card_features`: not `uses.secrets`, which reaches other plugins'
         // secrets). A plugin that needs more is refused here, costing no flash.
-        // The radio's commands are not offered (`wifi` false).
-        let wired = crate::device_host::wired_families(false);
+        // The radio's commands are not offered (`wifi` and `bluetooth` false).
+        let wired = crate::device_host::wired_families(false, false);
         let offered =
             paperpaw_x4::native_offer::card_host(wired, HOST.abi_major, HOST.minor, super::PROFILE);
         let admitted = shell::admission::admit(&record, &offered)
@@ -538,7 +538,10 @@ mod x4 {
             warn!("native: linked: {plugin}: call {tag} ended with {status}");
         }
         use paperpaw_x4::native_offer::{features, services};
-        let wired = crate::device_host::wired_families(kernel.wifi_model().is_some());
+        let wired = crate::device_host::wired_families(
+            kernel.wifi_model().is_some(),
+            cfg!(feature = "bluetooth") && kernel.bluetooth_model().is_some(),
+        );
         let offered = metadata::Host {
             abi_major: HOST.abi_major,
             minor: HOST.minor,

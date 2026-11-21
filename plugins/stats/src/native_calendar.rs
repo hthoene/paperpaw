@@ -20,12 +20,15 @@ use paperpaw_ui_kit::{Messages, Page, Paint, Style, geometry, header, paint, tex
 use crate::calendar_model::{self as model, DAY_BOOKS, DayText, Key, Swipe};
 use crate::files::DataFolder;
 use crate::native_overview::fit_line;
-use crate::native_screens::{failed, message, utc_day};
+use crate::native_screens::{day_in, failed, local_today, message};
 use crate::store::{self, Day};
 use crate::texts::{self, HostWords, Words};
+use paperpaw_ui_kit::widget::LocalZone;
 
 /// The calendar's contents and where it was last drawn.
 pub(crate) struct CalendarView {
+    /// The time zone the days are counted in.
+    zone: LocalZone,
     days: Vec<Day>,
     today: Option<i32>,
     /// The first day of the week, 0 being Sunday.
@@ -78,28 +81,26 @@ impl Cells {
 }
 
 impl CalendarView {
-    /// Reads the figures over `data`; `today` is the local day (none until the
-    /// device knows the time).
-    pub(crate) fn new(
-        host: &Host<'_>,
-        data: &dyn Storage,
-        today: Option<i32>,
-    ) -> Result<Self, Error> {
+    /// Reads the figures over `data`, by the local day.
+    pub(crate) fn new(host: &Host<'_>, data: &dyn Storage) -> Result<Self, Error> {
+        let (zone, today) = local_today(host)?;
         let mut words = HostWords::new(host)?;
         let week_start = week_start_of(host, &mut words)?;
-        Self::build(&mut words, data, today, week_start)
+        Self::build(&mut words, data, zone, today, week_start)
     }
 
-    /// As [`Self::new`], with the texts and the first day of the week given.
+    /// As [`Self::new`], with the texts, the time zone, today (none until the
+    /// device knows the time) and the first day of the week given.
     pub(crate) fn build(
         words: &mut impl Words,
         data: &dyn Storage,
+        zone: LocalZone,
         today: Option<i32>,
         week_start: u8,
     ) -> Result<Self, Error> {
-        let days = store::days(data, utc_day).map_err(failed)?;
+        let days = store::days(data, day_in(zone)).map_err(failed)?;
         let day = model::clamp_day(today.or(days.last().map(|d| d.day)).unwrap_or(0));
-        let (said, title) = contents(words, data, &days, day)?;
+        let (said, title) = contents(words, data, zone, &days, day)?;
         let mut names = Vec::new();
         names.try_reserve_exact(7).map_err(|_| Error::NoMemory)?;
         for col in 0..7 {
@@ -109,6 +110,7 @@ impl CalendarView {
             note: model::streak_note(words, &days, today)?,
             heading: words.copy("stats.calendar")?,
             no_clock: words.copy("stats.no-clock")?,
+            zone,
             days,
             today,
             week_start,
@@ -535,7 +537,7 @@ impl CalendarView {
 
     /// Makes `day` the chosen one; nothing changes where this fails.
     fn show(&mut self, words: &mut impl Words, data: &dyn Storage, day: i32) -> Result<(), Error> {
-        let (said, title) = contents(words, data, &self.days, day)?;
+        let (said, title) = contents(words, data, self.zone, &self.days, day)?;
         self.day = day;
         self.said = said;
         self.title = title;
@@ -547,10 +549,11 @@ impl CalendarView {
 fn contents(
     words: &mut impl Words,
     data: &dyn Storage,
+    zone: LocalZone,
     days: &[Day],
     day: i32,
 ) -> Result<(DayText, [String; 2]), Error> {
-    let detail = model::detail(data, days, day, utc_day)?;
+    let detail = model::detail(data, days, day, day_in(zone))?;
     Ok((
         model::day_text(words, day, &detail)?,
         model::title(words, day)?,

@@ -4,10 +4,11 @@ use alloc::string::ToString;
 use core::cell::RefCell;
 
 use paperpaw_sdk::MemoryStorage;
+use paperpaw_ui_kit::widget::LocalZone;
 
 use super::OverviewView;
 use crate::overview_rows::Way;
-use crate::screens_tests::{QuietWords, sweep, words};
+use crate::screens_tests::{QuietWords, UTC, sweep, words};
 use crate::store::{self, Book, PageStat};
 use crate::testing::Quiet;
 use crate::testing::heap::fixture;
@@ -50,7 +51,7 @@ fn card() -> Quiet {
 #[test]
 fn the_tiles_the_chart_and_the_totals_in_english() {
     let data = card();
-    let view = OverviewView::build(&mut words("en"), &data, Some(TODAY), Some(1)).unwrap();
+    let view = OverviewView::build(&mut words("en"), &data, UTC, Some(TODAY), Some(1)).unwrap();
     let tiles = view.tiles.as_ref().unwrap();
     assert_eq!(tiles[0].label, "Today");
     assert_eq!(tiles[0].value, "23 min");
@@ -73,7 +74,7 @@ fn the_tiles_the_chart_and_the_totals_in_english() {
 #[test]
 fn in_german_and_without_a_book_being_read() {
     let data = card();
-    let view = OverviewView::build(&mut words("de"), &data, Some(TODAY), None).unwrap();
+    let view = OverviewView::build(&mut words("de"), &data, UTC, Some(TODAY), None).unwrap();
     assert_eq!(view.tiles.as_ref().unwrap()[0].label, "Heute");
     assert_eq!(view.ways, [Way::Calendar, Way::Books, Way::Sync]);
 }
@@ -81,7 +82,7 @@ fn in_german_and_without_a_book_being_read() {
 #[test]
 fn without_the_clock_there_are_no_tiles_but_the_ways_and_the_hint() {
     let data = card();
-    let view = OverviewView::build(&mut words("en"), &data, None, None).unwrap();
+    let view = OverviewView::build(&mut words("en"), &data, UTC, None, None).unwrap();
     assert!(view.tiles.is_none() && view.chart.is_none());
     assert!(view.no_clock.starts_with("Statistics need the time of day"));
     // What was read still adds up.
@@ -89,7 +90,7 @@ fn without_the_clock_there_are_no_tiles_but_the_ways_and_the_hint() {
     assert_eq!(view.list.items().len(), 3);
     // Nothing read and no clock: no totals either.
     let none = Quiet(MemoryStorage::new());
-    let empty = OverviewView::build(&mut words("en"), &none, None, None).unwrap();
+    let empty = OverviewView::build(&mut words("en"), &none, UTC, None, None).unwrap();
     assert!(empty.totals.is_none());
 }
 
@@ -99,8 +100,47 @@ fn the_overview_refuses_cleanly() {
     let catalog = RefCell::new(fixture(|| words("en")));
     for (today, current) in [(Some(TODAY), Some(1)), (None, None)] {
         sweep(&|| {
-            OverviewView::build(&mut QuietWords(&catalog), &data, today, current)
+            OverviewView::build(&mut QuietWords(&catalog), &data, UTC, today, current)
                 .map(|view| view.list.items().len())
         });
     }
+}
+
+#[test]
+fn reading_after_local_midnight_is_todays() {
+    // 23:30 UTC the day before is 00:30 today one hour east: the half hour
+    // is today's, as in Beta 3 (#459; the UTC day gave it to yesterday).
+    let storage = MemoryStorage::new();
+    store::save_books(
+        &storage,
+        &[Book {
+            id: 1,
+            title: "A".to_string(),
+            ..Book::default()
+        }],
+    )
+    .unwrap();
+    store::append(
+        &storage,
+        PageStat {
+            book: 1,
+            page: 1,
+            start: TODAY as u32 * DAY - 1_800,
+            duration: 1_800,
+            pages: 100,
+        },
+    )
+    .unwrap();
+    let data = Quiet(storage);
+    let east = OverviewView::build(
+        &mut words("en"),
+        &data,
+        LocalZone::fixed(3_600),
+        Some(TODAY),
+        None,
+    )
+    .unwrap();
+    assert_eq!(east.tiles.as_ref().unwrap()[0].value, "30 min");
+    let utc = OverviewView::build(&mut words("en"), &data, UTC, Some(TODAY), None).unwrap();
+    assert_eq!(utc.tiles.as_ref().unwrap()[0].value, "0 min");
 }

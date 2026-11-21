@@ -82,7 +82,7 @@ fn refresh(cx: &Cx<'_>, cache: &Cache) -> Result<bool, Error> {
 }
 
 fn work_out(cx: &Cx<'_>, least: u32, count: usize) -> Result<Option<Shown>, Error> {
-    let Some((today, days)) = days(cx)? else {
+    let Some((_, today, days)) = days(cx)? else {
         return Ok(None);
     };
     let mut marks = Vec::new();

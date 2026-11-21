@@ -198,18 +198,19 @@ pub use wire::{
 // 1125-1141; the host answers them once wired (its commands 1564-1592 are in the
 // command codec).
 pub use wire::{
-    EVENT_BLUETOOTH_TAG, EVENT_FIRMWARE_CHANGED_TAG, EVENT_INSTALL_DONE_TAG,
-    EVENT_NETWORK_IDLE_TAG, EVENT_NETWORK_WANTED_TAG, EVENT_WIFI_DONE_TAG, EVENT_WIFI_SCANNED_TAG,
-    EventBluetooth, EventFirmwareChanged, EventInstallDone, EventNetworkIdle, EventNetworkWanted,
-    EventWifiDone, EventWifiScanned, SERVICE_DEV_BLUETOOTH_TAG, SERVICE_DEV_BONDED_TAG,
-    SERVICE_DEV_BUILTIN_TAG, SERVICE_DEV_CHECK_TAG, SERVICE_DEV_DEVICE_TAG,
-    SERVICE_DEV_FIRMWARE_TAG, SERVICE_DEV_INSTALL_TAG, SERVICE_DEV_INTERVAL_TAG,
-    SERVICE_DEV_KEY_TAG, SERVICE_DEV_MEMORY_TAG, SERVICE_DEV_NATIVE_TAG, SERVICE_DEV_NETWORK_TAG,
-    SERVICE_DEV_NOT_INSTALLED_TAG, SERVICE_DEV_POWER_TAG, SERVICE_DEV_REQUEST_TAG,
-    SERVICE_DEV_VALUE_TAG, SERVICE_DEV_WIFI_TAG, ServiceDevBluetooth, ServiceDevBonded,
-    ServiceDevBuiltin, ServiceDevCheck, ServiceDevDevice, ServiceDevFirmware, ServiceDevInstall,
-    ServiceDevInterval, ServiceDevKey, ServiceDevMemory, ServiceDevNative, ServiceDevNetwork,
-    ServiceDevNotInstalled, ServiceDevPower, ServiceDevRequest, ServiceDevValue, ServiceDevWifi,
+    EVENT_BLUETOOTH_NAME_MAX_BYTES, EVENT_BLUETOOTH_TAG, EVENT_FIRMWARE_CHANGED_TAG,
+    EVENT_INSTALL_DONE_TAG, EVENT_NETWORK_IDLE_TAG, EVENT_NETWORK_WANTED_TAG, EVENT_WIFI_DONE_TAG,
+    EVENT_WIFI_SCANNED_TAG, EventBluetooth, EventFirmwareChanged, EventInstallDone,
+    EventNetworkIdle, EventNetworkWanted, EventWifiDone, EventWifiScanned,
+    SERVICE_DEV_BLUETOOTH_TAG, SERVICE_DEV_BONDED_TAG, SERVICE_DEV_BUILTIN_TAG,
+    SERVICE_DEV_CHECK_TAG, SERVICE_DEV_DEVICE_TAG, SERVICE_DEV_FIRMWARE_TAG,
+    SERVICE_DEV_INSTALL_TAG, SERVICE_DEV_INTERVAL_TAG, SERVICE_DEV_KEY_TAG, SERVICE_DEV_MEMORY_TAG,
+    SERVICE_DEV_NATIVE_TAG, SERVICE_DEV_NETWORK_TAG, SERVICE_DEV_NOT_INSTALLED_TAG,
+    SERVICE_DEV_POWER_TAG, SERVICE_DEV_REQUEST_TAG, SERVICE_DEV_VALUE_TAG, SERVICE_DEV_WIFI_TAG,
+    ServiceDevBluetooth, ServiceDevBonded, ServiceDevBuiltin, ServiceDevCheck, ServiceDevDevice,
+    ServiceDevFirmware, ServiceDevInstall, ServiceDevInterval, ServiceDevKey, ServiceDevMemory,
+    ServiceDevNative, ServiceDevNetwork, ServiceDevNotInstalled, ServiceDevPower,
+    ServiceDevRequest, ServiceDevValue, ServiceDevWifi,
 };
 // Field caps of the `core.device` replies (`device.md` 2), for the host's clipping.
 pub use wire::{

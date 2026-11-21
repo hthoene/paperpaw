@@ -7,7 +7,7 @@ use paperpaw_sdk::{Color, MemoryStorage, Point, Rect};
 use paperpaw_ui_kit::Style;
 
 use super::{CalendarView, Cells, Plan};
-use crate::screens_tests::{QuietWords, sweep, words};
+use crate::screens_tests::{QuietWords, UTC, sweep, words};
 use crate::store::{self, Book, PageStat};
 use crate::testing::Quiet;
 use crate::testing::heap::fixture;
@@ -52,7 +52,7 @@ fn card() -> Quiet {
 #[test]
 fn the_chosen_day_is_today_with_its_time_pages_and_books_in_english() {
     let data = card();
-    let view = CalendarView::build(&mut words("en"), &data, Some(TODAY), 1).unwrap();
+    let view = CalendarView::build(&mut words("en"), &data, UTC, Some(TODAY), 1).unwrap();
     assert_eq!(view.day, TODAY);
     assert_eq!(view.title[0], "October 2024");
     assert_eq!(view.title[1], "Oct. 2024");
@@ -71,7 +71,7 @@ fn the_chosen_day_is_today_with_its_time_pages_and_books_in_english() {
 #[test]
 fn in_german_the_week_may_start_on_sunday() {
     let data = card();
-    let view = CalendarView::build(&mut words("de"), &data, Some(TODAY), 0).unwrap();
+    let view = CalendarView::build(&mut words("de"), &data, UTC, Some(TODAY), 0).unwrap();
     assert_eq!(view.heading, "Kalender");
     assert_eq!(view.names[0], "So");
     assert_eq!(view.title[0], "Oktober 2024");
@@ -81,19 +81,19 @@ fn in_german_the_week_may_start_on_sunday() {
 #[test]
 fn without_the_clock_the_last_day_read_is_chosen_and_without_either_nothing() {
     let data = card();
-    let view = CalendarView::build(&mut words("en"), &data, None, 1).unwrap();
+    let view = CalendarView::build(&mut words("en"), &data, UTC, None, 1).unwrap();
     assert_eq!(view.day, TODAY);
     assert!(!view.empty());
     assert!(view.note.is_none());
     let none = Quiet(MemoryStorage::new());
-    let view = CalendarView::build(&mut words("en"), &none, None, 1).unwrap();
+    let view = CalendarView::build(&mut words("en"), &none, UTC, None, 1).unwrap();
     assert!(view.empty());
 }
 
 #[test]
 fn choosing_a_day_reads_it_and_a_failure_changes_nothing() {
     let data = card();
-    let mut view = CalendarView::build(&mut words("en"), &data, Some(TODAY), 1).unwrap();
+    let mut view = CalendarView::build(&mut words("en"), &data, UTC, Some(TODAY), 1).unwrap();
     view.show(&mut words("en"), &data, TODAY - 1).unwrap();
     assert_eq!(view.day, TODAY - 1);
     assert_eq!(view.said.summary, "41 min · 1 page");
@@ -112,13 +112,13 @@ fn the_calendar_refuses_cleanly() {
     let catalog = RefCell::new(fixture(|| words("en")));
     for today in [Some(TODAY), None] {
         sweep(&|| {
-            CalendarView::build(&mut QuietWords(&catalog), &data, today, 1)
+            CalendarView::build(&mut QuietWords(&catalog), &data, UTC, today, 1)
                 .map(|view| view.names.len())
         });
     }
     // A refused read of another day leaves the chosen one as it was.
     let view = RefCell::new(fixture(|| {
-        CalendarView::build(&mut words("en"), &data, Some(TODAY), 1).unwrap()
+        CalendarView::build(&mut words("en"), &data, UTC, Some(TODAY), 1).unwrap()
     }));
     let before = fixture(|| {
         let v = view.borrow();
@@ -255,7 +255,7 @@ fn days_far_out_never_overflow_the_day_math() {
     assert_eq!(model::step(MAX_DAY, Step::WeekForward), MAX_DAY);
     // The last month can be shown and read.
     let data = card();
-    let mut view = CalendarView::build(&mut words("en"), &data, Some(i32::MAX), 1).unwrap();
+    let mut view = CalendarView::build(&mut words("en"), &data, UTC, Some(i32::MAX), 1).unwrap();
     assert_eq!(view.day, MAX_DAY);
     view.show(
         &mut words("en"),
