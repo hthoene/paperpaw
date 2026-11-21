@@ -62,7 +62,7 @@ pub mod window;
 pub use chips::Chips;
 pub use dialog::Dialog;
 pub use focus::{ListFocus, ListInput, Step};
-pub use items::{Footer, Item, ItemList, ItemStep, Progress, RowItem, RowKey, RowsChange};
+pub use items::{Footer, Item, ItemList, ItemStep, Progress, RowItem, RowKey, RowsChange, Track};
 pub use list::ListRenderer;
 pub use messages::Messages;
 pub use paint::{Page, Paint};

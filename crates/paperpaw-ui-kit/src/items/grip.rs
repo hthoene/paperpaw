@@ -1,5 +1,8 @@
 //! The grips of rows that can be moved, and the frame and bar drawn while one is.
-use super::{RowItem, row::draw_row_as};
+use super::{
+    RowItem,
+    row::{Buttons, draw_row_as},
+};
 use crate::{
     Paint, Style,
     list::{backdrop, ink},
@@ -21,7 +24,7 @@ pub(super) fn draw_row_with_grip(
     row: &RowItem,
     (focused, cards): (bool, Option<bool>),
     grip: Option<(&mut Vec<(Rect, usize)>, usize)>,
-) -> Result<Option<(Rect, Rect)>, Error> {
+) -> Result<Option<Buttons>, Error> {
     let content = match grip {
         Some((grips, index)) => grip_row(paint, style, rect, focused, grips, index, cards)?,
         None => rect,

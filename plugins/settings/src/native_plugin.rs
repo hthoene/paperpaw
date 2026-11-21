@@ -23,7 +23,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages, Screens,
+    Footer, Item, ItemList, ItemStep, Messages, Screens, Track,
     mem::{SERVICE_BUFFER, buffer, push},
     text::{concat, copy},
     uitext,
@@ -31,6 +31,7 @@ use paperpaw_ui_kit::{
 
 mod build;
 mod preview;
+mod slide;
 use build::{
     build_choose, build_group, build_list, build_search, build_themes, context, look_settings,
     refresh_row, set_value,
@@ -228,6 +229,8 @@ struct GroupView {
     list: ItemList,
     title: String,
     editing: Option<Editing>,
+    /// A finger on a slider's track.
+    drag: Option<paperpaw_ui_kit::slider::Drag>,
     touch: bool,
     stale: bool,
     /// The widget that previews the page's group (or its parent's), shown above
@@ -337,6 +340,8 @@ pub struct NativeSettings {
     ui: Option<Ui>,
     screens: Screens<View>,
     asked: Option<(RequestId, Asked)>,
+    /// A knob is being dragged: a preview shows in its row alone.
+    dragging: bool,
 }
 
 impl Plugin for NativeSettings {
@@ -384,7 +389,7 @@ impl Plugin for NativeSettings {
             Event::PluginsChanged { .. } | Event::RegistryChanged { .. } if token == EVENTS => {
                 self.changed(host, "")
             }
-            Event::PreviewChanged { .. } if token == EVENTS => Self::redraw(host),
+            Event::PreviewChanged { .. } if token == EVENTS && !self.dragging => Self::redraw(host),
             Event::ActionRun { .. } if token == OPEN_SECRETS => {
                 self.open(host, "settings.secrets", &[])
             }
@@ -464,6 +469,9 @@ impl Plugin for NativeSettings {
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         self.ensure_ui(host)?;
+        if let Some(handled) = self.slide_input(host, token, &input)? {
+            return Ok(handled);
+        }
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
