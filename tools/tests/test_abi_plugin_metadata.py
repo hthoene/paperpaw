@@ -9,6 +9,7 @@ it no longer is. Regenerate with `tools/abi-metadata.py` (see the plugin's
 """
 import importlib.util
 import json
+import re
 from pathlib import Path
 import sys
 import unittest
@@ -43,6 +44,33 @@ class PluginMetadataIsFresh(unittest.TestCase):
                 inspected = source.with_name(stem + '.inspected.json')
                 self.assertEqual(inspected.read_text(encoding='utf-8'), rendered,
                                  f'{inspected.name} is stale: regenerate it')
+
+
+# `command.go_online` sent by the plugin itself or by the shared offer.
+GOES_ONLINE = re.compile(r'\.go_online\(|\bonline::(Offer\b|\{[^}]*\bOffer\b)')
+
+
+def declared(source):
+    """The feature keys a metadata input declares (a bare key or a record)."""
+    features = json.loads(source.read_text(encoding='utf-8')).get('features', [])
+    return {f if isinstance(f, str) else f['key'] for f in features}
+
+
+class GoingOnlineIsDeclared(unittest.TestCase):
+    def test_a_plugin_that_goes_online_declares_uses_wifi(self):
+        """The host refuses `command.go_online` without `uses.wifi` (#461):
+        a plugin whose code sends it, itself or through the shared offer
+        (`paperpaw_ui_kit::online`), declares it for every target."""
+        for folder in sorted(ROOT.glob('plugins/*/native')):
+            code = ''.join(path.read_text(encoding='utf-8')
+                           for path in folder.parent.glob('src/**/*.rs'))
+            if not GOES_ONLINE.search(code):
+                continue
+            for source in sorted(folder.glob('metadata*.json')):
+                if source.name.endswith('.inspected.json'):
+                    continue
+                with self.subTest(source=str(source.relative_to(ROOT))):
+                    self.assertIn('uses.wifi', declared(source))
 
 
 class TemplateMetadataIsFresh(unittest.TestCase):

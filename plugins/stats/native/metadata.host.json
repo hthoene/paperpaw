@@ -156,6 +156,10 @@
       "key": "uses.library",
       "required": false
     },
-    "uses.storage"
+    "uses.storage",
+    {
+      "key": "uses.wifi",
+      "required": false
+    }
   ]
 }

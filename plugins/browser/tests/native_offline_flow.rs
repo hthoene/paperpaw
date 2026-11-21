@@ -209,25 +209,20 @@ fn offline_mode_offers_to_go_online_once_and_go_online_loads_again() {
         *requests.borrow(),
         ["https://example.com", "https://example.com"]
     );
-    // That load was checked before the host went online (it does once the
-    // answer's callback has returned): its end loads once more.
+    // Held back again (the host did not go online): offered once, so it says
+    // it needs the network.
     let questions = dialogs.questions().len();
-    let once_more = ended(&p, 2, OFFLINE);
-    assert_eq!(dialogs.questions().len(), questions, "not offered again");
-    assert!(!went_online(&once_more));
-    assert_eq!(requests.borrow().len(), 3);
-    // Held back again: offered once, so it says it needs the network.
     host.reset_counts();
-    let again = ended(&p, 3, OFFLINE);
+    let again = ended(&p, 2, OFFLINE);
     assert_eq!(dialogs.questions().len(), questions, "not offered again");
     assert_eq!(host.calls(Slot::I18nCopy), 1, "the message is said");
     assert!(redrew(&again));
     assert!(!went_online(&again));
-    assert_eq!(requests.borrow().len(), 3);
+    assert_eq!(requests.borrow().len(), 2);
     // The reader enters an address anew: it may be offered again.
     enter(&p, &dialogs, "example.org");
     let before = dialogs.questions().len();
-    ended(&p, 4, OFFLINE);
+    ended(&p, 3, OFFLINE);
     offered(&dialogs, before);
 }
 

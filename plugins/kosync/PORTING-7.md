@@ -60,5 +60,5 @@ established by the in-process fake transport.
 
 The *Go online* offer is restored (#459, the shared `paperpaw_ui_kit::online::Offer`; `uses.wifi`):
 where Offline mode holds back *Sign in* or *Create account*, the host asks once; *Go online* sends it
-again (once more at its end, as the host allows the network only after that callback), *Not now* says
+again (the host lets a request of the same callback through, #461), *Not now* says
 there is no network. Automatic fetches and pushes stay quiet. native_host.rs drives it on the real host.

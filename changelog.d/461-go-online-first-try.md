@@ -1,0 +1,3 @@
+### Fixed
+
+- **"Go online" took effect only on the second try** (#461). A plugin that goes online and asks again at once reaches the network the first time: the host lifts Offline mode for what the same callback starts after an honoured *Go online* (Store, Wikipedia, Fonts browser, Translate, Weather, Statistics, Transfer and the seven plugins of #459, which no longer try once more). Translate, Weather and Statistics now declare Wi-Fi use, without which the host ignored their *Go online* (calibre 1.0.15, opds 1.0.7, kosync 1.0.15, news 1.1.4, wallabag 1.0.11, browser 1.0.12, joplin 1.0.11, translate 1.0.7, weather 1.0.10, stats 1.1.3).

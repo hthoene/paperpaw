@@ -4,7 +4,8 @@
 //! is told nothing of the policy and asked nothing about it.
 //!
 //! The kernel keeps a snapshot here ([`NetPolicy::update`], at the end of
-//! every call) and the two services read it: before a request or socket
+//! every call; a granted `go_online` lifts the offline mode at once,
+//! [`NetPolicy::went_online`]) and the two services read it: before a request or socket
 //! starts, and again on every tick for the ones that run, so that turning a
 //! plugin's network off ends what it has open at the next pass.
 //!
@@ -110,6 +111,18 @@ impl NetPolicy {
                 // the flag, not by a copy.
                 snapshot.closed = true;
             }
+        }
+    }
+
+    /// A granted `command.go_online` of the callback running now: the offline
+    /// mode ends nothing from here on. The kernel goes online only when it
+    /// applies the callback's batch and updates the snapshot after it, which
+    /// then finds the device online itself; until then a request the callback
+    /// makes after the command is already let through (#461). Allocates
+    /// nothing.
+    pub(crate) fn went_online(&self) {
+        if let Ok(mut snapshot) = self.snapshot.try_borrow_mut() {
+            snapshot.offline = false;
         }
     }
 

@@ -248,24 +248,18 @@ fn offline_mode_offers_to_go_online_once_and_go_online_sends_again() {
     assert_eq!(online.status, 0);
     assert!(went_online(&online), "command.go_online is sent");
     assert_eq!(*declared.borrow(), ["joplin.send", "joplin.send"]);
-    // Held back still (where the send ran before the host went online, which
-    // it does once the answer's callback has returned): sent once more.
+    // Held back again (the host did not go online): offered once, it says it
+    // needs the network.
     begin(&p, READERS);
     let questions = dialogs.questions().len();
-    let once_more = held_back(&p, 2);
-    assert!(!no_network(&once_more));
-    assert_eq!(dialogs.questions().len(), questions, "not offered again");
-    assert_eq!(declared.borrow().len(), 3);
-    // Held back again: offered once, it says it needs the network.
-    begin(&p, READERS);
-    let again = held_back(&p, 3);
+    let again = held_back(&p, 2);
     assert!(no_network(&again));
     assert_eq!(dialogs.questions().len(), questions, "not offered again");
-    assert_eq!(declared.borrow().len(), 3);
+    assert_eq!(declared.borrow().len(), 2);
     // The reader sends anew: it may be offered again.
     action(&p);
     begin(&p, READERS);
-    held_back(&p, 4);
+    held_back(&p, 3);
     assert_eq!(dialogs.questions().len(), questions + 1);
 }
 

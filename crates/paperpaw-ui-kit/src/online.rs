@@ -9,18 +9,13 @@
 //! what is to be done again; *Not now* (or *Back*) hands it back as well, for
 //! the plugin to say that it needs the network.
 //!
-//! The host goes online only once the answer's callback has returned (its
-//! commands run then), so what is done again from the answer still meets
-//! Offline mode and ends `Offline`: that end, the first after *Go online*, is
-//! where [`Offer::again`] says to do it once more, and the network is there by
-//! then. Where the host refused to go online, that one ends `Offline` too and,
+//! What is done again from the answer goes out: the host lifts Offline mode
+//! for the requests of the same callback after a `go_online` it honours.
+//! Where the host refused to go online, that one ends `Offline` again and,
 //! offered already, says so instead of asking again.
 //!
 //! ```ignore
 //! // Where a request ended `Offline`:
-//! if self.online.again() {
-//!     return self.start(host, Again::Fetch);
-//! }
 //! if self.online.may_offer() {
 //!     return self.online.ask(host, &self.ui, Again::Fetch);
 //! }
@@ -63,8 +58,6 @@ pub struct Offer<T> {
     /// The open question's request (the host's number) and what it is for.
     asked: Option<(u32, T)>,
     offered: bool,
-    /// *Go online* was chosen and nothing has ended `Offline` since.
-    went: bool,
 }
 
 impl<T> Default for Offer<T> {
@@ -80,7 +73,6 @@ impl<T> Offer<T> {
         Self {
             asked: None,
             offered: false,
-            went: false,
         }
     }
 
@@ -94,14 +86,6 @@ impl<T> Offer<T> {
     /// The reader started something anew: it may be offered again.
     pub fn reset(&mut self) {
         self.offered = false;
-        self.went = false;
-    }
-
-    /// Whether what ended `Offline` is to be done once more: true once, for
-    /// the first such end after *Go online* (what was done again from the
-    /// answer, before the host went online).
-    pub fn again(&mut self) -> bool {
-        core::mem::take(&mut self.went)
     }
 
     /// Asks the host's question, for `again`.
@@ -161,7 +145,6 @@ impl<T> Offer<T> {
         }
         let (_, again) = self.asked.take()?;
         Some(if outcome == AnswerOutcome::Answered && choice == 1 {
-            self.went = true;
             Chosen::Online(again)
         } else {
             Chosen::NotNow(again)
@@ -196,26 +179,12 @@ mod tests {
     }
 
     #[test]
-    fn the_first_offline_end_after_go_online_is_done_once_more() {
-        let mut offer = asked(7);
-        assert!(!offer.again(), "not chosen yet");
-        offer.take(7, AnswerOutcome::Answered, 1);
-        assert!(offer.again(), "what was done again from the answer");
-        assert!(!offer.again(), "once: held back again, it says so");
-        let mut offer = asked(7);
-        offer.take(7, AnswerOutcome::Answered, 1);
-        offer.reset();
-        assert!(!offer.again(), "the reader started anew");
-    }
-
-    #[test]
     fn not_now_and_back_hand_it_back_to_say_it_needs_the_network() {
         let mut offer = asked(7);
         assert_eq!(
             offer.take(7, AnswerOutcome::Answered, 0),
             Some(Chosen::NotNow("fetch"))
         );
-        assert!(!offer.again(), "nothing is done once more");
         let mut offer = asked(7);
         assert_eq!(
             offer.take(7, AnswerOutcome::Cancelled, 1),

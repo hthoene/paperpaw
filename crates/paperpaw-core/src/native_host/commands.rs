@@ -168,6 +168,8 @@ pub struct CommandStage<'a> {
     /// The callback belongs to a work run (`work.md` section 2, "background
     /// work is quiet"): commands that show something are refused.
     quiet: bool,
+    /// A `command.go_online` of this callback is honoured (`commands_dev.rs`).
+    go_online_granted: bool,
     /// The admitted image commands, applied by the host after the callback.
     staged_images: Vec<ImageCommand>,
     /// `command.set_item_state` once the host gave it (`commands_items.rs`),
@@ -223,6 +225,7 @@ impl<'a> CommandStage<'a> {
             accepted: 0,
             images: None,
             quiet: false,
+            go_online_granted: false,
             images_held: 0,
             speech_held: 0,
             requests_open: 0,
@@ -413,6 +416,7 @@ impl<'a> CommandStage<'a> {
         self.accepted += batch.len();
         self.bytes = bytes;
         self.images = images;
+        self.dev_went_online(batch);
         OK
     }
 

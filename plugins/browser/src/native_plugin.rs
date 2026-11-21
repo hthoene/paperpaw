@@ -651,9 +651,6 @@ impl NativeBrowser {
         }];
         match done.reason() {
             Reason::Ok => {}
-            // Loaded again from *Go online* before the host went online
-            // (`paperpaw_ui_kit::online`): once more.
-            Reason::Offline if self.online.again() => return self.load(host, &loading.url),
             // Held back by Offline mode: offered once to go online for it.
             Reason::Offline if self.online.may_offer() => {
                 let ui = self.ui.as_ref().ok_or(Error::State)?;
