@@ -467,11 +467,6 @@ impl NativeWallabag {
     /// reader's fetch offers to go online, once until the reader fetches anew.
     fn fetch_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
         match self.fetcher.done(host, &DataFiles::new(host), done)? {
-            // Fetched again from *Go online* before the host went online
-            // (`paperpaw_ui_kit::online`): once more.
-            Some(finish) if finish.offline && self.by_reader && self.online.again() => {
-                self.fetch(host, true)
-            }
             Some(finish) if finish.offline && self.by_reader && self.online.may_offer() => {
                 self.offer(host, finish)
             }

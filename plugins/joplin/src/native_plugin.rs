@@ -528,11 +528,6 @@ impl NativeJoplin {
     /// Offline mode held back the sending the reader started: asked once to
     /// go online (Beta 3's offer), else it needs the network.
     fn held_back(&mut self, host: &Host<'_>, apart: usize) -> Result<(), Error> {
-        if self.online.again() {
-            // Sent again from *Go online* before the host went online
-            // (`paperpaw_ui_kit::online`): once more.
-            return self.offered(host, Chosen::Online(Start::Action));
-        }
         if self.online.may_offer() {
             let asked = match self.handles.ui(host) {
                 Ok(ui) => self.online.ask(host, ui, Start::Action),

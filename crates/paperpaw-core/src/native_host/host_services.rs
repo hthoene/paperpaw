@@ -536,6 +536,12 @@ impl HostServices {
             .get_or_init(|| Rc::new(super::net_policy::NetPolicy::new()))
     }
 
+    /// The device's network policy where it was made ([`Self::policy`]),
+    /// without making it.
+    pub(crate) fn policy_made(&self) -> Option<&Rc<super::net_policy::NetPolicy>> {
+        self.policy.get()
+    }
+
     /// What the wirings tell the library's transactions, made on first use.
     pub(crate) fn edit_policy(&self) -> &Rc<super::lib_edits::EditPolicy> {
         self.edit_policy.get_or_init(Default::default)

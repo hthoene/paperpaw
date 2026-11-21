@@ -501,11 +501,6 @@ impl News {
     /// Offline mode held the fetch back: the reader who started it is asked
     /// (once) whether to go online for it; else it needs a network.
     fn offline(&mut self, host: &Host<'_>, again: (usize, bool)) -> Result<(), Error> {
-        if self.by_reader && self.online.again() {
-            // Fetched again from *Go online* before the host went online
-            // (`paperpaw_ui_kit::online`): once more.
-            return self.fetch(host, again.0, again.1, true);
-        }
         if !self.by_reader || !self.online.may_offer() {
             return notice(host, "news.no-network");
         }

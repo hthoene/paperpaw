@@ -592,16 +592,11 @@ impl Opds {
         }
     }
 
-    /// Offers to go online for `again`, where it was not offered yet, or does
-    /// it once more where it was done again from *Go online* before the host
-    /// went online (`paperpaw_ui_kit::online`); `false` where neither
-    /// (offered already, no question to be had): what was held back then
-    /// stays said to need the network.
+    /// Offers to go online for `again`, where it was not offered yet
+    /// (`paperpaw_ui_kit::online`); `false` where it was not (offered
+    /// already, no question to be had): what was held back then stays said
+    /// to need the network.
     fn offer_online(&mut self, host: &Host<'_>, again: Again) -> Result<bool, Error> {
-        if self.online.again() {
-            self.online_chosen(host, Chosen::Online(again))?;
-            return Ok(true);
-        }
         let Some(ui) = self.ui.as_ref().filter(|_| self.online.may_offer()) else {
             return Ok(false);
         };

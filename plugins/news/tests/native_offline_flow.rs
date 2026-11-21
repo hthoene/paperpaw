@@ -325,21 +325,16 @@ fn offline_mode_offers_to_go_online_once_and_go_online_fetches_again() {
     assert_eq!(online.status, 0);
     assert!(went_online(&online), "command.go_online is sent");
     assert_eq!(*sent.borrow(), [GET, GET]);
-    // That fetch was checked before the host went online (it does once the
-    // answer's callback has returned): its end fetches once more.
-    let once_more = held_back(&p, 2);
-    assert_eq!(once_more.status, 0);
-    assert!(!says_no_network(&once_more));
-    assert_eq!(*sent.borrow(), [GET, GET, GET]);
-    // Held back again: offered once, so it says it needs a network.
-    let again = held_back(&p, 3);
+    // Held back again (the host did not go online): offered once, so it says
+    // it needs a network.
+    let again = held_back(&p, 2);
     assert_eq!(again.status, 0);
     assert!(says_no_network(&again));
     assert_eq!(dialogs.questions().len(), 1, "not asked again");
-    assert_eq!(sent.borrow().len(), 3);
+    assert_eq!(sent.borrow().len(), 2);
     // The reader's next fetch may offer again.
     fetch_the_news(&p);
-    held_back(&p, 4);
+    held_back(&p, 3);
     assert_eq!(dialogs.questions().len(), 2);
 }
 

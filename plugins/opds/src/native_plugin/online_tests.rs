@@ -266,21 +266,15 @@ fn offline_mode_offers_to_go_online_once_and_go_online_loads_the_feed_again() {
         "{}",
         note()
     );
-    // That load was checked before the host went online (it does once the
-    // answer's callback has returned): its end loads once more.
-    assert_eq!(held_back(&p, 2).status, 0);
-    assert_eq!(dialogs.questions().len(), 1, "offered once");
-    assert_eq!(log.borrow().len(), 3);
-    assert_eq!(log.borrow()[2], std::format!("GET {URL} #{FEED}"));
     // Held back again (the host did not go online): not offered again, the
     // line says it needs the network.
-    assert_eq!(held_back(&p, 3).status, 0);
+    assert_eq!(held_back(&p, 2).status, 0);
     assert_eq!(dialogs.questions().len(), 1, "offered once");
     assert_eq!(note(), NO_NETWORK);
-    assert_eq!(log.borrow().len(), 3);
+    assert_eq!(log.borrow().len(), 2);
     // A screen opened anew may offer again.
     browse(&p, &log);
-    assert_eq!(held_back(&p, 4).status, 0);
+    assert_eq!(held_back(&p, 3).status, 0);
     assert_eq!(dialogs.questions().len(), 2);
 }
 

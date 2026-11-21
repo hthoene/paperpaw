@@ -561,6 +561,38 @@ fn go_online_is_honoured_only_within_the_window_else_ok_and_logged() {
     }
 }
 
+/// #461: the kernel applies `go_online` only after the callback, but a request
+/// the callback makes after it is checked at once. An accepted `go_online`
+/// the kernel will honour lifts Offline mode for it now; one it will not
+/// honour (no recent input) and a refused batch lift nothing.
+#[test]
+fn a_granted_go_online_lets_a_request_of_the_same_callback_through() {
+    let go = WireCommand::GoOnline { for_ms: 60_000 };
+    let refused = WireCommand::GoOnline { for_ms: 0 };
+    for (granted, batch, status, lifted) in [
+        (true, &[go][..], OK, true),
+        (false, &[go][..], OK, false),
+        (true, &[go, refused][..], ERR_INVALID, false),
+    ] {
+        let kernel = kernel();
+        let owner = Id::new_static("probe");
+        let env = kernel.shared.place(Instant(0));
+        let policy = Rc::new(NetPolicy::new());
+        policy.update(1, true, true, core::iter::empty(), core::iter::empty());
+        let dev = DevContext::new(features(WIFI), &kernel.radio_requests);
+        let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
+            .with_dev(dev.with_net_policy(Some(&policy)));
+        stage.set_go_online_granted(granted);
+        assert!(policy.end_for("probe", false).is_some(), "Offline mode");
+        assert_eq!(submit(&mut stage, batch), status);
+        assert_eq!(
+            policy.end_for("probe", false).is_none(),
+            lifted,
+            "{granted}"
+        );
+    }
+}
+
 #[test]
 fn the_wifi_plugin_is_the_network_manager_until_the_user_chooses_another() {
     let stale = Clock(100_000, Some(0));
