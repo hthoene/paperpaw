@@ -1059,8 +1059,9 @@ fn screens_say_what_they_show() {
     // The pages tapped by their names, the rows with their title, value and text.
     assert!(text.contains("Heading \"Display\""), "{text}");
     // A switch is told as one, its state after the text, not as a word in it.
+    // A finger opened the page: no row has the focus until a button is used.
     assert!(
-        text.contains("Row \"Night mode, White text on black.\" (focused) (off)"),
+        text.contains("Row \"Night mode, White text on black.\" (off)"),
         "{text}"
     );
     // A number says its unit in words, not as the catalog's key.

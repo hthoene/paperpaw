@@ -19,6 +19,7 @@ use paperpaw_sdk::{
         registrations,
         registry::{MenuQuery, PageCursor, Registry},
         reply::Reply,
+        snapshot,
         storage::Root,
         ui::{HandoverId, Instance, Notify, Open, Param, Question, RequestId, Ui},
     },
@@ -184,12 +185,16 @@ impl Plugin for NativePluginManager {
         match self.screens.top(token).ok_or(Error::State)? {
             View::List(view) => {
                 let title = messages.copy(host, "plugin-manager.title")?;
+                // Buttons select a plugin, a finger taps it.
+                let touch = snapshot::capture_snapshot(host)?.has_touch();
                 let hint = messages.copy(
                     host,
                     if view.restart {
                         "plugin-manager.restart.short"
-                    } else {
+                    } else if touch {
                         "plugin-manager.hint"
+                    } else {
+                        "plugin-manager.hint.buttons"
                     },
                 )?;
                 view.list

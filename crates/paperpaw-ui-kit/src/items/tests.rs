@@ -550,3 +550,25 @@ fn rows_that_were_freed_keep_the_focus_and_the_places() {
     list.swap_rows(noted(&["a", "b", "c"]), keys.as_deref());
     assert_eq!(list.focus, 2);
 }
+
+#[test]
+fn a_wrapped_value_is_the_flag_and_no_other_change() {
+    let plain = Item::noted("Title", "A long value", "Note").unwrap();
+    let wrapped = plain.clone().with_wrapped_value();
+    let (Item::Row(plain), Item::Row(wrapped)) = (plain, wrapped) else {
+        panic!("rows")
+    };
+    assert!(wrapped.wrap_value && !plain.wrap_value);
+    assert_eq!(
+        RowItem {
+            wrap_value: false,
+            ..wrapped
+        },
+        plain
+    );
+    // A heading has no value to wrap.
+    assert!(matches!(
+        Item::heading("Head").unwrap().with_wrapped_value(),
+        Item::Heading(_)
+    ));
+}

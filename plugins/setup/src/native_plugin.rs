@@ -6,7 +6,7 @@ use crate::native_guide::{Act, Fonts, Guide, HostMeasure, Texts, lay_out};
 use crate::native_layout::Layout;
 use crate::native_state;
 use crate::native_steps::{Control, NewValue, Page, Reader, Setting};
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
     native::{
@@ -19,13 +19,14 @@ use paperpaw_sdk::{
         reply::Reply,
         settings::SettingValue,
         snapshot,
-        ui::{Instance, Notify, Open, Question, QuestionKind, RequestId, Ui},
+        ui::{ButtonHint, Instance, Notify, Open, Question, QuestionKind, RequestId, Ui},
     },
 };
 use paperpaw_ui_kit::{
     Messages, Screens, Style,
     mem::{SERVICE_BUFFER, buffer},
     paint,
+    text::concat,
 };
 
 mod image {
@@ -243,7 +244,8 @@ impl NativeSetup {
         );
         let mut guide = Guide::new(steps, texts(host)?, display, snap.has_touch());
         let loaded = read_page(host, &guide, 0)?;
-        guide.commit(0, loaded.gone, loaded.setting);
+        guide.commit(0, loaded.gone, (loaded.setting, loaded.help));
+        key_bar(host, &guide);
         self.screens.open(instance, guide)
     }
 
@@ -271,7 +273,8 @@ impl NativeSetup {
             Act::Turn(page) => {
                 let loaded = read_page(host, guide, page)?;
                 Self::redraw(host, RedrawMode::Partial)?;
-                guide.commit(page, loaded.gone, loaded.setting);
+                guide.commit(page, loaded.gone, (loaded.setting, loaded.help));
+                key_bar(host, guide);
                 Ok(())
             }
             Act::AskSkip => self.ask_skip(host),
@@ -384,6 +387,35 @@ fn finish(host: &Host<'_>) -> Result<(), Error> {
 struct Loaded {
     gone: usize,
     setting: Option<Setting>,
+    /// What a screen step says about itself.
+    help: String,
+}
+
+/// What the plugin of a screen step says about it: its catalog's `<id>.help`
+/// (the registry's step record has no text for it); none where it has none.
+fn screen_help(host: &Host<'_>, id: &str) -> String {
+    let Ok(key) = concat(&[id, ".help"]) else {
+        return String::new();
+    };
+    Messages::new()
+        .and_then(|mut m| m.copy(host, &key))
+        .unwrap_or_default()
+}
+
+/// The key bar of the page: on the first, *Back* asks to skip and says so
+/// (*Skip*, as in Beta 3); anywhere else the buttons have their usual names. A
+/// hint the host refuses leaves the bar as it was.
+fn key_bar(host: &Host<'_>, guide: &Guide) {
+    let hint = if guide.page == 0 && !guide.texts.skip_short.is_empty() {
+        ButtonHint::words("core.back", &guide.texts.skip_short)
+    } else {
+        ButtonHint::usual("core.back")
+    };
+    if let Ok(hint) = hint {
+        match CommandSender::new(host, &mut [0; 256]).set_hint(hint) {
+            Ok(()) | Err(_) => {}
+        }
+    }
 }
 
 /// Reads the setting of page `page`; a step whose setting is gone is left
@@ -395,12 +427,14 @@ fn read_page(host: &Host<'_>, guide: &Guide, page: usize) -> Result<Loaded, Erro
             return Ok(Loaded {
                 gone,
                 setting: None,
+                help: String::new(),
             });
         };
         let Page::Setting(key) = &step.page else {
             return Ok(Loaded {
                 gone,
                 setting: None,
+                help: screen_help(host, &step.id),
             });
         };
         let mut reader = Reader::open(host)?;
@@ -410,6 +444,7 @@ fn read_page(host: &Host<'_>, guide: &Guide, page: usize) -> Result<Loaded, Erro
                 return Ok(Loaded {
                     gone,
                     setting: Some(setting),
+                    help: String::new(),
                 });
             }
             Err(Error::NotFound) => gone += 1,

@@ -73,6 +73,9 @@ pub struct Guide {
     pub page: usize,
     /// The setting of the page shown, if it asks for one.
     pub setting: Option<Setting>,
+    /// What a screen step says about itself (its plugin's `<id>.help`); empty
+    /// for a page with a setting, which has the setting's own.
+    pub help: String,
     pub focus: Target,
     /// Whether the focus shows (once a button was used; at once without touch).
     pub shown: bool,
@@ -88,6 +91,7 @@ impl Guide {
             steps,
             page: 0,
             setting: None,
+            help: String::new(),
             focus: Target::Next,
             shown: !touch,
             texts,
@@ -96,12 +100,13 @@ impl Guide {
     }
 
     /// Shows page `page`, the `gone` steps from it left out, with its setting.
-    pub fn commit(&mut self, page: usize, gone: usize, setting: Option<Setting>) {
+    pub fn commit(&mut self, page: usize, gone: usize, (setting, help): (Option<Setting>, String)) {
         let end = page.saturating_add(gone).min(self.steps.len());
         self.steps.drain(page.min(end)..end);
         self.page = page;
         self.focus = Target::Next;
         self.setting = setting;
+        self.help = help;
     }
 
     /// Whether `page` is the last one, past all the steps.
@@ -127,7 +132,10 @@ impl Guide {
         } else {
             &step.title
         };
-        (title, setting.map_or("", |s| s.help.as_str()))
+        (
+            title,
+            setting.map_or(self.help.as_str(), |s| s.help.as_str()),
+        )
     }
 
     /// The pixel size of a text-size setting's sample: only for the reader's
@@ -482,7 +490,7 @@ impl Guide {
             return Ok(());
         }
         let Some(setting) = setting else {
-            return centered(ops, fonts.ui, self.card_label(), style.text, row, ink);
+            return opens(ops, fonts.ui, style, card, self.card_label(), ink);
         };
         match &setting.control {
             Control::Switch(on) => {
@@ -582,6 +590,15 @@ impl Guide {
                 }
                 Ok(())
             }
+            Control::Value(_) if setting.editor.is_some() => {
+                let shown = setting.label(&self.texts.on, &self.texts.off)?;
+                opens(ops, fonts.ui, style, card, &shown, ink)
+            }
+            // More than two options: the card opens the next, shown with an arrow.
+            Control::Choice { .. } => {
+                let shown = setting.label(&self.texts.on, &self.texts.off)?;
+                opens(ops, fonts.ui, style, card, &shown, ink)
+            }
             _ => {
                 let shown = setting.label(&self.texts.on, &self.texts.off)?;
                 centered(ops, fonts.ui, &shown, style.text, row, ink)
@@ -647,6 +664,41 @@ fn centered(
     label(ops, font, &fitted, size, x, area, color, Some(area))
 }
 
+/// What opens a screen, in the card: its words and an arrow at the left of the
+/// card's middle, as in Beta 3.
+fn opens(
+    ops: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    card: Rect,
+    words: &str,
+    ink: Color,
+) -> Result<(), Error> {
+    let mut shown = String::new();
+    shown
+        .try_reserve(words.len().saturating_add(4))
+        .map_err(|_| Error::NoMemory)?;
+    shown.push_str(words);
+    shown.push_str(" ›");
+    let inner = Rect::new(
+        card.x.saturating_add(style.margin),
+        card.y,
+        card.width.saturating_sub(style.margin.saturating_mul(2)),
+        card.height,
+    );
+    let fitted = fit(font, style.text, &shown, f32::from(inner.width))?;
+    label(
+        ops,
+        font,
+        &fitted,
+        style.text,
+        f32::from(inner.x),
+        inner,
+        ink,
+        Some(inner),
+    )
+}
+
 /// A button: the one every screen draws, highlighted where `chosen` or `focused`.
 fn button(
     ops: &mut Vec<Paint>,
@@ -657,7 +709,27 @@ fn button(
     focused: bool,
     chosen: bool,
 ) -> Result<(), Error> {
-    paperpaw_ui_kit::parts::button(ops, font, style, rect, name, focused || chosen)
+    paperpaw_ui_kit::parts::button(ops, font, style, rect, name, focused || chosen)?;
+    if focused {
+        // A ring round the filled button, as in Beta 3: where it has the focus
+        // (not where it is only chosen) a button is seen to be the one Select
+        // presses, with or without a fill.
+        let grow = style.line.max(1).saturating_mul(2);
+        let outer = Rect::new(
+            rect.x.saturating_sub(grow),
+            rect.y.saturating_sub(grow),
+            rect.width.saturating_add(grow.saturating_mul(2)),
+            rect.height.saturating_add(grow.saturating_mul(2)),
+        );
+        let radius = if style.pill {
+            u32::from(outer.height) / 2
+        } else {
+            style.corner.saturating_add(u32::from(grow))
+        };
+        let line = u32::from(style.line).max(1);
+        paint::push(ops, Paint::Focus(outer, radius, Some(line), style.ink))?;
+    }
+    Ok(())
 }
 
 /// The host's font as the layout measures it.
