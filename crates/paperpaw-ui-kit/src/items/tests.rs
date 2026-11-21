@@ -321,6 +321,51 @@ fn page_actions_go_to_the_first_row_of_the_other_page() {
 }
 
 #[test]
+fn where_the_arrows_stay_on_the_page_they_go_round_it() {
+    // Two pages: a heading and rows 1-2, a heading and rows 4-6.
+    for stays in [false, true] {
+        let mut list = ItemList::new(items("hrrhrrr"));
+        list.arrows_stay = Some(stays);
+        list.starts = Vec::from([0, 3]);
+        list.set_focus(2);
+        let past_last = if stays { 1 } else { 4 };
+        assert_eq!(
+            list.decide(&action("core.down")),
+            ItemStep::Focus(past_last),
+            "{stays}"
+        );
+        list.set_focus(4);
+        let before_first = if stays { 6 } else { 2 };
+        assert_eq!(
+            list.decide(&action("core.up")),
+            ItemStep::Focus(before_first),
+            "{stays}"
+        );
+        // The list's ends go round their pages too.
+        list.set_focus(6);
+        let past_end = if stays { 4 } else { 6 };
+        assert_eq!(
+            list.decide(&action("core.down")),
+            ItemStep::Focus(past_end),
+            "{stays}"
+        );
+        list.set_focus(1);
+        let before_start = if stays { 2 } else { 1 };
+        assert_eq!(
+            list.decide(&action("core.up")),
+            ItemStep::Focus(before_start),
+            "{stays}"
+        );
+        // The page keys still turn the page.
+        assert_eq!(
+            list.decide(&action("core.next-page")),
+            ItemStep::Focus(4),
+            "{stays}"
+        );
+    }
+}
+
+#[test]
 fn a_long_press_holds_the_row_and_never_the_header() {
     let mut list = ItemList::new(items("hr"));
     list.hits = Vec::from([(Rect::new(0, 40, 100, 40), 1)]);
