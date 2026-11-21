@@ -40,7 +40,7 @@ use paperpaw_sdk::{
         document::{DocId, DocPosition, Documents, Preparation, Report, Root},
         library::Library,
         snapshot,
-        ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
+        ui::{Notify, Open as NavOpen, Param, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -207,73 +207,6 @@ pub struct View {
     aloud_kept: bool,
 }
 
-/// The hand-over's values, as far as the screen reads them.
-#[derive(Debug, Default)]
-pub(crate) struct Handover {
-    pub(crate) path: String,
-    pub(crate) root: Option<String>,
-    pub(crate) section: Option<String>,
-    pub(crate) offset: Option<String>,
-    page: Option<String>,
-}
-
-impl Handover {
-    /// The root the book is opened on (the library's unless the hand-over says).
-    ///
-    /// A plugin that hands a file of its own over names its folder: `0` (data)
-    /// or `2` (install), with the `path` (`document.md` 1, root 5). The reader
-    /// reads it as the handed file (`doc_open` root 5), never from its own
-    /// data folder. `5` is the reader's own code for a book it opened that
-    /// way (`root_code`, for its table-of-contents screen).
-    pub(crate) fn root(&self) -> Root {
-        match self.root.as_deref() {
-            Some("0" | "2" | "5") => Root::Handed,
-            _ => Root::Library,
-        }
-    }
-
-    /// The hand-over of a book this screen showed (its path and root code):
-    /// opened again, at its saved place.
-    pub(crate) fn of_book(path: String, root: &str) -> Result<Self, Error> {
-        Ok(Self {
-            path,
-            root: Some(text::copy(root)?),
-            ..Self::default()
-        })
-    }
-
-    fn get(&self, key: &str) -> Option<&str> {
-        match key {
-            native_open::SECTION => self.section.as_deref(),
-            native_open::OFFSET => self.offset.as_deref(),
-            native_open::PAGE => self.page.as_deref(),
-            _ => None,
-        }
-    }
-}
-
-pub(crate) fn read_handover(
-    host: &Host<'_>,
-    ui: &Ui,
-    handover: HandoverId,
-) -> Result<Handover, Error> {
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-    let mut found = Handover::default();
-    for param in ui.params(host, handover, &mut input, &mut out)? {
-        let param = param?;
-        let value = param.value();
-        match param.key() {
-            "path" if value.len() <= MAX_PATH => found.path = text::copy(value)?,
-            "root" => found.root = Some(text::copy(value)?),
-            native_open::SECTION => found.section = Some(text::copy(value)?),
-            native_open::OFFSET => found.offset = Some(text::copy(value)?),
-            native_open::PAGE => found.page = Some(text::copy(value)?),
-            _ => {}
-        }
-    }
-    Ok(found)
-}
-
 impl View {
     /// The screen of the book the hand-over `found` names, opened.
     ///
@@ -356,7 +289,7 @@ impl View {
     ) -> Result<Self, Error> {
         let Preparing {
             id,
-            found,
+            mut found,
             whole_pages,
             conversion,
         } = book;
@@ -394,7 +327,7 @@ impl View {
         let (progress, at, stored_ppm) = Self::place_and_progress(
             host,
             (docs, library),
-            (&found, id, (sections, conversion)),
+            (&mut found, id, (sections, conversion)),
             (&mut input, &mut out),
         )
         .map_err(fail)?;
@@ -472,9 +405,11 @@ impl View {
     fn place_and_progress(
         host: &Host<'_>,
         (docs, library): (&Documents, Option<&Library>),
-        (found, id, (sections, conversion)): (&Handover, DocId, (u32, u64)),
+        (found, id, (sections, conversion)): (&mut Handover, DocId, (u32, u64)),
         (input, out): (&mut [u8], &mut [u8]),
     ) -> Result<Beginning, Error> {
+        // A note opened at a heading (`reader.anchor`): there.
+        found.place_anchor(host, docs, id)?;
         let progress = Progress::read(host, docs, id, sections, (input, out))?;
         let (at, stored) = Self::starting_place(
             host,
@@ -1446,6 +1381,7 @@ mod count;
 mod decorations;
 mod filters;
 mod goto;
+mod handover;
 mod helpers;
 pub(crate) mod layers;
 mod laying;
@@ -1456,6 +1392,7 @@ mod preparing;
 mod ribbon;
 mod script_hint;
 mod setup;
+pub(crate) use handover::{Handover, read_handover};
 use helpers::{book_language, document_error_kind, redraw, say};
 use preparing::{Preparing, open_request, publisher_styles};
 use setup::{Kept, LayoutKey, Setup, flag, integer};

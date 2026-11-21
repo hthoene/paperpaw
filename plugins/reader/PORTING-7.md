@@ -376,6 +376,13 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   and the text of a note; `native_footnote.rs` is the note over the page (an overlay screen, `core.footnote`);
   *Go to the note* is carried by the plugin, which follows it in the reading screen when that is shown again.
   `native_view.rs` asks the marking first about every input and draws its overlay last.
+- Links between notes (#459): a notes vault resolves `[[Note]]` by name when it converts the note and
+  writes a file link (kind 3), with the heading's anchor after `#` for `[[Note#Heading]]`. The reader opens
+  that note over this one with `reader.anchor` (`linking::open_file`), and the reader that opens it starts
+  at the heading (`native_view/handover.rs`, `place_anchor`: the anchor's place, as a `section`/`offset`
+  hand-over); *Back* closes it and shows the note below. Beta 3's chain `reader.notes-back` is gone: the
+  note below stays open. **Difference from Beta 3:** a note not there when the linking note was converted
+  is not looked for when the link is followed.
 - **Differences from Beta 3, named:** the bar has fixed items (look up, copy, extend/cancel): *Highlight*,
   *Note*, *Read aloud* and the plugins' items need the annotations (R5), the aloud and the
   selection-bar contract, which the stage does not replace. The book's language is not read (native metadata

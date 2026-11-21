@@ -49,8 +49,9 @@ fn one_format_claims_epub() {
         (spec.name, spec.title, spec.extensions),
         ("epub", "format-epub.title", "epub")
     );
-    // Not `prepared`; flags: sniffs (the `mimetype` entry), a book is the file itself.
-    assert_eq!(spec.flags, 0b10);
+    // Not `prepared`; flags: sniffs (the `mimetype` entry) and siblings (one's
+    // own stylesheets beside the book, its file name for a title).
+    assert_eq!(spec.flags, 0b1_0010);
     assert_eq!(spec.token, declarations::FORMAT_TOKEN);
 }
 

@@ -29,7 +29,7 @@ use front::{Front, Step};
 use wiki::Vault;
 
 /// Changes whenever Markdown is turned into HTML differently.
-const MD_VERSION: u32 = 4;
+const MD_VERSION: u32 = 5;
 
 /// An open Markdown file.
 #[derive(Debug)]
@@ -303,13 +303,21 @@ fn wikilink(
     let mut shown = String::new();
     link.shown(&mut shown)?;
     // Another note of the vault, found on the card: a link to that file
-    // (kind 3, #369 M), which the reader opens; its heading is not kept.
+    // (kind 3, #369 M), which the reader opens, at the heading the link
+    // names (`#` and its anchor as the heading's `id`, #459).
     if let Some(found) = vault
         && !link.target.is_empty()
         && let Some(path) = note_file(found, link.target)?
     {
         out.try_push_str("<a href=\"file:/")?;
         fallible::escape(&path, out)?;
+        if let Some(fragment) = link.fragment {
+            let anchor = wiki::slug(fragment)?;
+            if !anchor.is_empty() {
+                out.try_push('#')?;
+                fallible::escape(&anchor, out)?;
+            }
+        }
         out.try_push_str("\">")?;
         inline_in(&shown, pictures, vault, true, out)?;
         out.try_push_str("</a>")?;
@@ -1003,7 +1011,7 @@ mod tests {
             ),
             format!(
                 "<p><a href=\"file:/v/Other.md\">that one</a> \
-                 <a href=\"file:/v/Sub/Deep.md\">Sub/Deep &gt; Part</a> \
+                 <a href=\"file:/v/Sub/Deep.md#part\">Sub/Deep &gt; Part</a> \
                  <a href=\"file:/v/map.pdf\">map.pdf</a> \
                  <a href=\"{way}[[Gone]]\">Gone</a></p>\n"
             )
