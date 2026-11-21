@@ -29,6 +29,7 @@ use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 
 mod kernel_models;
+pub(crate) use kernel_models::kind_code;
 #[cfg(test)]
 mod kernel_tests;
 mod ops;

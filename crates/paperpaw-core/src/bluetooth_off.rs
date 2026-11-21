@@ -31,6 +31,11 @@ impl Kernel {
         ));
     }
 
+    /// A native plugin's Bluetooth command: refused as any other.
+    pub(crate) fn apply_admitted_bluetooth(&mut self, request: BtRequest) {
+        self.apply_bluetooth(request);
+    }
+
     /// Nothing reports Bluetooth here; the call only keeps the kernel's time.
     pub fn bluetooth_event(&mut self, now: Instant, _report: BtReport) -> Effects {
         let running = self.shared.meter.enter(meter::CORE);

@@ -30,6 +30,9 @@ pub struct Wired {
     /// The radio's commands (`uses.wifi`): the kernel answers them from its
     /// Wi-Fi model, which a device with a radio has.
     pub wifi: bool,
+    /// The Bluetooth commands (`uses.bluetooth`): the kernel answers them
+    /// from its Bluetooth radio model (the X4 Pro's).
+    pub bluetooth: bool,
 }
 
 impl Wired {
@@ -40,6 +43,7 @@ impl Wired {
         secrets: true,
         lookup: true,
         wifi: true,
+        bluetooth: true,
     };
 }
 
@@ -115,9 +119,10 @@ const fn build_services<const N: usize>(
 
 /// How many features a list holds.
 const fn features_len(secrets: bool, work: bool, card: bool, wifi: bool) -> usize {
-    // The registry, the power view, and the two the plugin jobs back
-    // (`host_jobs`): `uses.install` and `uses.firmware`.
-    4 + secrets as usize + work as usize + 2 * card as usize + wifi as usize
+    // The registry, the power view, the two the plugin jobs back
+    // (`host_jobs`): `uses.install` and `uses.firmware`, and last
+    // `uses.bluetooth`, which [`features`] leaves off without a radio.
+    5 + secrets as usize + work as usize + 2 * card as usize + wifi as usize
 }
 
 /// The consent features a linked plugin may ask for, as one list of `N`.
@@ -128,7 +133,7 @@ const fn build_features<const N: usize>(
     wifi: bool,
 ) -> [Feature<'static>; N] {
     let mut list = [feature("uses.registry"); N];
-    let keys: [(bool, &str); 9] = [
+    let keys: [(bool, &str); 10] = [
         (true, "uses.registry"),
         (true, "uses.power"),
         // Plugin installs, updates, removals and checks, and the firmware's
@@ -145,6 +150,9 @@ const fn build_features<const N: usize>(
         // The radio commands of `core.device` (ops 8, 10, 11, 12), answered
         // by the kernel's Wi-Fi model.
         (wifi, "uses.wifi"),
+        // The Bluetooth commands, answered by the kernel's radio model: last,
+        // so that the list without it is the same list one shorter.
+        (true, "uses.bluetooth"),
     ];
     let mut at = 0;
     let mut i = 0;
@@ -266,10 +274,9 @@ pub fn card_services(wired: Wired) -> &'static [Service<'static>] {
 /// offered, whatever is wired, so a card plugin that asks for one does not get
 /// it (refused at admission only if it requires it, which no plugin does of
 /// these): `uses.secrets` (it reaches other plugins' secrets, their names and
-/// labels, never the values), `uses.registry`, `uses.power`, `uses.wifi`, and
-/// those `features` leaves out too (`uses.install`, `uses.firmware`,
-/// `uses.bluetooth`). The first-party plugins that are linked into the firmware
-/// have those ([`features`]). A list in the program's read-only data.
+/// labels, never the values), `uses.registry`, `uses.power`, `uses.wifi`,
+/// `uses.install`, `uses.firmware` and `uses.bluetooth`. The first-party plugins
+/// that are linked into the firmware have those ([`features`]). A list in the program's read-only data.
 #[must_use]
 pub fn card_features(wired: Wired) -> &'static [Feature<'static>] {
     static NONE: [Feature<'static>; 0] = [];
@@ -311,12 +318,21 @@ pub fn card_host(
 /// The consent features a linked plugin may ask for (`uses.*`), with the
 /// families that back them: `uses.install` and `uses.firmware` are backed by
 /// the jobs of `host_jobs` (the firmware's update where the device has a second
-/// app partition, else every firmware job is refused as not here). Not
-/// offered: `uses.bluetooth` (not backed on these devices): a plugin that needs
-/// one is refused at admission. A list in the program's read-only data (no
-/// heap).
+/// app partition, else every firmware job is refused as not here), and
+/// `uses.bluetooth` by the kernel's Bluetooth radio where the device has one
+/// (else it is not offered). A list in the program's read-only data (no heap).
 #[must_use]
 pub fn features(wired: Wired) -> &'static [Feature<'static>] {
+    let all = with_bluetooth(wired);
+    // `uses.bluetooth` is the last of every list.
+    match all.split_last() {
+        Some((_, without)) if !wired.bluetooth => without,
+        _ => all,
+    }
+}
+
+/// The list of [`features`] for `wired`, `uses.bluetooth` last.
+fn with_bluetooth(wired: Wired) -> &'static [Feature<'static>] {
     match (wired.secrets, wired.work, wired.card, wired.wifi) {
         (false, false, false, false) => &F0000,
         (false, false, false, true) => &F0001,
@@ -342,14 +358,15 @@ mod tests {
     use super::*;
     use alloc::{vec, vec::Vec};
 
-    /// Every combination of what a start wires, as the four groups.
+    /// Every combination of what a start wires, as the six groups.
     fn every_combination() -> impl Iterator<Item = Wired> {
-        (0..32).map(|bits: u8| Wired {
+        (0..64).map(|bits: u8| Wired {
             work: bits & 1 != 0,
             card: bits & 2 != 0,
             secrets: bits & 4 != 0,
             wifi: bits & 8 != 0,
             lookup: bits & 16 != 0,
+            bluetooth: bits & 32 != 0,
         })
     }
 
@@ -390,6 +407,7 @@ mod tests {
             (wired.work, &["uses.network"][..]),
             (wired.card, &["uses.storage", "uses.library"][..]),
             (wired.wifi, &["uses.wifi"][..]),
+            (wired.bluetooth, &["uses.bluetooth"][..]),
         ] {
             if on {
                 features.extend(keys.iter().map(|key| (*key, 1)));
