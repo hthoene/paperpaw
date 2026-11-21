@@ -227,16 +227,18 @@ impl App {
     }
 
     /// Where the slider's `+` is: at the right end of the row above the
-    /// track, level with the value shown there (the buttons are not parts).
-    fn plus_above(&mut self, track: Rect, shown: &str) -> (i32, i32) {
+    /// track, level with the title shown there (the buttons are not parts,
+    /// and the value text is folded into the label of a home button behind
+    /// the panel where one lies under it).
+    fn plus_above(&mut self, track: Rect) -> (i32, i32) {
         let parts = self.kernel.describe();
-        let value = parts
+        let title = parts
             .iter()
-            .filter(|p| p.role == Role::Text && p.label == shown && p.area.y < track.y)
+            .filter(|p| p.role == Role::Text && p.label == LIGHT.as_str() && p.area.y < track.y)
             .max_by_key(|p| p.area.y)
             .map(|p| p.area)
-            .unwrap_or_else(|| panic!("the value above the slider: {parts:?}"));
-        let y = i32::from(value.y) + i32::from(value.height) / 2;
+            .unwrap_or_else(|| panic!("the title above the slider: {parts:?}"));
+        let y = i32::from(title.y) + i32::from(title.height) / 2;
         (track.right() as i32 - 10, y)
     }
 
@@ -310,7 +312,7 @@ fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     assert_eq!(app.kernel.settings().int(LIGHT.as_str()), 0);
 
     // A tap on the slider's + (in the row above the track) moves it a step.
-    let (px, py) = app.plus_above(track, "0 %");
+    let (px, py) = app.plus_above(track);
     app.finger(PointerPhase::Down, px, py);
     app.finger(PointerPhase::Up, px, py);
     assert_eq!(app.kernel.settings().int(LIGHT.as_str()), 5);
