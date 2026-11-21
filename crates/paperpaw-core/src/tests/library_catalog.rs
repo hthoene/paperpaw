@@ -807,6 +807,58 @@ fn walking(books: usize, battery: Option<u8>) -> Kernel {
     kernel
 }
 
+/// The library service hears how far a first walk is while it goes on
+/// (`core.library` state 1, the books so far: Beta 3's "N books so far"),
+/// and that the walk went quiet once no step came for 90 seconds (#460).
+#[test]
+fn the_library_service_hears_the_first_walk_and_its_silence() {
+    let mut storage = MemoryStorage::new();
+    for n in 0..40 {
+        storage = storage.with(&alloc::format!("books/f{}/b{n:02}.txt", n % 8), "x");
+    }
+    let walk = crate::LibraryWalk::default();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(
+            library_plugin_manifest(),
+            library_plugin(LibraryPlugin { log: log() }),
+        )
+        .storage(storage)
+        .library_walk(walk.clone())
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    assert_eq!(walk.walking(kernel.storage()), None, "no walk yet");
+    assert!(
+        !walk.stalled(1_000_000),
+        "nothing wanted, nothing waited for"
+    );
+    let wanted = events::CatalogWanted::new(false).to_params();
+    kernel.send_event(Instant(0), events::CATALOG_WANTED.id().clone(), wanted);
+    let mut seen = Vec::new();
+    let mut at = 10_000;
+    while !walked(&kernel) && at < 3_600_000 {
+        kernel.tick(Instant(at));
+        if let Some(ppm) = walk.walking(kernel.storage()) {
+            seen.push(ppm);
+            assert!(!walk.stalled(at), "a walk that steps is alive");
+            // The walk stops here for good (the card hangs, say): 90 s on,
+            // the library service hears it went quiet.
+            assert!(!walk.stalled(at + 89_999));
+            assert!(walk.stalled(at + 90_000));
+        }
+        at += 1_000;
+    }
+    assert!(walked(&kernel), "the walk ended");
+    assert!(seen.len() > 2, "steps of the walk heard: {seen:?}");
+    // The share is rough (folders found against folders listed), never
+    // back, never the whole while walking.
+    assert!(seen.windows(2).all(|w| w[0] <= w[1]), "{seen:?}");
+    assert!(seen.iter().all(|&ppm| ppm < 1_000_000), "{seen:?}");
+    // Walked: state 2, nothing waited for any more.
+    assert_eq!(walk.walking(kernel.storage()), None);
+    assert!(!walk.stalled(at + 1_000_000));
+}
+
 /// Whether the library's walk is over: its catalog in place, nothing
 /// building. Not that the catalog lists books: a first walk lists those
 /// found so far at checkpoints while it goes on (#108).

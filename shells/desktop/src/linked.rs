@@ -339,6 +339,9 @@ pub struct Inputs {
     /// from; `None` where it cannot be opened (none of them is wired then).
     /// Not `storage`: on simulated time that one is private to the run.
     pub card: Option<Rc<dyn Storage>>,
+    /// Where the kernel notes its catalog work for `core.library`
+    /// (`KernelBuilder::library_walk`).
+    pub walk: paperpaw_core::LibraryWalk,
 }
 
 impl Inputs {
@@ -384,16 +387,24 @@ impl std::fmt::Debug for Inputs {
     }
 }
 
-/// What the card cannot tell the catalog reads, on the desktop: no walk
-/// shown, today's date from the computer's clock (none on simulated time, so
-/// no book is new in a run that must not depend on the day).
+/// What the card cannot tell the catalog reads, on the desktop: how far the
+/// kernel's first walk is and whether its work went quiet (by the kernel's
+/// notes and the device's clock, simulated time too), today's date from the
+/// computer's clock (none on simulated time, so no book is new in a run that
+/// must not depend on the day).
 struct Catalog {
     simulated: bool,
+    walk: paperpaw_core::LibraryWalk,
+    card: Rc<dyn Storage>,
+    view: Rc<DeviceView>,
 }
 
 impl CatalogEnv for Catalog {
     fn walking(&self) -> Option<u32> {
-        None
+        self.walk.walking(&*self.card)
+    }
+    fn stalled(&self) -> bool {
+        self.walk.stalled(self.view.now_ms())
     }
     fn today(&self) -> Option<u32> {
         if self.simulated {
@@ -487,7 +498,7 @@ fn on_the_card(
     wiring: HostWiring,
     profile: &'static Profile,
     card: Rc<dyn Storage>,
-    simulated: bool,
+    inputs: &Inputs,
 ) -> HostWiring {
     let display = profile.device.display;
     wiring
@@ -495,7 +506,15 @@ fn on_the_card(
             profile.device.memory,
             u32::from(display.width.max(display.height)),
         )
-        .library(card.clone(), Rc::new(Catalog { simulated }))
+        .library(
+            card.clone(),
+            Rc::new(Catalog {
+                simulated: inputs.simulated,
+                walk: inputs.walk.clone(),
+                card: card.clone(),
+                view: inputs.view.clone(),
+            }),
+        )
         .files(card)
 }
 
@@ -687,7 +706,7 @@ pub fn prepare(
     // The books, the catalog and the card's files, from the card itself.
     let mut on_card = Wired::default();
     if let Some(card) = inputs.card.clone() {
-        wiring = on_the_card(wiring, profile, card, inputs.simulated);
+        wiring = on_the_card(wiring, profile, card, inputs);
         on_card.documents = true;
         on_card.library = true;
         on_card.files = true;
@@ -845,6 +864,7 @@ mod tests {
             simulated: true,
             net: Rc::default(),
             card: Some(card.clone()),
+            walk: Default::default(),
         };
         let net = net_storage(&inputs).unwrap();
         assert!(Rc::ptr_eq(&net, &card));
@@ -1089,6 +1109,7 @@ mod tests {
             simulated: true,
             net: Rc::default(),
             card: Some(storage),
+            walk: Default::default(),
         };
         let pool = crate::native::DevicePool::default();
         let prepared = prepare(profile, &inputs, &pool).expect("wired");
@@ -1164,11 +1185,25 @@ mod tests {
         }
     }
 
+    /// The library service reads the kernel's notes of its catalog work
+    /// (#460): a first walk on the card is state 1, not "being prepared";
+    /// no day on simulated time.
     #[test]
-    fn the_catalog_has_no_walk_and_no_day_on_simulated_time() {
-        let simulated = Catalog { simulated: true };
-        assert_eq!((simulated.walking(), simulated.today()), (None, None));
-        let real = Catalog { simulated: false };
-        assert!(real.today().is_some_and(|day| day > 20_000));
+    fn the_catalog_reads_the_kernels_walk_and_has_no_day_on_simulated_time() {
+        let card: Rc<dyn Storage> = Rc::new(
+            paperpaw_core::sdk::MemoryStorage::new()
+                .with(".paperpaw/library/catalog.tmp", b"".to_vec())
+                .with(".paperpaw/library/walk.first", b"".to_vec()),
+        );
+        let catalog = |simulated| Catalog {
+            simulated,
+            walk: paperpaw_core::LibraryWalk::default(),
+            card: card.clone(),
+            view: Rc::default(),
+        };
+        let simulated = catalog(true);
+        assert_eq!((simulated.walking(), simulated.today()), (Some(0), None));
+        assert!(!simulated.stalled(), "the kernel never wanted the work");
+        assert!(catalog(false).today().is_some_and(|day| day > 20_000));
     }
 }

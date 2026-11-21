@@ -200,6 +200,68 @@ fn text(
     Ok(got.unwrap())
 }
 
+/// The library service's facts as the shells give them: the kernel's
+/// catalog work ([`crate::LibraryWalk`]) and its clock.
+struct Watched {
+    walk: crate::LibraryWalk,
+    storage: Rc<MemoryStorage>,
+    now_ms: Cell<u64>,
+}
+impl CatalogEnv for Watched {
+    fn walking(&self) -> Option<u32> {
+        self.walk.walking(&*self.storage)
+    }
+    fn stalled(&self) -> bool {
+        self.walk.stalled(self.now_ms.get())
+    }
+    fn today(&self) -> Option<u32> {
+        None
+    }
+}
+
+/// A first walk that goes quiet, or a catalog wanted and never begun, is
+/// state 3 `failed` (no books) after 90 seconds, not a walk or a library
+/// being prepared without end (#460, Beta 3's #145).
+#[test]
+fn a_catalog_whose_work_went_quiet_fails() {
+    use paperpaw_sdk::work::Step;
+    let storage = Rc::new(
+        MemoryStorage::new()
+            .with(".paperpaw/library/catalog.tmp", b"".to_vec())
+            .with(".paperpaw/library/walk.first", b"".to_vec()),
+    );
+    let env = Rc::new(Watched {
+        walk: crate::LibraryWalk::default(),
+        storage: storage.clone(),
+        now_ms: Cell::new(0),
+    });
+    let reads = CatalogReads::new(storage.clone(), env.clone());
+    let at = |ms: u64| {
+        env.now_ms.set(ms);
+        let (s, books, _, ppm) = state(&reads);
+        (s, books, ppm)
+    };
+    // The walk steps: state 1, how far it is.
+    env.walk.stepped(1_000, &Step::Continue, Some(300_000));
+    assert_eq!(at(1_000), (1, 0, 300_000));
+    assert_eq!(at(90_999), (1, 0, 300_000));
+    // No step for 90 s: failed.
+    assert_eq!(at(91_000), (3, 0, 0));
+    // It steps again: walking again.
+    env.walk.stepped(200_000, &Step::Continue, Some(400_000));
+    assert_eq!(at(200_000), (1, 0, 400_000));
+    // No catalog, no walk under way, the work wanted and failing: 0
+    // (being prepared), then failed, 90 s after its last step that went on.
+    storage.remove(".paperpaw/library/catalog.tmp").unwrap();
+    storage.remove(".paperpaw/library/walk.first").unwrap();
+    env.walk.stepped(300_000, &Step::Continue, None);
+    env.walk
+        .stepped(350_000, &Step::Failed("card".into()), None);
+    assert_eq!(at(350_000), (0, 0, 0));
+    assert_eq!(at(389_999), (0, 0, 0));
+    assert_eq!(at(390_000), (3, 0, 0));
+}
+
 #[test]
 fn the_state_counts_the_books_found_and_says_when_the_walk_is_under_way() {
     let card = card();

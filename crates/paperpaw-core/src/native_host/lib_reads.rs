@@ -77,6 +77,12 @@ pub trait CatalogEnv {
     /// catalog where there was none (its books are those found so far:
     /// `core.library-walking`), `None` otherwise.
     fn walking(&self) -> Option<u32>;
+    /// Whether the kernel's catalog work went quiet while the catalog is
+    /// still to be made ([`crate::LibraryWalk::stalled`]): the library then
+    /// says it cannot be read, not that it is prepared without end (#460).
+    fn stalled(&self) -> bool {
+        false
+    }
     /// Today as days since 1970, `None` for an unknown clock (no book is
     /// new then).
     fn today(&self) -> Option<u32>;
@@ -304,13 +310,17 @@ impl LibQuery for CatalogReads {
         }
         let ((generation, ready), books) = answer.unwrap_or((before, 0));
         let (state, walk_ppm) = match self.env.walking() {
+            // A first walk or a catalog still to be made whose work went
+            // quiet: nothing more will come (#460).
+            Some(_) if self.env.stalled() => (3, 0),
             // Never 100 % while walking: that is state 2.
             Some(ppm) => (1, ppm.min(PPM - 1)),
             None if failed => (3, 0),
             None if ready => (2, PPM),
+            None if self.env.stalled() => (3, 0),
             None => (0, 0),
         };
-        let books = if failed { 0 } else { books };
+        let books = if state == 3 { 0 } else { books };
         visit(Record::ServiceLibState(wire::ServiceLibState {
             state,
             books,

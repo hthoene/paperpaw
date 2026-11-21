@@ -58,6 +58,7 @@ struct BuilderParts {
     plugin_dirs: Vec<String>,
     font_dirs: Vec<String>,
     catalog_device: Option<&'static str>,
+    library_walk: crate::LibraryWalk,
     random: paperpaw_sdk::random::Random,
     device_log: Option<fn(&str)>,
     memory: paperpaw_sdk::memory::Memory,
@@ -281,6 +282,14 @@ impl KernelBuilder {
     /// offers what is made for it. Without, none is offered.
     pub fn catalog_device(mut self, name: &'static str) -> Self {
         self.0.catalog_device = Some(name);
+        self
+    }
+
+    /// Where the kernel notes its catalog work for the shell's library
+    /// service ([`crate::LibraryWalk`]): how far a first walk is and whether
+    /// the work went quiet. Without, the kernel notes it for no one.
+    pub fn library_walk(mut self, walk: crate::LibraryWalk) -> Self {
+        self.0.library_walk = walk;
         self
     }
 
@@ -1181,6 +1190,7 @@ impl Kernel {
             plugin_dirs: Vec::new(),
             font_dirs: Vec::new(),
             catalog_device: None,
+            library_walk: crate::LibraryWalk::default(),
             random: paperpaw_sdk::random::Random::NONE,
             device_log: None,
             memory: paperpaw_sdk::memory::Memory::NONE,
