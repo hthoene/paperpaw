@@ -102,6 +102,9 @@ impl CommandStage<'_> {
                 proposed.push((menu, (flags & RESET == 0).then_some(items)));
             }
         }
+        if proposed.is_empty() {
+            return Ok(());
+        }
         let menus = ui.env().menus();
         let menu_ids = menus.menu_ids();
         // The rows of `menu` once the batch is applied, as far as they are menus.
