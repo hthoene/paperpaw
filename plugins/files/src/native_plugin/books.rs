@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     native_cells::{self, Facts},
     native_list::Row as ListRow,
+    native_model, native_sheet,
 };
 
 impl NativeFiles {
@@ -227,6 +228,61 @@ impl NativeFiles {
         })
     }
 
+    /// Shows the filters as a list to choose from (the chip on a touch
+    /// screen): every filter, then the search.
+    fn ask_filter(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let mut say = Messages::new()?;
+        let title = say.copy(host, "files.list.show")?;
+        let mut words = Vec::new();
+        for filter in native_model::FILTERS {
+            push(&mut words, say.copy(host, filter.key())?)?;
+        }
+        push(&mut words, say.copy(host, "files.list.show.find")?)?;
+        let choices = native_sheet::choices(&words)?;
+        let question = Question::choice(&title, "", &choices)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let request = self
+            .ui
+            .as_ref()
+            .ok_or(Error::State)?
+            .ask(host, question, &mut input, &mut out)?;
+        self.asked = Some((request, Asked::Filter { token, index }));
+        Ok(())
+    }
+
+    /// The list shows `target` (the shelves are a screen of their own); the
+    /// focus stays on the cell at `index`.
+    pub(super) fn set_filter(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        index: usize,
+        target: Filter,
+    ) -> Result<(), Error> {
+        let Some(View::Books(view)) = self.screens.top(token) else {
+            return Ok(());
+        };
+        let mut selection = view.selection.try_clone()?;
+        selection.filter = if target == Filter::Shelves {
+            Filter::All
+        } else {
+            target
+        };
+        let fresh = self.read_browser(
+            host,
+            selection,
+            Reading::from(CatalogCursor::start(), Vec::new()),
+            0,
+            index,
+        )?;
+        Self::put_browser(host, self.screens.top(token), fresh);
+        if target == Filter::Shelves {
+            let mut scratch = [0; 128];
+            CommandSender::new(host, &mut scratch).open(Open::screen("files.shelves")?)?;
+        }
+        redraw(host)
+    }
+
     /// The cell at `index` was chosen on a list of books.
     pub(super) fn chosen_book(
         &mut self,
@@ -242,27 +298,11 @@ impl NativeFiles {
         };
         match row {
             ListRow::Note | ListRow::Field => Ok(()),
+            // On a touch screen the row is a chip: one tap shows every filter.
+            ListRow::Filter if view.list.touch() => self.ask_filter(host, token, index),
             ListRow::Filter => {
                 let next = view.selection.filter.next();
-                let mut selection = view.selection.try_clone()?;
-                selection.filter = if next == Filter::Shelves {
-                    Filter::All
-                } else {
-                    next
-                };
-                let fresh = self.read_browser(
-                    host,
-                    selection,
-                    Reading::from(CatalogCursor::start(), Vec::new()),
-                    0,
-                    index,
-                )?;
-                Self::put_browser(host, self.screens.top(token), fresh);
-                if next == Filter::Shelves {
-                    let mut scratch = [0; 128];
-                    CommandSender::new(host, &mut scratch).open(Open::screen("files.shelves")?)?;
-                }
-                redraw(host)
+                self.set_filter(host, token, index, next)
             }
             ListRow::More => self.slide_on(host, token),
             ListRow::Previous => self.slide_back(host, token),

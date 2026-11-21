@@ -93,6 +93,9 @@ enum Asked {
         path: String,
         actions: Vec<crate::native_sheet::Action>,
     },
+    /// Which filter the list shows (the chip's list): the list's screen and
+    /// the cell the focus stays on.
+    Filter { token: u32, index: usize },
     /// Whether to delete the book at this path.
     Delete { path: String },
     /// Which reading app opens the book at `path`: the screens in the
@@ -519,6 +522,7 @@ impl NativeFiles {
             ListStep::Chosen(index) => self.chosen(host, token, index),
             ListStep::Held(index) => self.offer(host, token, index),
             ListStep::Menu => self.open_menu(host, "files.menu"),
+            ListStep::Search => self.ask_search(host),
             ListStep::Header(_) | ListStep::Ignored => Ok(()),
         }
     }

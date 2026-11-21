@@ -101,11 +101,14 @@ pub fn build(say: &mut impl Say, facts: &Facts<'_>) -> Result<Built, Error> {
             say.count("files.books", i64::from(window.total))?
         };
         let value = if count.is_empty() {
-            name
+            copy(&name)?
         } else {
             concat(&[&name, " · ", &count])?
         };
-        push(&mut cells, Cell::plain(Row::Filter, &show, &value)?)?;
+        // The filter's name alone is what the chip of a touch screen says.
+        let mut cell = Cell::plain(Row::Filter, &show, &value)?;
+        cell.note = name;
+        push(&mut cells, cell)?;
     }
     if let (Condition::Scanning { books, ppm }, true) = (condition, library) {
         // The count leads: the books found so far. The walk's share is only a
@@ -123,8 +126,15 @@ pub fn build(say: &mut impl Say, facts: &Facts<'_>) -> Result<Built, Error> {
     for (at, book) in window.books.iter().enumerate() {
         let made = line(say, book)?;
         let first = card && at == 0;
+        // *New* is a chip at the end of the author's line, as in Beta 3.
+        let fresh = !first && book.fresh();
+        let mut chips = chips(book)?;
         let value = if first {
             say.say("files.list.continue-reading")?
+        } else if fresh {
+            chips.try_reserve(1).map_err(|_| Error::NoMemory)?;
+            chips.insert(0, say.say("files.list.new")?);
+            String::new()
         } else {
             made.value
         };
@@ -137,7 +147,8 @@ pub fn build(say: &mut impl Say, facts: &Facts<'_>) -> Result<Built, Error> {
                 note: made.note,
                 progress: bar(book),
                 card: first,
-                chips: chips(book)?,
+                chips,
+                two: false,
             },
         )?;
     }
@@ -285,6 +296,24 @@ mod tests {
         assert_eq!(built.cells[2].progress, None);
         assert_eq!(built.cells[3].progress, None);
         assert!(built.empty.is_empty() && built.empty_text.is_empty());
+    }
+
+    #[test]
+    fn a_book_never_opened_has_a_new_chip_at_the_end_and_no_value() {
+        let mut fresh = book(2, None);
+        fresh.is_new = true;
+        let mut read = book(3, Some(40));
+        read.is_new = true;
+        let w = window(vec![fresh, read], false);
+        let built = made(&Selection::default(), &w, &[], Condition::Ready, false);
+        // The first book of the order of reading is a card only where begun.
+        let (new, begun) = (&built.cells[1], &built.cells[2]);
+        assert_eq!(new.value, "");
+        assert_eq!(new.chips, ["files.list.new", "On loan"]);
+        assert_eq!(begun.value, "40 %");
+        assert_eq!(begun.chips, ["On loan"]);
+        // The filter row keeps its name alone for the chip of a touch screen.
+        assert_eq!(built.cells[0].note, "files.list.show.all");
     }
 
     #[test]

@@ -170,9 +170,11 @@ pub struct Dashboard {
     /// Editing the pages: the pencil is *Done*; what is tapped offers the
     /// item's options.
     editing: bool,
+    /// Whether *Back* is named *Done* in the row of button hints.
+    hinted: bool,
     /// The page (the setting that keeps it) to show first.
     first: Option<usize>,
-    /// The options of an item, over the page.
+    /// The options of an item, asked as the bottom menu.
     options: Option<arrange::Options>,
     /// An item the buttons are moving or sizing.
     moving: Option<arrange::Moving>,
@@ -417,8 +419,9 @@ impl Dashboard {
             return Err(error);
         }
         self.drop_widgets(host, ui);
-        // The cells are new: what pointed at the old ones is no more.
-        self.options = None;
+        // The cells are new: what pointed at the old ones is no more. (The
+        // options asked as a menu stay: their answer comes after the menu's
+        // screen closed.)
         self.moving = None;
         self.drag = None;
         // The pages are arranged upright: on its side they are derived.
@@ -768,7 +771,6 @@ impl Dashboard {
             return Self::draw_notice(host, frame);
         }
         self.ensure(host, ui)?;
-        self.ensure_dialog(host)?;
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
         };
@@ -869,10 +871,7 @@ impl Dashboard {
             }),
             |widget, rect| Ui::compose(host, Compose::Widget(widget), paint::frame_rect(rect)),
         );
-        paint::replay(frame, font, above.iter())?;
-        let mut dialog = Vec::new();
-        self.dialog_paint(font, &mut dialog)?;
-        paint::replay(frame, font, dialog.iter())
+        paint::replay(frame, font, above.iter())
     }
 
     /// Takes an input: the page buttons turn the page, the others move the
@@ -881,6 +880,23 @@ impl Dashboard {
     /// # Errors
     /// Allocation and host errors.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
+        let handled = self.input_step(host, ui, input);
+        crate::native_hint::sync(host, self.editing, &mut self.hinted);
+        handled
+    }
+
+    /// Names *Back* in the row of button hints as the page's state asks (see
+    /// `native_hint`); for a callback that may send commands.
+    pub fn sync_hint(&mut self, host: &Host<'_>) {
+        crate::native_hint::sync(host, self.editing, &mut self.hinted);
+    }
+
+    fn input_step(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        input: &Input<'_>,
+    ) -> Result<Handled, Error> {
         if self.backdrop.making() {
             // The page is not on the screen: the host's own keys (back) apply.
             return Ok(Handled::No);
@@ -1053,7 +1069,7 @@ impl Dashboard {
                 self.ensure(host, ui)?;
                 redraw(host)
             }
-            Next::Options(cell) => self.open_options(host, cell),
+            Next::Options(cell) => self.open_options(host, ui, cell),
             Next::Add => {
                 let page = self.nav.map_or(0, |nav| nav.page);
                 add_screen::open(host, ui, page, None)

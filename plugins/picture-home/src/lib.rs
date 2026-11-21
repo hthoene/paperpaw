@@ -74,6 +74,7 @@ pub mod native_backdrop_host;
 pub mod native_bar;
 pub mod native_dash;
 pub mod native_dashboard;
+pub mod native_hint;
 pub use paperpaw_ui_kit::dashboard::focus as native_focus;
 pub use paperpaw_ui_kit::dashboard::grid as native_grid;
 pub mod native_icons;

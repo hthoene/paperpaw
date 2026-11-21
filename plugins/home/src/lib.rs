@@ -89,6 +89,7 @@ pub mod native_dash;
 pub mod native_dashboard;
 pub mod native_date;
 pub mod native_drawer;
+pub mod native_hint;
 pub use paperpaw_ui_kit::dashboard::focus as native_focus;
 pub mod native_gallery;
 pub use paperpaw_ui_kit::dashboard::grid as native_grid;

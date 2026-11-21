@@ -1,6 +1,7 @@
-//! The home editor's item options with the X4's buttons (#440): the dialog
-//! that opens on an item (Move, Change the size, Settings, Remove, Cancel)
-//! took no key at all while the raw key was taken before its action.
+//! The home editor's item options with the X4's buttons (#440, #450): the menu
+//! that opens on an item (Move, Change the size, Settings, Remove; the bottom
+//! menu of every other screen) takes the buttons: Left and Right move through it,
+//! Select chooses, Back closes it.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 
 use std::rc::Rc;
@@ -49,13 +50,14 @@ fn the_buttons_move_through_the_options_and_choose() {
     );
     run_script(&mut device, "left,wait:500").unwrap();
     assert!(focused(&mut device, "Move"), "Left moves it back");
-    // Back cancels: the dialog is gone.
+    // Back closes the menu: it is gone.
     run_script(&mut device, "back,wait:500").unwrap();
     assert!(shown(&mut device, "Change the size").is_none());
-    // Select on an option runs it: sizing starts and the dialog closes.
+    // Back on the page the first press shows the focus again, the next opens
+    // the options: Select on an option runs it, sizing starts and the menu closes.
     run_script(
         &mut device,
-        "confirm,wait:800,right,wait:300,confirm,wait:800",
+        "confirm,wait:800,confirm,wait:800,right,wait:300,confirm,wait:800",
     )
     .unwrap();
     assert!(shown(&mut device, "Change the size").is_none());

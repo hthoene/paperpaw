@@ -187,7 +187,9 @@ pub struct Dashboard {
     /// Editing the home screen: the pencil is *Done*, *Add* shows; what is
     /// tapped offers the item's options.
     editing: bool,
-    /// The options of an item, over the page.
+    /// Whether *Back* is named *Done* in the row of button hints.
+    hinted: bool,
+    /// The options of an item, asked as the bottom menu.
     options: Option<arrange::Options>,
     /// An item the buttons are moving or sizing.
     moving: Option<arrange::Moving>,
@@ -323,8 +325,9 @@ impl Dashboard {
             return Err(error);
         }
         self.drop_widgets(host, ui);
-        // The cells are new: what pointed at the old ones is no more.
-        self.options = None;
+        // The cells are new: what pointed at the old ones is no more. (The
+        // options asked as a menu stay: their answer comes after the menu's
+        // screen closed.)
         self.moving = None;
         self.focus.clamp(laid.targets.len());
         self.laid = Some(laid);
@@ -761,8 +764,6 @@ impl Dashboard {
     ) -> Result<(), Error> {
         self.just_shown = false;
         self.ensure(host, ui)?;
-        self.ensure_dialog(host)?;
-        self.describe_dialog(paint::asking(frame));
         self.origin = (frame.rect.x, frame.rect.y);
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
@@ -942,6 +943,10 @@ impl Dashboard {
                     *rect,
                     style.note,
                 )?,
+                // Editing: *Done* is the bar's filled button, as in Beta 3.
+                _ if self.editing => {
+                    paperpaw_ui_kit::parts::bar_button(&mut below, font, style, *rect, word, true)?;
+                }
                 _ => name(&mut below, font, style, *rect, word)?,
             }
         }
@@ -960,7 +965,7 @@ impl Dashboard {
             }
         }
         if let Some(rect) = laid.plus {
-            name(&mut below, font, style, rect, "+")?;
+            paperpaw_ui_kit::parts::bar_button(&mut below, font, style, rect, "+", false)?;
         }
         if let Some(nav) = self.nav {
             for dot in dash::dots(laid.footer_area(), style.gap, laid.pages, nav.page) {
@@ -977,10 +982,7 @@ impl Dashboard {
         }
         paint::replay_icons(frame, font, fonts.icons, below.iter())?;
         Self::compose_widgets(host, ui, &self.listing, frame, laid)?;
-        paint::replay(frame, font, above.iter())?;
-        let mut dialog = Vec::new();
-        self.dialog_paint(font, &mut dialog)?;
-        paint::replay(frame, font, dialog.iter())
+        paint::replay(frame, font, above.iter())
     }
 
     /// Whether `input` only moves the focus on a page that is not being
@@ -1014,6 +1016,23 @@ impl Dashboard {
     /// # Errors
     /// Allocation and host errors.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
+        let handled = self.input_step(host, ui, input);
+        crate::native_hint::sync(host, self.editing, &mut self.hinted);
+        handled
+    }
+
+    /// Names *Back* in the row of button hints as the page's state asks (see
+    /// `native_hint`); for a callback that may send commands.
+    pub fn sync_hint(&mut self, host: &Host<'_>) {
+        crate::native_hint::sync(host, self.editing, &mut self.hinted);
+    }
+
+    fn input_step(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        input: &Input<'_>,
+    ) -> Result<Handled, Error> {
         self.just_shown = false;
         self.listing.covers_later(false);
         self.ensure(host, ui)?;
@@ -1240,7 +1259,7 @@ impl Dashboard {
                 self.ensure(host, ui)?;
                 redraw(host)
             }
-            Next::Options(cell) => self.open_options(host, cell),
+            Next::Options(cell) => self.open_options(host, ui, cell),
             Next::Add => {
                 let page = self.nav.map_or(0, |nav| nav.page);
                 add_screen::open(host, ui, page, None)

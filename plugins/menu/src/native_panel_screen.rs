@@ -208,13 +208,26 @@ impl PanelView {
         width: u16,
         height: u16,
     ) -> Result<Layout, Error> {
+        // A finger needs a button at least `TOUCH_BUTTON` high (as in Beta 3):
+        // the rows grow to it, with half a gap between the buttons, so that
+        // the panel still fits a page.
+        let button = style.row.saturating_sub(style.gap);
+        let button = if self.touch {
+            button.max(panel::TOUCH_BUTTON)
+        } else {
+            button
+        };
         let g = Geometry {
             width,
             height,
             gap: style.gap,
             spacing: if self.touch { style.gap } else { style.gap / 2 },
-            row: style.row,
-            button: style.row.saturating_sub(style.gap),
+            row: if self.touch {
+                style.row.max(button.saturating_add(style.gap / 2))
+            } else {
+                style.row
+            },
+            button,
             border: paperpaw_ui_kit::sheet::edge_thickness(style.line),
             label: 0,
             value: 0,

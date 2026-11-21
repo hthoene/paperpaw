@@ -33,7 +33,7 @@ pub enum Filter {
 }
 
 /// The filters in the order the row steps through them.
-const FILTERS: [Filter; 5] = [
+pub const FILTERS: [Filter; 5] = [
     Filter::All,
     Filter::Reading,
     Filter::Unread,
@@ -274,6 +274,12 @@ pub struct BookLine {
 }
 
 impl BookLine {
+    /// Whether the row says *New*: never opened, not finished, no progress.
+    #[must_use]
+    pub const fn fresh(&self) -> bool {
+        self.is_new && !self.finished && !matches!(self.progress, Some(p) if p > 0)
+    }
+
     /// The line of a host row.
     ///
     /// # Errors
@@ -292,7 +298,9 @@ impl BookLine {
             progress: entry.progress(),
             finished: entry.finished(),
             favourite: entry.favourite(),
-            is_new: entry.is_new(),
+            // *New* is a book never opened, as in Beta 3 (the host's own flag
+            // is only for the ones added lately).
+            is_new: entry.is_new() || (!entry.opened() && entry.progress().is_none()),
             badges,
         })
     }

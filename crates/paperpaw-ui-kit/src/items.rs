@@ -30,7 +30,7 @@ pub use empty::Progress;
 pub(crate) use empty::Spot;
 use empty::{draw_empty, draw_progress};
 use grip::{draw_drag, draw_row_with_grip};
-use row::note_line_count;
+use row::{note_line_count, title_lines};
 use stepper::draw_stepper;
 use track::Stepped;
 pub use track::Track;
@@ -85,6 +85,9 @@ pub struct RowItem {
     /// Text the page reads out, not a row to choose: passed by the focus and
     /// not chosen by a tap, but in the full ink, not faint like `disabled`.
     pub plain: bool,
+    /// A value too long for the line of its title is wrapped to a line of
+    /// its own under it, at the right (as in Beta 3), not cut with "…".
+    pub wrap_value: bool,
     /// The bytes of the title drawn bold where they are shown (the word found
     /// in a search hit's snippet); `None` for a title all in one weight.
     pub bold: Option<(u16, u16)>,
@@ -146,6 +149,7 @@ impl Item {
             whole: false,
             small: false,
             plain: false,
+            wrap_value: false,
             bold: None,
         }))
     }
@@ -163,6 +167,16 @@ impl Item {
                 Self::Heading(_) => RowItem::default(),
             }
         }))
+    }
+
+    /// This item with a value too long for its title's line wrapped under it,
+    /// not cut.
+    #[must_use]
+    pub fn with_wrapped_value(mut self) -> Self {
+        if let Self::Row(row) = &mut self {
+            row.wrap_value = true;
+        }
+        self
     }
 
     /// This item with the icon named `name` at the start of its row; as it was
@@ -1054,48 +1068,6 @@ pub(crate) fn item_height(
     }
 }
 
-/// The lines of a row's title and the height of its first band: one line in
-/// a row, or, where the row shows its text whole and the title is too long
-/// for its column, the lines the title wraps to.
-fn title_lines(
-    font: &Font<'_>,
-    style: &Style,
-    width: u16,
-    row: &RowItem,
-) -> Result<(Vec<String>, u16), Error> {
-    let mut lines = Vec::new();
-    if row.whole && !row.stepper && !row.title.is_empty() {
-        // Text a page reads out takes both margins; any other row also the gap
-        // before its value.
-        let margins = if page_text(row) && row.value.is_empty() {
-            2.0
-        } else {
-            3.0
-        };
-        let room = (f32::from(width) - margins * f32::from(style.margin)).max(1.0);
-        let room = if row.icon.is_some() {
-            (room - f32::from(icon_room(style))).max(1.0)
-        } else {
-            room
-        };
-        let value = font.measure_text(style.text, &row.value)?.min(room * 0.4);
-        let title_room = (room - value).max(1.0);
-        let most = title_most(row);
-        lines = wrap_title(
-            |line| font.measure_text(style.text, line),
-            &row.title,
-            title_room,
-            most,
-        )?;
-    }
-    if lines.len() < 2 {
-        return Ok((Vec::new(), style.row));
-    }
-    let line = crate::geometry::line_px(font, style.text)?;
-    let block = line.saturating_mul(lines.len() as u16);
-    Ok((lines, style.row.max(block.saturating_add(style.gap))))
-}
-
 /// Whether a row is text a page reads out (or small print), not a row to choose.
 fn page_text(row: &RowItem) -> bool {
     row.plain || row.small
@@ -1313,6 +1285,57 @@ pub(crate) fn heading(
         style.muted,
         None,
     )
+}
+
+/// The title and the value: on one line, or the lines a long title was
+/// wrapped to, centred in the band, the value beside the first.
+fn draw_title(
+    paint: &mut Vec<Paint>,
+    (font, style): (&Font<'_>, &Style),
+    cols: Rect,
+    row: &RowItem,
+    lines: &[String],
+    ink: paperpaw_sdk::Color,
+    value: &str,
+) -> Result<(), Error> {
+    // Text a page reads out takes the room of both margins, no more.
+    let alone = row.whole && page_text(row) && row.value.is_empty();
+    let line_of = |paint: &mut Vec<Paint>, rect: Rect, text: &str, value: &str| {
+        if alone {
+            let x = f32::from(rect.x) + f32::from(style.margin);
+            text::label_in(
+                paint,
+                font,
+                style.rtl,
+                rect,
+                text,
+                style.text,
+                x,
+                rect,
+                ink,
+                Some(rect),
+            )
+        } else {
+            columns(paint, font, style, rect, text, value, ink)
+        }
+    };
+    if lines.is_empty() {
+        if let Some(bold) = row.bold.filter(|_| !alone) {
+            let title = (row.title.as_str(), bold);
+            return marked_columns(paint, font, style, cols, title, value, ink);
+        }
+        return line_of(paint, cols, &row.title, value);
+    }
+    let line = crate::geometry::line_px(font, style.text)?;
+    let block = line.saturating_mul(lines.len() as u16);
+    let top = cols.y.saturating_add(cols.height.saturating_sub(block) / 2);
+    for (index, text) in lines.iter().enumerate() {
+        let at = top.saturating_add(line.saturating_mul(index as u16));
+        let rect = Rect::new(cols.x, at, cols.width, line);
+        let value = if index == 0 { value } else { "" };
+        line_of(paint, rect, text, value)?;
+    }
+    Ok(())
 }
 
 /// The title's band and the note's area of a row with `shift` pixels taken at

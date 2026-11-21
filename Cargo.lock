@@ -2169,7 +2169,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2368,7 +2368,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.15"
+version = "1.0.17"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
@@ -2593,7 +2593,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-picture-home"
-version = "1.0.4"
+version = "1.0.6"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",

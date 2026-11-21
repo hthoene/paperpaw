@@ -89,62 +89,26 @@ pub(super) fn draw_row_as(
         };
         buttons = Some((minus, plus, track));
     }
-    draw_title(paint, (font, style), cols, row, &title_block, ink)?;
+    let mut value = shown_value(row);
+    if !value.is_empty() && value_below(font, style, rect.width, row)? {
+        // The value on a line of its own under the title, at the right.
+        let line = crate::geometry::line_px(font, style.text)?.min(cols.height);
+        let strip = Rect::new(
+            cols.x,
+            cols.y.saturating_add(cols.height - line),
+            cols.width,
+            line,
+        );
+        cols.height -= line;
+        columns(paint, font, style, strip, "", value, ink)?;
+        value = "";
+    }
+    draw_title(paint, (font, style), cols, row, &title_block, ink, value)?;
     if row.note.is_empty() {
         return Ok(buttons);
     }
     draw_note(paint, font, style, (rect, noted, note_at), row, focused)?;
     Ok(buttons)
-}
-
-/// The title and the value: on one line, or the lines a long title was
-/// wrapped to, centred in the band, the value beside the first.
-fn draw_title(
-    paint: &mut Vec<Paint>,
-    (font, style): (&Font<'_>, &Style),
-    cols: Rect,
-    row: &RowItem,
-    lines: &[String],
-    ink: paperpaw_sdk::Color,
-) -> Result<(), Error> {
-    // Text a page reads out takes the room of both margins, no more.
-    let alone = row.whole && page_text(row) && row.value.is_empty();
-    let line_of = |paint: &mut Vec<Paint>, rect: Rect, text: &str, value: &str| {
-        if alone {
-            let x = f32::from(rect.x) + f32::from(style.margin);
-            text::label_in(
-                paint,
-                font,
-                style.rtl,
-                rect,
-                text,
-                style.text,
-                x,
-                rect,
-                ink,
-                Some(rect),
-            )
-        } else {
-            columns(paint, font, style, rect, text, value, ink)
-        }
-    };
-    if lines.is_empty() {
-        if let Some(bold) = row.bold.filter(|_| !alone) {
-            let title = (row.title.as_str(), bold);
-            return marked_columns(paint, font, style, cols, title, shown_value(row), ink);
-        }
-        return line_of(paint, cols, &row.title, shown_value(row));
-    }
-    let line = crate::geometry::line_px(font, style.text)?;
-    let block = line.saturating_mul(lines.len() as u16);
-    let top = cols.y.saturating_add(cols.height.saturating_sub(block) / 2);
-    for (index, text) in lines.iter().enumerate() {
-        let at = top.saturating_add(line.saturating_mul(index as u16));
-        let rect = Rect::new(cols.x, at, cols.width, line);
-        let value = if index == 0 { shown_value(row) } else { "" };
-        line_of(paint, rect, text, value)?;
-    }
-    Ok(())
 }
 
 /// The minus, the plus and the track of a stepper row.
@@ -364,4 +328,76 @@ pub(super) fn note_lines(
             NOTE_LINES
         },
     )
+}
+
+/// The lines of a row's title and the height of its first band: one line in
+/// a row, or, where the row shows its text whole and the title is too long
+/// for its column, the lines the title wraps to.
+pub(super) fn title_lines(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    row: &RowItem,
+) -> Result<(Vec<String>, u16), Error> {
+    let mut lines = Vec::new();
+    if row.whole && !row.stepper && !row.title.is_empty() {
+        // Text a page reads out takes both margins; any other row also the gap
+        // before its value.
+        let margins = if page_text(row) && row.value.is_empty() {
+            2.0
+        } else {
+            3.0
+        };
+        let room = (f32::from(width) - margins * f32::from(style.margin)).max(1.0);
+        let room = if row.icon.is_some() {
+            (room - f32::from(icon_room(style))).max(1.0)
+        } else {
+            room
+        };
+        let value = font.measure_text(style.text, &row.value)?.min(room * 0.4);
+        let title_room = (room - value).max(1.0);
+        let most = title_most(row);
+        lines = wrap_title(
+            |line| font.measure_text(style.text, line),
+            &row.title,
+            title_room,
+            most,
+        )?;
+    }
+    // The value on a line of its own takes one more.
+    let below = if value_below(font, style, width, row)? {
+        crate::geometry::line_px(font, style.text)?
+    } else {
+        0
+    };
+    if lines.len() < 2 {
+        return Ok((Vec::new(), style.row.saturating_add(below)));
+    }
+    let line = crate::geometry::line_px(font, style.text)?;
+    let block = line.saturating_mul(lines.len() as u16);
+    let band = style.row.max(block.saturating_add(style.gap));
+    Ok((lines, band.saturating_add(below)))
+}
+
+/// Whether the value of a row that asks for it is too long for the line of
+/// its title, and goes to a line of its own.
+pub(super) fn value_below(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    row: &RowItem,
+) -> Result<bool, Error> {
+    if !row.wrap_value || row.stepper || row.on.is_some() || row.value.is_empty() {
+        return Ok(false);
+    }
+    let lead = if row.icon.is_some() {
+        icon_room(style)
+    } else if row.zone.is_some() {
+        zone_room(style)
+    } else {
+        0
+    };
+    let room = (f32::from(width.saturating_sub(lead)) - 3.0 * f32::from(style.margin)).max(1.0);
+    let title = font.measure_text(style.text, &row.title)?.min(room * 0.6);
+    Ok(font.measure_text(style.text, &row.value)? > room - title)
 }

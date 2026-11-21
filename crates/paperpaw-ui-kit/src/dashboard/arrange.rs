@@ -177,30 +177,23 @@ pub enum Choice {
     /// The widget's own settings (a placement of its own), where it has some.
     Settings,
     Remove,
-    Cancel,
 }
 
-/// The catalog key of the *Cancel* word, which is the plugin's own (`home.edit.cancel`,
-/// `picture-home.edit.cancel`): empty here, the plugin puts its key in its place.
-pub const CANCEL: &str = "";
-
-/// The options in the order they are offered, each with the catalog key of its
-/// word (the core's: they are the grid's own words; *Cancel*'s is [`CANCEL`]).
-pub const CHOICES: [(Choice, &str); 4] = [
+/// The options in the order they are offered (the rows of the bottom menu),
+/// each with the catalog key of its word (the core's: the grid's own words).
+pub const CHOICES: [(Choice, &str); 3] = [
     (Choice::Move, "core.grid.move"),
     (Choice::Resize, "core.grid.resize"),
     (Choice::Remove, "core.grid.remove"),
-    (Choice::Cancel, CANCEL),
 ];
 
 /// The options of a widget that has settings of its own: *Settings* between
 /// *Change the size* and *Remove*, as interface 6 offered them.
-pub const CHOICES_WITH_SETTINGS: [(Choice, &str); 5] = [
+pub const CHOICES_WITH_SETTINGS: [(Choice, &str); 4] = [
     (Choice::Move, "core.grid.move"),
     (Choice::Resize, "core.grid.resize"),
     (Choice::Settings, "core.grid.settings"),
     (Choice::Remove, "core.grid.remove"),
-    (Choice::Cancel, CANCEL),
 ];
 
 /// The options an item offers: with *Settings* where it is a widget that has
