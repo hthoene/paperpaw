@@ -97,6 +97,8 @@ STEPS, separated by commas:
                      them, into memory or a file, with its time and the heap
   emit:core.book-opened:path=books/a.epub   an event, as a plugin sends it
   restart            the X4 starts again (waits until it is back)
+  nap:3              one light sleep that long, then a new start; a failed check
+                     unless `boot` says the nap was survived (place 10, not 11)
   panic:why          a panic, to try what a crash leaves (waits until back)
 
   Also: wifi-connect:NAME:PASSWORD (`${env:WIFI_PASSWORD}` keeps it out of
@@ -471,8 +473,10 @@ class X4:
 
     def boot(self):
         """Prints why the X4 last started, and the panic of the run
-        before if it panicked, with its calls named."""
-        print(self.ask("boot", "BOOT")[-1])
+        before if it panicked, with its calls named. Returns the BOOT
+        line."""
+        line = self.ask("boot", "BOOT")[-1]
+        print(line)
         deadline = time.monotonic() + 0.5
         while (line := self.line(deadline)) is not None:
             if line.startswith("PP:NAPS"):
@@ -481,6 +485,7 @@ class X4:
                 print(line[3:])
                 for name in calls(line):
                     print(f"    {name}")
+        return line
 
     def parts(self):
         """What the screen shows: (role, x, y, width, height, state, label)."""
@@ -507,7 +512,7 @@ class X4:
 
     def back_again(self, command, until):
         """Sends a command after which the X4 starts again, and waits until
-        it answers once more."""
+        it answers once more. Returns the BOOT line it then reports."""
         self.port.write(command.encode() + b"\n")
         time.sleep(1)
         self.port.close()
@@ -517,8 +522,7 @@ class X4:
             try:
                 self.port = open_port(self.name)
                 self.buffer = b""
-                self.boot()
-                return
+                return self.boot()
             except (serial.SerialException, OSError, LinkError, StepError):
                 try:
                     self.port.close()

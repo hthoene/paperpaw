@@ -940,6 +940,14 @@ class Engine:
         path, size, seed = self.card_file_args(rest, st, "check-file:PATH:SIZE:SEED")
         self.card_check(path, self.pattern(size, seed))
 
+    def do_nap(self, rest, st):
+        """nap:SECONDS - one forced light sleep (the remote's `nap`), then a new start. Survived when `boot` says
+        place 10; 11 means the X4 died in it (#434)."""
+        if self.vars["target"] != "x4":
+            return self.say("nap: not on the emulator")
+        boot = self.x4.back_again(f"nap {self.int(rest or 3)}", "BOOT")
+        self.check("nap", boot.split()[2] == "10", f"light sleep survived ({boot})")
+
     def do_crashes(self, rest, st):
         kind = self.x4.ask(f"stat .paperpaw/crashes.txt", "STAT")[-1].split()[1]
         count = 0
