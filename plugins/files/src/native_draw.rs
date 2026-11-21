@@ -313,7 +313,14 @@ impl Look<'_> {
                 f32::from(at.x) + f32::from(style.gap),
                 at,
                 ink,
-                Some(at),
+                // The line of the text may be taller than the chip: the clip
+                // keeps the sides of the chip but not its top and bottom.
+                Some(Rect::new(
+                    at.x,
+                    at.y.saturating_sub(style.gap),
+                    at.width,
+                    at.height.saturating_add(2 * style.gap),
+                )),
             )?;
             chips = used;
         }
