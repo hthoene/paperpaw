@@ -79,7 +79,7 @@ pub fn items(name: &str, help: &str) -> Result<Vec<Item>, Error> {
             zone: None,
             icon: None,
             stepper: false,
-            track: None,
+            extra: None,
             wrap_value: false,
             disabled: true,
             on: None,
@@ -87,7 +87,6 @@ pub fn items(name: &str, help: &str) -> Result<Vec<Item>, Error> {
             whole: false,
             small: false,
             plain: false,
-            bold: None,
         }),
     )?;
     Ok(items)

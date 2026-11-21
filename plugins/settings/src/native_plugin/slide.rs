@@ -126,7 +126,7 @@ impl NativeSettings {
         v.list
             .items()
             .get(index)
-            .is_some_and(|item| matches!(item, super::Item::Row(r) if r.track.is_some()))
+            .is_some_and(|item| matches!(item, super::Item::Row(r) if r.track().is_some()))
             .then_some((entry, now))
     }
 
