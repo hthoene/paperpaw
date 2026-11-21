@@ -226,6 +226,20 @@ impl App {
         (part.area, part.label.clone())
     }
 
+    /// Where the slider's `+` is: at the right end of the row above the
+    /// track, level with the value shown there (the buttons are not parts).
+    fn plus_above(&mut self, track: Rect, shown: &str) -> (i32, i32) {
+        let parts = self.kernel.describe();
+        let value = parts
+            .iter()
+            .filter(|p| p.role == Role::Text && p.label == shown && p.area.y < track.y)
+            .max_by_key(|p| p.area.y)
+            .map(|p| p.area)
+            .unwrap_or_else(|| panic!("the value above the slider: {parts:?}"));
+        let y = i32::from(value.y) + i32::from(value.height) / 2;
+        (track.right() as i32 - 10, y)
+    }
+
     fn count(&mut self, on: bool) -> Vec<String> {
         let mut calls = self.calls.borrow_mut();
         let counted = calls.take().unwrap_or_default();
@@ -241,11 +255,10 @@ fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     app.settle(effects);
     let (track, shown) = app.slider();
     assert_eq!(shown, "0 %");
-    // On touch screens a slider is a fingertip high. The native panel has it
-    // between its minus and plus in the title's row, not across the screen
-    // as Beta 3 did (a layout choice of the native panel, #257).
+    // On touch screens a slider is a fingertip high, in a row of its own
+    // across the panel under its title, minus and plus (#435).
     assert!(track.height >= 40, "{track:?}");
-    assert!(track.width >= 60, "{track:?}");
+    assert!(track.width >= 240, "{track:?}");
     let range = (0, 100, 5);
     let y = i32::from(track.y) + 10;
     // Right of the knob: it does not jump there.
@@ -260,12 +273,14 @@ fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     // finger from where it came down, the value shown at once with a quick
     // refresh.
     let mut refreshes = Vec::new();
-    for dx in [22, 34, 46] {
+    // A tenth, a fifth and a third of the track.
+    let (w, third) = (i32::from(track.width), i32::from(track.width) / 3);
+    for dx in [w / 10, w / 5, third] {
         refreshes.push(app.finger(PointerPhase::Move, start + dx, y + 15));
         let want = panel::value_at(track, panel::knob_x(track, 0, (0, 100)) + dx, range);
         assert_eq!(app.slider().1, format!("{want} %"), "{dx}");
     }
-    let moved = panel::value_at(track, panel::knob_x(track, 0, (0, 100)) + 46, range);
+    let moved = panel::value_at(track, panel::knob_x(track, 0, (0, 100)) + third, range);
     assert!((20..100).contains(&moved), "{moved}");
     assert!(
         refreshes.iter().all(|r| *r == Some(RefreshMode::Fast)),
@@ -277,7 +292,7 @@ fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     // Nothing on the card while the finger is down, drawing included.
     assert_eq!(app.count(false), Vec::<String>::new());
     // Lifted: kept, and the panel drawn cleanly.
-    let lifted = app.finger(PointerPhase::Up, start + 46, y + 15);
+    let lifted = app.finger(PointerPhase::Up, start + third, y + 15);
     assert_eq!(lifted, Some(RefreshMode::Partial));
     assert_eq!(app.kernel.settings().int(LIGHT.as_str()), moved);
     assert_eq!(app.slider().1, format!("{moved} %"));
@@ -294,10 +309,10 @@ fn a_slider_dragged_reads_nothing_and_follows_the_finger() {
     app.finger(PointerPhase::Up, start - 2000, y);
     assert_eq!(app.kernel.settings().int(LIGHT.as_str()), 0);
 
-    // A tap on the slider's + moves it a step.
-    let plus = track.right() as i32 + 80;
-    app.finger(PointerPhase::Down, plus, y);
-    app.finger(PointerPhase::Up, plus, y);
+    // A tap on the slider's + (in the row above the track) moves it a step.
+    let (px, py) = app.plus_above(track, "0 %");
+    app.finger(PointerPhase::Down, px, py);
+    app.finger(PointerPhase::Up, px, py);
     assert_eq!(app.kernel.settings().int(LIGHT.as_str()), 5);
     // A tap on the track sets the value there.
     let middle = i32::from(track.x) + i32::from(track.width) / 2;
