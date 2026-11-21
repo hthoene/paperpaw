@@ -53,7 +53,7 @@ ICONS = sorted({
     "settings", "menu-2", "dots", "dots-vertical", "info-circle", "power",
     "battery", "device-tablet", "user", "lock", "palette", "bug",
     "hourglass", "hand-click", "hand-finger", "wand", "key", "eraser",
-    "sparkles", "bulb", "paw", "leaf",
+    "sparkles", "bulb", "paw", "leaf", "usb",
     # Controls
     "chevron-left", "chevron-right", "chevron-up", "chevron-down",
     "arrow-left", "arrow-right", "arrow-up", "arrow-down", "x", "check", "plus",
