@@ -473,22 +473,24 @@ fn a_number_that_asks_for_a_slider_gets_a_track_on_a_touch_screen_only() {
 }
 
 #[test]
-fn the_track_lies_between_the_minus_and_the_value_before_the_plus() {
+fn the_track_has_a_row_below_the_buttons_across_the_whole_width() {
     let g = Geometry {
         touch: true,
         ..geometry()
     };
-    let placed = place(&Line::Slider(0), Rect::new(0, 100, 480, 60), &g).unwrap();
+    let placed = place(&Line::Slider(0), Rect::new(0, 100, 480, 120), &g).unwrap();
     let track = placed.track.unwrap();
     let (minus, plus) = (placed.controls[0].1, placed.controls[1].1);
     assert_eq!(placed.controls.len(), 2, "the track is not a control");
-    assert!(track.x > minus.x + minus.width);
-    assert!(u32::from(track.x) + u32::from(track.width) < u32::from(plus.x));
-    assert!(track.width > 40, "room to move a finger: {track:?}");
+    assert!(track.y >= minus.y + minus.height, "below the buttons");
+    assert!(
+        track.x <= 2 * g.margin && track.width + 4 * g.margin >= 480,
+        "{track:?}"
+    );
     // A tap on it is found, on the buttons it is not.
     let layout = Layout {
         rows: vec![placed],
-        region: Rect::new(0, 100, 480, 60),
+        region: Rect::new(0, 100, 480, 120),
         pager: None,
     };
     let middle = paperpaw_sdk::Point::new(i32::from(track.x) + 20, i32::from(track.y) + 5);

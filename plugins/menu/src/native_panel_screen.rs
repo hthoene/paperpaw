@@ -329,11 +329,17 @@ impl PanelView {
                 continue;
             }
             if let Some(part) = row.label.and_then(|i| self.parts.get(i)) {
+                // A slider's label is on the first of its two rows.
+                let head = if row.track.is_some() {
+                    Rect::new(row.area.x, row.area.y, row.area.width, style.row)
+                } else {
+                    row.area
+                };
                 self.draw_label(
                     body,
                     font,
                     style,
-                    row.area,
+                    head,
                     part,
                     row.controls.first().map(|(_, c)| *c),
                 )?;

@@ -217,19 +217,7 @@ impl Dashboard {
             .find(|(_, cell)| inside(cell.rect, at))?;
         let item = laid.items.get(found.item)?;
         let to = item.at?;
-        let side = laid.handle;
-        let corner = Rect::new(
-            found
-                .rect
-                .x
-                .saturating_add(found.rect.width.saturating_sub(side)),
-            found
-                .rect
-                .y
-                .saturating_add(found.rect.height.saturating_sub(side)),
-            side,
-            side,
-        );
+        let corner = corner_rect(found.rect, laid.handle);
         self.drag = Some(Drag {
             contact,
             cell,
@@ -334,7 +322,8 @@ impl Dashboard {
         )
     }
 
-    /// Two short strokes in the corner of a cell that a finger sizes it by.
+    /// Two circles in the corner of a cell that a finger sizes it by: a ring
+    /// with a dot in it, as large as the corner's touch area.
     pub(super) fn corner_mark(
         &self,
         paint: &mut Vec<Paint>,
@@ -342,21 +331,26 @@ impl Dashboard {
         rect: Rect,
         side: u16,
     ) -> Result<(), Error> {
-        let (right, bottom) = (
-            i32::from(rect.x) + i32::from(rect.width) - 4,
-            i32::from(rect.y) + i32::from(rect.height) - 4,
+        let corner = corner_rect(rect, side);
+        let ring = (corner.width / 2).max(8);
+        let dot = (ring / 2).max(4);
+        let line = u32::from(style.line).max(1);
+        let (x, y) = (
+            corner
+                .x
+                .saturating_add(corner.width)
+                .saturating_sub(ring + 4),
+            corner
+                .y
+                .saturating_add(corner.height)
+                .saturating_sub(ring + 4),
         );
-        let reach = i32::from(side) / 2;
-        for step in [reach, reach * 3 / 5] {
-            paintpush(
-                paint,
-                Paint::Line {
-                    from: Point::new(right - step, bottom),
-                    to: Point::new(right, bottom - step),
-                    width: u32::from(style.line).max(1),
-                    color: style.ink,
-                },
-            )?;
+        let inner = Rect::new(x + (ring - dot) / 2, y + (ring - dot) / 2, dot, dot);
+        for (area, radius, thickness) in [
+            (Rect::new(x, y, ring, ring), u32::from(ring) / 2, Some(line)),
+            (inner, u32::from(dot) / 2, None),
+        ] {
+            paintpush(paint, Paint::Focus(area, radius, thickness, style.ink))?;
         }
         Ok(())
     }
@@ -612,6 +606,20 @@ impl Dashboard {
         redraw(host)?;
         Ok(saved)
     }
+}
+
+/// The corner of `rect` a finger sizes it by: `side` square, at most half the
+/// cell each way.
+fn corner_rect(rect: Rect, side: u16) -> Rect {
+    let width = side.min(rect.width / 2);
+    let height = side.min(rect.height / 2);
+    let side = width.min(height);
+    Rect::new(
+        rect.x.saturating_add(rect.width.saturating_sub(side)),
+        rect.y.saturating_add(rect.height.saturating_sub(side)),
+        side,
+        side,
+    )
 }
 
 #[cfg(test)]

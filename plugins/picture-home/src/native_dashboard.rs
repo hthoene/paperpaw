@@ -96,7 +96,8 @@ struct Laid {
     /// whether the screen is on its side.
     slot: usize,
     wide: bool,
-    /// How wide and high the corner of an item is that a finger sizes it by.
+    /// How wide and high the corner of an item is that a finger sizes it by:
+    /// a fingertip at least.
     handle: u16,
     /// The status bar, where its strip is kept.
     bar: Option<bar::Plan>,
@@ -526,7 +527,7 @@ impl Dashboard {
             items,
             slot,
             wide,
-            handle: (metrics.row / 2).max(16),
+            handle: metrics.row.max(44),
             bar,
         })
     }
