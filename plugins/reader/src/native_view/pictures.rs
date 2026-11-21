@@ -98,6 +98,14 @@ impl Open {
         draw_pictures(&mut ink, page, origin, self.pictures.drawing(follow_up))
     }
 
+    /// A book just opened: the pictures of its page are asked for when the
+    /// screen is shown (its place on the screen is the host's then).
+    pub(super) fn ask_when_shown(&mut self) {
+        if self.has_pictures() {
+            self.pictures = Pass::Ask;
+        }
+    }
+
     /// Whether the page on show (laid out) has pictures.
     pub(super) fn has_pictures(&self) -> bool {
         self.page
@@ -124,10 +132,17 @@ impl Open {
         docs: &Documents,
         mode: RedrawMode,
     ) -> Result<(), Error> {
-        // Drawn whole unless the boxes are taken below: a refused redraw
-        // never leaves the pictures' places empty.
+        // Drawn whole unless the boxes are taken below.
         self.pictures = Pass::Whole;
-        redraw(host, mode)?;
+        if let Err(error) = redraw(host, mode) {
+            // Refused: another screen covers this one (a setting changed
+            // under it, #438). Its pictures are asked for when it is shown
+            // again (an id given now would end with that screen's frames).
+            if self.has_pictures() {
+                self.pictures = Pass::Ask;
+            }
+            return Err(error);
+        }
         self.ask_boxes(host, docs);
         Ok(())
     }
@@ -213,33 +228,155 @@ impl Open {
             };
             let mut input = [0; 64];
             let answer = docs.ask_image(host, id, index, 0, &mut input, out);
-            if !take_answer(&mut image.image.path, index, answer.map(|p| p.image())) {
-                return;
+            match take_answer(&mut image.image.path, index, answer.map(|p| p.image())) {
+                Taken::Next => {}
+                Taken::Later => self.missing.due = true,
+                Taken::Wait => {
+                    self.missing.due = true;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// The step after a page whose pictures are still missing was drawn (#438):
+    /// laid out only in its draw, or a picture the host could not give for a
+    /// while. They are asked for now, outside the draw, and only the boxes of
+    /// those given are drawn again, a partial refresh of their rows.
+    pub(super) fn fill_missing(&mut self, host: &Host<'_>, docs: &Documents) {
+        // Waiting for their follow-up or for the show: that draws them.
+        if self.pictures != Pass::Whole {
+            self.missing.due = true;
+            return;
+        }
+        let missing = |page: &paperpaw_sdk::layout::Page| -> [u32; MAX_ASKED] {
+            let mut handles = [0; MAX_ASKED];
+            for (handle, image) in handles.iter_mut().zip(&page.images) {
+                *handle = picture_of(&image.image.path).map_or(0, |(handle, _)| handle);
+            }
+            handles
+        };
+        let Some(before) = self.page.as_ref().map(missing) else {
+            return;
+        };
+        self.ask_missing(host, docs);
+        let (Some(page), Some(area)) = (
+            self.page.as_ref(),
+            self.settings
+                .setup(host)
+                .ok()
+                .and_then(|setup| self.area(&setup)),
+        ) else {
+            return;
+        };
+        let after = missing(page);
+        let origin = (f32::from(area.x), f32::from(area.y));
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        for ((x, y, width, height), (was, now)) in
+            picture_boxes(page, origin).zip(before.iter().zip(after))
+        {
+            if now != 0 && now != *was {
+                sender
+                    .queue_redraw_area(RedrawMode::Partial, FrameRect::new(x, y, width, height))
+                    .ok();
             }
         }
     }
 }
 
+impl super::View {
+    /// Whether the step that asks for the missing pictures of the page on
+    /// show is to be declared now (#438).
+    pub fn pictures_due(&mut self) -> bool {
+        match &mut self.body {
+            super::Body::Open(open) => open.missing.take(),
+            _ => false,
+        }
+    }
+
+    /// The step: the missing pictures asked for, their boxes drawn again.
+    pub fn fill_pictures(&mut self, host: &Host<'_>, docs: &Documents) {
+        if let super::Body::Open(open) = &mut self.body {
+            open.fill_missing(host, docs);
+        }
+    }
+}
+
+/// How often the missing pictures of one page laid out are asked for again
+/// after their first ask (#438): never in a loop.
+const TRIES: u8 = 2;
+
+/// The work key of the step that asks for missing pictures.
+pub const KEY: &str = "pictures";
+/// The step comes this long after the frame or the refusal that asked for it.
+pub const AFTER_MS: u32 = 300;
+
+/// Pictures of the page on show still to be asked for (#438), outside a draw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Missing {
+    /// The step is wanted.
+    pub(super) due: bool,
+    /// Steps left for this page.
+    left: u8,
+}
+
+impl Default for Missing {
+    fn default() -> Self {
+        Self {
+            due: false,
+            left: TRIES + 1,
+        }
+    }
+}
+
+impl Missing {
+    /// Whether the step is to be declared now: once for each time it is
+    /// wanted, at most [`TRIES`] + 1 times a page.
+    pub(super) fn take(&mut self) -> bool {
+        if !core::mem::take(&mut self.due) || self.left == 0 {
+            return false;
+        }
+        self.left -= 1;
+        true
+    }
+}
+
+/// What became of the answer for a picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Taken {
+    /// Given, or never to be given: the next picture is asked for.
+    Next,
+    /// Refused for now: kept to be asked again, the next is asked for.
+    Later,
+    /// Every id is out: kept, the next ones wait too.
+    Wait,
+}
+
 /// Takes the host's answer for the picture `index` of the page into its
-/// `path`: a new id is drawn; a picture the host could not give (id 0, also
-/// "not decoded yet" again, or a refusal) keeps its box and is not asked for
-/// again while this page is laid out (its path loses the index), so asking
-/// never loops. False where the next pictures wait for the next page laid
-/// out (Busy: all ids are out and none drawn yet).
-fn take_answer(path: &mut String, index: u32, answer: Result<u32, Error>) -> bool {
+/// `path`: a new id is drawn; a picture the host cannot give (id 0, also
+/// "not decoded yet" again, or a refusal that stays) keeps its box and is not
+/// asked for again while this page is laid out (its path loses the index), so
+/// asking never loops. A refusal of the moment (no memory, the card, the
+/// document busy) keeps the index: asked again a few times ([`Missing`],
+/// #438). Busy: all ids are out and none drawn yet, the next pictures wait.
+fn take_answer(path: &mut String, index: u32, answer: Result<u32, Error>) -> Taken {
     match answer {
         Ok(image @ 1..) => {
             if let Ok(made) = picture_path(image, index) {
                 *path = made;
             }
-            true
+            Taken::Next
         }
-        Err(Error::Busy) => false,
+        Err(Error::Busy) => Taken::Wait,
+        Err(Error::NoMemory | Error::Io | Error::State | Error::Timeout | Error::Cancelled) => {
+            Taken::Later
+        }
         Ok(0) | Err(_) => {
             // No allocation: the path held `handle:index`.
             path.clear();
             path.push('0');
-            true
+            Taken::Next
         }
     }
 }
@@ -272,7 +409,7 @@ fn ask_second_pass(host: &Host<'_>, mut boxes: impl Iterator<Item = (i32, i32, u
 
 #[cfg(test)]
 mod tests {
-    use super::{Pass, take_answer};
+    use super::{Missing, Pass, TRIES, Taken, take_answer};
     use crate::native_draw::{Pictures, picture_of};
     use alloc::string::String;
     use paperpaw_sdk::native::Error;
@@ -280,7 +417,7 @@ mod tests {
     #[test]
     fn a_picture_given_again_takes_its_new_id_and_keeps_its_index() {
         let mut path = String::from("0:4");
-        assert!(take_answer(&mut path, 4, Ok(9)));
+        assert_eq!(take_answer(&mut path, 4, Ok(9)), Taken::Next);
         assert_eq!(picture_of(&path), Some((9, Some(4))));
     }
 
@@ -289,16 +426,50 @@ mod tests {
         // "Not decoded yet" again (id 0), a missing index, any refusal.
         for answer in [Ok(0), Err(Error::NotFound), Err(Error::Invalid)] {
             let mut path = String::from("0:4");
-            assert!(take_answer(&mut path, 4, answer));
+            assert_eq!(take_answer(&mut path, 4, answer), Taken::Next);
             assert_eq!(picture_of(&path), Some((0, None)));
         }
     }
 
     #[test]
-    fn with_every_id_out_the_next_pictures_wait_for_the_next_layout() {
+    fn with_every_id_out_the_next_pictures_wait() {
         let mut path = String::from("0:4");
-        assert!(!take_answer(&mut path, 4, Err(Error::Busy)));
+        assert_eq!(take_answer(&mut path, 4, Err(Error::Busy)), Taken::Wait);
         assert_eq!(picture_of(&path), Some((0, Some(4))));
+    }
+
+    #[test]
+    fn a_picture_refused_for_the_moment_is_kept_to_be_asked_again() {
+        // #438: the first ask as a book opens met no memory, the card or the
+        // document busy; the picture stayed out until the page was laid out
+        // again (a turn away and back).
+        for answer in [
+            Err(Error::NoMemory),
+            Err(Error::Io),
+            Err(Error::State),
+            Err(Error::Timeout),
+        ] {
+            let mut path = String::from("0:4");
+            assert_eq!(take_answer(&mut path, 4, answer), Taken::Later);
+            assert_eq!(picture_of(&path), Some((0, Some(4))), "{answer:?}");
+        }
+    }
+
+    #[test]
+    fn missing_pictures_are_asked_for_a_few_times_a_page_never_in_a_loop() {
+        let mut missing = Missing::default();
+        // Not wanted: nothing.
+        assert!(!missing.take());
+        let mut steps = 0;
+        for _ in 0..10 {
+            missing.due = true;
+            steps += usize::from(missing.take());
+        }
+        assert_eq!(steps, usize::from(TRIES) + 1);
+        // A new page laid out: asked for again.
+        missing = Missing::default();
+        missing.due = true;
+        assert!(missing.take());
     }
 
     #[test]

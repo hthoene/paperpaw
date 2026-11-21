@@ -7,13 +7,44 @@ use super::*;
 pub(super) const KEY: &str = "ahead";
 pub(super) const AFTER_MS: u32 = 300;
 
+/// Whether the work `key` is one of the quiet time's steps.
+pub(super) fn quiet_key(key: &str) -> bool {
+    matches!(
+        key,
+        KEY | native_index::WORK_KEY | crate::native_view::PICTURES_KEY
+    )
+}
+
 impl NativeReader {
     /// The quiet time of the work `key` has come: the next page is laid out,
     /// or a step of the count of the pages is made.
     pub(super) fn quiet_step(&mut self, host: &Host<'_>, key: &str) {
         match key {
             KEY => self.ahead_step(host),
+            crate::native_view::PICTURES_KEY => {
+                // Covered: an id given now would end with the other screen's
+                // frames; the show asks again.
+                let covered = self.ui.is_some()
+                    && self.stack_top(host).ok().flatten() != self.screens.top_instance(SCREEN);
+                if !covered && let (Some(view), Some(docs)) = (self.screens.top(SCREEN), &self.docs)
+                {
+                    view.fill_pictures(host, docs);
+                }
+                self.pictures_due(host);
+            }
             _ => self.count_step(host),
+        }
+    }
+
+    /// The step that asks for the missing pictures of the reading screen on
+    /// top, where it wants one (#438): after a callback or a draw, never in it.
+    pub(super) fn pictures_due(&mut self, host: &Host<'_>) {
+        if self.screens.top(SCREEN).is_some_and(View::pictures_due) {
+            self.declare_work(
+                host,
+                (crate::native_view::PICTURES_KEY, WORK_DUE),
+                crate::native_view::PICTURES_AFTER_MS,
+            );
         }
     }
 

@@ -201,8 +201,11 @@ impl Open {
         }
         if self.page.is_none() {
             let page = self.lay_with(host, docs, &faces, setup, self.at, area)?;
-            // Laid out only here: drawn in one pass.
+            // Laid out only here: drawn in one pass, with the pictures it has
+            // ids for; the others are asked for after the draw (#438).
             self.pictures = pictures::Pass::Whole;
+            self.missing = pictures::Missing::default();
+            self.missing.due = !page.images.is_empty();
             self.page = Some(page);
             self.words = Vec::new();
             self.laid = Some(key);
