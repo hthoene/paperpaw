@@ -15,8 +15,8 @@ impl View {
         Some(open.counter.as_ref().map_or((0, false), |c| c.counted()))
     }
 
-    /// Goes where `jump` says: the page before is kept to turn back to, and
-    /// the page is laid out, reported and drawn again. Whether it moved.
+    /// Goes where `jump` says (*Back* returns to the page left), and the page
+    /// is laid out, reported and drawn again. Whether it moved.
     ///
     /// # Errors
     /// `NoMemory`, and the host's refusal to redraw.
@@ -30,7 +30,7 @@ impl View {
         if place == open.at {
             return Ok(false);
         }
-        self.go_to(place)?;
+        self.go_to(host, docs, place)?;
         let Body::Open(open) = &mut self.body else {
             return Ok(false);
         };

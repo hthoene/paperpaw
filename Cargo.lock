@@ -2067,7 +2067,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-calendar"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "paperpaw-caldav",
  "paperpaw-core",
@@ -2169,7 +2169,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2479,7 +2479,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-mail"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2593,7 +2593,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-picture-home"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
@@ -2940,7 +2940,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-widgets"
-version = "1.0.11"
+version = "1.0.12"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",

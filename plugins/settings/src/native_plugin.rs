@@ -23,7 +23,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages, Screens,
+    Footer, Item, ItemList, ItemStep, Messages, Screens, Track,
     mem::{SERVICE_BUFFER, buffer, push},
     text::{concat, copy},
     uitext,
@@ -31,6 +31,7 @@ use paperpaw_ui_kit::{
 
 mod build;
 mod preview;
+mod slide;
 use build::{
     build_choose, build_group, build_list, build_search, build_themes, context, look_settings,
     refresh_row, set_value,
@@ -337,6 +338,9 @@ pub struct NativeSettings {
     ui: Option<Ui>,
     screens: Screens<View>,
     asked: Option<(RequestId, Asked)>,
+    /// A finger on a slider's track (here, not in a view: a view is moved about
+    /// on the stack, and a frame of the plugin's stays under the band).
+    drag: Option<paperpaw_ui_kit::slider::Drag>,
 }
 
 impl Plugin for NativeSettings {
@@ -384,7 +388,15 @@ impl Plugin for NativeSettings {
             Event::PluginsChanged { .. } | Event::RegistryChanged { .. } if token == EVENTS => {
                 self.changed(host, "")
             }
-            Event::PreviewChanged { .. } if token == EVENTS => Self::redraw(host),
+            Event::PreviewChanged { .. }
+                if token == EVENTS
+                    && !self
+                        .drag
+                        .as_ref()
+                        .is_some_and(paperpaw_ui_kit::slider::Drag::moved) =>
+            {
+                Self::redraw(host)
+            }
             Event::ActionRun { .. } if token == OPEN_SECRETS => {
                 self.open(host, "settings.secrets", &[])
             }
@@ -464,6 +476,9 @@ impl Plugin for NativeSettings {
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         self.ensure_ui(host)?;
+        if let Some(handled) = self.slide_input(host, token, &input)? {
+            return Ok(handled);
+        }
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };

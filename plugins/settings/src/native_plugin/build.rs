@@ -227,12 +227,15 @@ impl GroupView {
                 {
                     row.on = Some(*on);
                 }
-                if self.touch
-                    && entry.setting.kind == Kind::Int
-                    && entry.detail.editor_kind == 0
-                    && let Item::Row(row) = &mut item
-                {
-                    row.stepper = true;
+                if self.touch && entry.setting.kind == Kind::Int && entry.detail.editor_kind == 0 {
+                    match self.track_of(entry, editing) {
+                        Some(track) => item = item.with_track(track)?,
+                        None => {
+                            if let Item::Row(row) = &mut item {
+                                row.stepper = true;
+                            }
+                        }
+                    }
                 }
                 item
             }
@@ -241,6 +244,19 @@ impl GroupView {
             Row::Action(_, title, badge) => Item::row(title, badge)?,
             Row::Part(_, title) => Item::row(title, "›")?,
             Row::More => Item::row(&messages.copy(host, "settings.more")?, "›")?,
+        })
+    }
+
+    /// The slider a number row shows (touch screens, numbers that ask for one),
+    /// at `editing` where it is being changed.
+    fn track_of(&self, entry: &Entry, editing: Option<i64>) -> Option<Track> {
+        let (min, max) = (entry.detail.min, entry.detail.max);
+        let Some(Val::Int(now)) = entry.setting.value else {
+            return None;
+        };
+        (entry.setting.has(flag::SLIDER) && max > min).then(|| Track {
+            value: editing.unwrap_or(now).clamp(min, max),
+            range: (min, max),
         })
     }
 

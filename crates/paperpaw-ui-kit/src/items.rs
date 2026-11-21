@@ -10,8 +10,8 @@ use paperpaw_sdk::{
     Handled, Point, Rect,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
-        commands::CommandSender,
+        callbacks::{DrawFrame, DrawPurpose, FrameRect, Input, InputGestureKind},
+        commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         snapshot,
     },
@@ -24,6 +24,7 @@ mod grip;
 mod row;
 pub(crate) use row::draw_row;
 mod stepper;
+mod track;
 pub use changed::{RowKey, RowsChange};
 pub use empty::Progress;
 pub(crate) use empty::Spot;
@@ -31,6 +32,8 @@ use empty::{draw_empty, draw_progress};
 use grip::{draw_drag, draw_row_with_grip};
 use row::note_line_count;
 use stepper::draw_stepper;
+use track::Stepped;
+pub use track::Track;
 
 /// The lines a note takes at most.
 pub const NOTE_LINES: usize = 2;
@@ -56,8 +59,14 @@ pub struct RowItem {
     /// A named icon at the left (what [`crate::icons::glyph`] found for it);
     /// `None` for a row without one, or where no icon font is bound.
     pub icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
-    /// A number: − and + buttons at the right (touch screens), each a tap target.
+    /// A number: round − and + buttons at the right (touch screens), each a tap
+    /// target, with the value tight between them.
     pub stepper: bool,
+    /// A number shown with a slider under its row (touch screens): its value and
+    /// range, the one element of a boxed array (a field of every row of every
+    /// list is a field of every plugin's frame, so it is as small as it can
+    /// be: a thin pointer). The row is a stepper too; the track takes a second row.
+    pub track: Option<alloc::boxed::Box<[Track; 1]>>,
     /// Shown faint, passed by the focus and not chosen by a tap.
     pub disabled: bool,
     /// A switch: on or off (the row is told as a switch to whoever asks what
@@ -127,6 +136,7 @@ impl Item {
             zone: None,
             icon: None,
             stepper: false,
+            track: None,
             disabled: false,
             on: None,
             field: false,
@@ -243,7 +253,7 @@ pub struct ItemList {
     pub(crate) starts: Vec<usize>,
     pub(crate) hits: Vec<(Rect, usize)>,
     /// The − and + buttons of the stepper rows of the last frame.
-    pub(crate) steps: Vec<(Rect, Rect, usize)>,
+    pub(crate) steps: Vec<Stepped>,
     pub(crate) header: Page,
     /// The first this many items carry a grip (a finger takes the row along).
     grips: usize,
@@ -526,7 +536,7 @@ impl ItemList {
         if let Some(action) = self.header.action(position) {
             return ItemStep::Header(action);
         }
-        for (minus, plus, item) in &self.steps {
+        for (minus, plus, item, _) in &self.steps {
             if minus.contains(position) {
                 return ItemStep::Step(*item, -1);
             }
@@ -1008,6 +1018,12 @@ pub(crate) fn item_height(
             let own = looked(style, row);
             let style = own.as_ref().unwrap_or(style);
             let (_, band) = title_lines(font, style, width, row)?;
+            // The track of a slider has a row of its own under the title.
+            let band = if row.track.is_some() {
+                band.saturating_add(style.row)
+            } else {
+                band
+            };
             if row.note.is_empty() {
                 return Ok(band);
             }
@@ -1384,7 +1400,12 @@ fn icon_room(style: &Style) -> u16 {
 
 /// The value a row shows at the right: none for a switch, which shows its state.
 fn shown_value(row: &RowItem) -> &str {
-    if row.on.is_some() { "" } else { &row.value }
+    // A stepper draws its value between its buttons.
+    if row.on.is_some() || row.stepper {
+        ""
+    } else {
+        &row.value
+    }
 }
 
 /// What is behind a row: the focus, the separator, or a field's outline.

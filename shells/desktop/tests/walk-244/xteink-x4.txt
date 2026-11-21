@@ -257,8 +257,9 @@ Heading "Display · More" at 0,0 480x58
 Row "Flash on screen change, Redraw fully when a screen opens: no traces of, the last one, but slower." (on) at 0,75 480x125
 Row "Full refresh in menus, 0, A flash after this many menu changes removes, ghosting; 0 never flashes." at 0,200 480x125
 Row "Reset to defaults" (focused) at 0,325 480x61
-Dialog "" at 0,541 480x214
-Heading "Settings" at 0,564 480x52
+Dialog "" at 0,456 480x299
+Heading "Settings" at 0,479 480x52
+Row "Reset “Display · More”? Folders,, accounts and passwords stay." at 0,531 480x85
 Row "Yes, reset" (focused) at 0,616 480x61
 Row "Cancel" at 0,677 480x61
 Text "Back" at 39,758 97x42

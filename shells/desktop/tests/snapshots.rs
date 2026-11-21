@@ -444,6 +444,27 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // The light's page: on a touch screen (X4 Pro) its numbers have round − and +
+    // tight round their value and the track of a slider under them; on the X4
+    // (buttons) the compact row.
+    Case {
+        name: "x4-pro-settings-light",
+        profile: "xteink-x4-pro",
+        book: None,
+        sets: &[],
+        script: "run:core.settings,wait:300,open:settings.group:id=core.group.display,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-settings-light",
+        profile: "xteink-x4",
+        book: None,
+        sets: &[],
+        script: "run:core.settings,wait:300,open:settings.group:id=core.group.display,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     // Buttons in slots of a touch row: the footnote's side by side, the
     // skim screen's four and the transfer's one below the other.
     Case {

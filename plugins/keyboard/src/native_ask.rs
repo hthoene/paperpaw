@@ -91,7 +91,10 @@ impl AskView {
 #[derive(Debug)]
 pub(crate) struct ChoiceView {
     request: RequestId,
-    /// The title as a heading, then a row for each line.
+    /// Where the lines start: after the heading, and after what the question
+    /// says where it says anything.
+    lead: usize,
+    /// The title as a heading, what it says, then a row for each line.
     list: ItemList,
     /// Whether the focus shows: with buttons from the start, on a touch
     /// screen after the first button that moves it.
@@ -164,12 +167,24 @@ impl ChoiceView {
     fn of(host: &Host<'_>, request: RequestId, question: QuestionInfo<'_>) -> Result<Self, Error> {
         let mut items = Vec::new();
         push(&mut items, Item::heading(question.title())?)?;
+        // What the question says, in full ink, not to be chosen (the words of
+        // *Reset all settings*, a file's path).
+        let mut lead = 1;
+        if !question.text().is_empty() {
+            let mut said = Item::whole(question.text(), "", "")?;
+            if let Item::Row(row) = &mut said {
+                row.plain = true;
+            }
+            push(&mut items, said)?;
+            lead = 2;
+        }
         for line in question.choices() {
             push(&mut items, Item::row(line, "")?)?;
         }
         let keys = !snapshot::capture_snapshot(host)?.has_touch();
         Ok(Self {
             request,
+            lead,
             list: ItemList::new(items),
             keys,
             region: Rect::new(0, 0, 0, 0),
@@ -218,9 +233,11 @@ impl ChoiceView {
         }
         let step = self.list.input(host, input)?;
         match step {
-            // The heading is item 0: the lines start at 1.
+            // The heading is item 0 and what the question says item 1, if it says
+            // anything: the lines start after them.
             ItemStep::Chosen(index) => {
-                let line = u32::try_from(index.saturating_sub(1)).map_err(|_| Error::Invalid)?;
+                let line =
+                    u32::try_from(index.saturating_sub(self.lead)).map_err(|_| Error::Invalid)?;
                 answer_and_close(ui, host, self.request, Answer::Pick(line))
             }
             ItemStep::Held(_) => Ok(Handled::Yes),

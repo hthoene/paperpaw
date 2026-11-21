@@ -222,6 +222,16 @@ impl Marking {
         })
     }
 
+    /// A jump was made from the page starting at `from` (the contents, a
+    /// search hit, a highlight, a page number): *Back* returns there, as from a
+    /// followed link (Beta 3's way back, #441).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn jumped(&mut self, from: paperpaw_sdk::document::Locator) -> Result<(), Error> {
+        self.returns.followed(from)
+    }
+
     /// Where the page the link landed on is: the way back is offered there.
     pub fn landed(&mut self, page: paperpaw_sdk::document::Locator) {
         self.returns.landed_on(page);
