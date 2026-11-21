@@ -62,6 +62,7 @@ mod card;
 #[path = "card_pro.rs"]
 mod card;
 mod clock;
+mod cpu_clock;
 mod crash;
 mod device;
 #[cfg(feature = "ppn5")]
