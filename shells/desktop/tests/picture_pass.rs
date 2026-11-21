@@ -295,7 +295,7 @@ fn pictured(turns: &[Vec<Frame>]) -> Vec<usize> {
 
 #[test]
 #[cfg_attr(
-    not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+    not(linked_host),
     ignore = "needs the native reader (the desktop's `native-linked`, #243)"
 )]
 fn small_pictures_follow_their_page_and_do_not_count_as_a_page() {
@@ -337,7 +337,7 @@ fn small_pictures_follow_their_page_and_do_not_count_as_a_page() {
 /// in full: still only the box, not the screen.
 #[test]
 #[cfg_attr(
-    not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+    not(linked_host),
     ignore = "needs the native reader (the desktop's `native-linked`, #243)"
 )]
 fn a_large_picture_refreshes_only_its_box() {

@@ -129,6 +129,8 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 /// [`DispatchDepth`](paperpaw_core::native_host::DispatchDepth), the device-wide nesting budget.
 #[derive(Debug)]
 pub struct HostLoader {
+    /// Only where the developer's libraries are loaded (`native`).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
     resources: Option<paperpaw_core::native_host::HostResources>,
     /// The memory class the device this loader runs on declares (the
@@ -144,6 +146,7 @@ impl HostLoader {
     #[must_use]
     pub fn for_device(memory: MemoryClass) -> Self {
         Self {
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             depth: None,
             resources: None,
             memory,

@@ -260,7 +260,7 @@ pub struct Device {
     wifi_online: bool,
     /// The emulated Wi-Fi was brought up for the native plugins' wanted
     /// network (until none is wanted any more).
-    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(linked_host)]
     native_wifi_asked: bool,
     /// Interface-7 plugins the developer switch loaded from the card
     /// (`--abi7-dev-loader`): none by default. Kept, not applied (S2).
@@ -274,14 +274,14 @@ pub struct Device {
 
 /// What the registration of the linked native plugins is given besides the
 /// profile (`linked`): none without the feature.
-#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+#[cfg(linked_host)]
 type LinkedInputs = crate::linked::Inputs;
-#[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+#[cfg(not(linked_host))]
 type LinkedInputs = ();
 
 /// The card's second handle for the secrets file and the clock `core.work`
 /// reads.
-#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+#[cfg(linked_host)]
 fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
     // A run on simulated time keeps its secrets in memory, so it cannot touch
     // the secrets of a card a real run shares; a real run whose card cannot
@@ -305,7 +305,7 @@ fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
             .map(|card| Rc::new(card) as Rc<dyn Storage>),
     }
 }
-#[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+#[cfg(not(linked_host))]
 fn linked_inputs(_: &Library, _: bool) -> LinkedInputs {}
 
 /// How many of the kernel's warnings [`Device::warnings`] keeps.
@@ -367,7 +367,7 @@ impl Device {
         budget::set_limit(profile.heap_budget);
         let config = user_config.as_deref();
         #[cfg_attr(
-            not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+            not(linked_host),
             allow(
                 clippy::let_unit_value,
                 reason = "nothing is linked without the feature"
@@ -413,7 +413,7 @@ impl Device {
             warnings: Vec::new(),
             fixtures: false,
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
-            #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+            #[cfg(linked_host)]
             native_wifi_asked: false,
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             abi7: crate::native_runtime::DevPlugins::default(),
@@ -462,7 +462,7 @@ impl Device {
             Clock::Real(start) => Instant(start.elapsed().as_millis() as u64),
             Clock::Simulated(ms) => Instant(ms),
         };
-        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        #[cfg(linked_host)]
         self.linked
             .view
             .set(now.0, !self.profile.wifi || self.wifi.is_online());
@@ -740,7 +740,7 @@ impl Device {
 
     /// Hands the native plugins' HTTP answers to core (`core.net`), and lets
     /// it take its turn.
-    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(linked_host)]
     fn poll_native_net(&mut self, wait: Option<std::time::Duration>) {
         let wanted = self
             .linked
@@ -767,11 +767,11 @@ impl Device {
         }
     }
 
-    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(not(linked_host))]
     fn poll_native_net(&mut self, _wait: Option<std::time::Duration>) {}
 
     /// The native plugins' requests started and not answered yet.
-    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(linked_host)]
     fn native_in_flight(&self) -> usize {
         self.linked
             .net
@@ -780,7 +780,7 @@ impl Device {
             .map_or(0, |net| net.transport.in_flight())
     }
 
-    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(not(linked_host))]
     fn native_in_flight(&self) -> usize {
         0
     }
@@ -1153,7 +1153,7 @@ fn build_kernel(
     add: Option<AddPlugins>,
     linked: &LinkedInputs,
 ) -> Result<Kernel, KernelError> {
-    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(not(linked_host))]
     let _ = linked;
     budget::track(|| {
         let fonts = if profile.font_packs {
@@ -1223,7 +1223,7 @@ fn build_kernel(
         // Plugin installs from the card share the firmware's queue: the
         // emulated device has one, with no firmware to install
         // (`crate::linked::card_plugins`).
-        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        #[cfg(linked_host)]
         if let Some((_, _, chip)) = crate::linked::card_plugins(profile) {
             builder = builder.firmware_host(Box::new(crate::no_firmware::NoFirmware::new(chip)));
         }
@@ -1246,7 +1246,7 @@ fn build_kernel(
         let kernel = builder.build()?;
         // The first-party plugins that are interface-7 plugins (the app built
         // without their interface-6 form), before the first start.
-        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        #[cfg(linked_host)]
         let kernel = {
             let mut kernel = kernel;
             match crate::linked::register(&mut kernel, profile, linked.clone()) {
@@ -1299,7 +1299,7 @@ mod tests {
     /// A run on simulated time keeps its secrets file in memory: the card's
     /// own file is byte for byte what it was; a real run whose card cannot be
     /// opened has no store at all (`core.secrets` is not wired).
-    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(linked_host)]
     #[test]
     fn a_simulated_run_leaves_the_cards_secrets_alone_and_an_unopenable_card_has_none() {
         let root =
@@ -1330,7 +1330,7 @@ mod tests {
     /// A wanted network brings the emulated Wi-Fi up once per demand: not
     /// again while the demand lasts (the radio switched off since stays
     /// off), and again for the next demand.
-    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(linked_host)]
     #[test]
     fn a_wanted_network_brings_managed_wifi_up_once_per_demand() {
         use paperpaw_core::native_host::shell_wiring::ShellNetwork as _;
