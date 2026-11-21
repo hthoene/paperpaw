@@ -14,7 +14,7 @@
 use crate::book_list::cut;
 use crate::declarations::YEAR_STYLES;
 use crate::files::DataFolder;
-use crate::native_screens::utc_day;
+use crate::native_screens::{day_in, today_in};
 use crate::native_widget_ring::{arc, disc, point_at};
 use crate::native_widgets::{
     caption_room, caption_used, captioned, message, middle, mm, note_lines, number_if_narrow,
@@ -32,7 +32,7 @@ use paperpaw_sdk::native::storage::DataStorage;
 use paperpaw_sdk::{Point, Rect, StorageError};
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 use paperpaw_ui_kit::widget::text::Wrapped;
-use paperpaw_ui_kit::widget::{Cx, Look};
+use paperpaw_ui_kit::widget::{Cx, LocalZone, Look};
 use paperpaw_ui_kit::{Paint, geometry, paint, text};
 
 /// Books looked up in the library at most (those opened last), for books
@@ -87,11 +87,10 @@ fn plan(done: u32, goal: u32, ordinal: u32, length: u32) -> i32 {
         .saturating_sub(expected)
 }
 
-/// The year of a Unix moment (UTC until the system zone comes with the
-/// snapshot).
-fn year_of(unix: i64) -> i32 {
+/// The local year in `zone` of a Unix moment.
+fn year_of(zone: LocalZone, unix: i64) -> i32 {
     let unix = unix.clamp(0, i64::from(u32::MAX)) as u32;
-    date_of(utc_day(unix)).year
+    date_of(day_in(zone)(unix)).year
 }
 
 /// The book finished last, as far as known.
@@ -122,6 +121,8 @@ impl Undated {
 #[derive(Debug)]
 struct Tally {
     year: i32,
+    /// The time zone the year is counted in.
+    zone: LocalZone,
     count: u32,
     last: Option<Last>,
     /// The `LIBRARY_LOOKUPS` opened last, of the books without a date.
@@ -129,9 +130,10 @@ struct Tally {
 }
 
 impl Tally {
-    fn new(year: i32) -> Self {
+    fn new(year: i32, zone: LocalZone) -> Self {
         Self {
             year,
+            zone,
             count: 0,
             last: None,
             undated: Vec::new(),
@@ -147,12 +149,15 @@ impl Tally {
     /// [`Error::NoMemory`].
     fn add(&mut self, book: &Book) -> Result<(), Error> {
         if book.finished > 0 {
-            if year_of(book.finished) == self.year {
+            if year_of(self.zone, book.finished) == self.year {
                 self.found(book.id, book.finished, &book.title, true)?;
             }
             return Ok(());
         }
-        if book.last_open > 0 && !book.path.is_empty() && year_of(book.last_open) == self.year {
+        if book.last_open > 0
+            && !book.path.is_empty()
+            && year_of(self.zone, book.last_open) == self.year
+        {
             self.consider(book)?;
         }
         Ok(())
@@ -308,17 +313,13 @@ fn refresh(cx: &Cx<'_>, cache: &Cache) -> Result<bool, Error> {
 }
 
 fn work_out(cx: &Cx<'_>) -> Result<Option<Shown>, Error> {
-    let Some(today) = cx
-        .snapshot
-        .unix_seconds()
-        .and_then(|unix| u32::try_from(unix).ok())
-        .map(utc_day)
-    else {
+    let zone = LocalZone::read(cx.host, &cx.snapshot)?;
+    let Some(today) = today_in(zone, &cx.snapshot) else {
         return Ok(None);
     };
     let year = date_of(today).year;
     let storage = DataStorage::new(cx.host);
-    let mut tally = Tally::new(year);
+    let mut tally = Tally::new(year, zone);
     let read = store::each_book(&DataFolder(&storage), |book| {
         tally.add(&book).map_err(|_| StorageError::TooLarge)
     });
@@ -327,7 +328,7 @@ fn work_out(cx: &Cx<'_>) -> Result<Option<Shown>, Error> {
         Err(StorageError::TooLarge) => return Err(Error::NoMemory),
         // A file that cannot be read shows as no books (as interface 6 did),
         // not as what was read of it.
-        Err(_) => tally = Tally::new(year),
+        Err(_) => tally = Tally::new(year, zone),
     }
     let mut lookups = Lookups::new(cx.host);
     let found = tally.finish(|path| lookups.read_to_end(path));

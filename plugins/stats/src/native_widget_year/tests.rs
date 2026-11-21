@@ -3,6 +3,7 @@ use crate::testing::heap::{fixture, peak};
 use alloc::string::ToString;
 use alloc::vec;
 use paperpaw_sdk::Storage;
+use paperpaw_ui_kit::widget::LocalZone;
 
 fn book(id: u16, finished: i64, last_open: i64) -> Book {
     Book {
@@ -26,7 +27,7 @@ fn moment(year: i32, second: i64) -> i64 {
 }
 
 fn tally_of(year: i32, books: &[Book]) -> Tally {
-    let mut tally = Tally::new(year);
+    let mut tally = Tally::new(year, LocalZone::fixed(0));
     for book in books {
         tally.add(book).unwrap();
     }
@@ -71,11 +72,20 @@ fn the_day_of_the_year_counts_a_leap_day() {
 
 #[test]
 fn the_year_of_a_moment_is_clamped() {
-    assert_eq!(year_of(-5), 1970);
-    assert_eq!(year_of(0), 1970);
-    assert_eq!(year_of(i64::MAX), year_of(i64::from(u32::MAX)));
-    assert_eq!(year_of(moment(2026, 100)), 2026);
-    assert_eq!(year_of(moment(2026, 0) - 1), 2025);
+    let utc = LocalZone::fixed(0);
+    assert_eq!(year_of(utc, -5), 1970);
+    assert_eq!(year_of(utc, 0), 1970);
+    assert_eq!(year_of(utc, i64::MAX), year_of(utc, i64::from(u32::MAX)));
+    assert_eq!(year_of(utc, moment(2026, 100)), 2026);
+    assert_eq!(year_of(utc, moment(2026, 0) - 1), 2025);
+}
+
+#[test]
+fn the_year_turns_at_local_midnight() {
+    // The last half hour of 2025 in UTC is 2026 one hour east (#459).
+    let moment = moment(2026, 0) - 1_800;
+    assert_eq!(year_of(LocalZone::fixed(0), moment), 2025);
+    assert_eq!(year_of(LocalZone::fixed(3_600), moment), 2026);
 }
 
 #[test]
@@ -233,7 +243,7 @@ fn file_of(n: u16, this: i32) -> paperpaw_sdk::MemoryStorage {
 fn the_file_is_streamed_and_what_is_held_does_not_grow_with_the_library() {
     let this = 2026;
     let read = |storage: &paperpaw_sdk::MemoryStorage| {
-        let mut tally = Tally::new(this);
+        let mut tally = Tally::new(this, LocalZone::fixed(0));
         store::each_book(storage, |book| {
             tally.add(&book).map_err(|_| StorageError::TooLarge)
         })
@@ -268,7 +278,7 @@ fn a_file_that_cannot_be_read_whole_is_no_books() {
     storage
         .write(store::BOOKS, b"[book.1\ntitle = \"x\"\nfinished = 5\n")
         .unwrap();
-    let mut tally = Tally::new(this);
+    let mut tally = Tally::new(this, LocalZone::fixed(0));
     let read = store::each_book(&storage, |book| {
         tally.add(&book).map_err(|_| StorageError::TooLarge)
     });

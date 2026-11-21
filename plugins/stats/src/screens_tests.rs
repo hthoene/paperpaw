@@ -9,6 +9,7 @@ use paperpaw_i18n::{Arg as Message, Catalog, Translator};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::formatting::Arg;
 use paperpaw_ui_kit::Item;
+use paperpaw_ui_kit::widget::LocalZone;
 
 use crate::store::Book;
 use crate::testing::heap::{armed, fixture};
@@ -54,6 +55,9 @@ impl Words for Catalogued {
         Ok(self.0.localize_digits(text).to_string())
     }
 }
+
+/// Days as in UTC.
+pub(crate) const UTC: LocalZone = LocalZone::fixed(0);
 
 /// Days as in UTC.
 fn utc(unix: u32) -> i32 {
