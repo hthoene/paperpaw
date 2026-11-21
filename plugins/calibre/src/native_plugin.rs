@@ -44,7 +44,7 @@ use paperpaw_ui_kit::{
 
 use crate::declarations::{BROADCAST_TOKEN, OPEN_TOKEN, SCREEN, SOCKET_TOKEN};
 use crate::native_keep::{self as keep, Secret};
-use crate::native_model::{BROADCAST_PORTS, max_message};
+use crate::native_model::{self as model, BROADCAST_PORTS, Placing, max_message};
 use crate::native_session::{Backing, Coming, Ending, FIND_MS, Placed, Session, State, Step};
 use crate::native_store::{Store, library_path};
 
@@ -707,9 +707,9 @@ impl NativeCalibre {
         Ok(())
     }
 
-    /// Puts the received book in the library, `Replace`ing the one Calibre
-    /// sent before; a name that a file Calibre did not send has is not
-    /// replaced.
+    /// Puts the received book in the library, replacing the one Calibre sent
+    /// before ([`model::place`]); a name that a file Calibre did not send has
+    /// is not replaced.
     fn import(&mut self, host: &Host<'_>, coming: &Coming) -> Result<Vec<Step>, Error> {
         let sent = store!(self, host).sent(&coming.lpath)?;
         let (folder, name) = match coming.path.rsplit_once('/') {
@@ -718,17 +718,16 @@ impl NativeCalibre {
         };
         let placed = match &self.library {
             Some(library) => {
-                let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                let existing = if sent {
-                    Existing::Replace
-                } else {
-                    Existing::Refuse
+                let full = library_path(&self.folder, &coming.path)?;
+                let mut card = OnCard {
+                    host,
+                    library,
+                    folder,
+                    name,
+                    full: &full,
                 };
-                let import = Import::new(INCOMING, name)
-                    .folder(folder)
-                    .existing(existing);
-                match library.import(host, &import, &mut input, &mut out) {
-                    Ok(_) => Ok(()),
+                match model::place(&mut card, sent) {
+                    Ok(()) => Ok(()),
                     Err(Error::NoMemory) => return Err(Error::NoMemory),
                     Err(Error::State | Error::Denied) => Err(Placed::NotReplaced),
                     Err(_) => Err(Placed::Failed),
@@ -1163,5 +1162,35 @@ impl NativeCalibre {
         view.note = note;
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
+    }
+}
+
+/// The library, for the received book at `folder`/`name` (`full` below the
+/// library's folder).
+struct OnCard<'a, 'h> {
+    host: &'a Host<'h>,
+    library: &'a Library,
+    folder: &'a str,
+    name: &'a str,
+    full: &'a str,
+}
+
+impl Placing for OnCard<'_, '_> {
+    fn import(&mut self, existing: Existing) -> Result<(), Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let import = Import::new(INCOMING, self.name)
+            .folder(self.folder)
+            .existing(existing);
+        self.library
+            .import(self.host, &import, &mut input, &mut out)
+            .map(|_| ())
+    }
+
+    fn delete(&mut self) -> Result<(), Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let report = self
+            .library
+            .delete(self.host, &[self.full], false, &mut input, &mut out)?;
+        report.rows().next().ok_or(Error::Invalid)?.status()
     }
 }

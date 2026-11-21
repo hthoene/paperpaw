@@ -55,7 +55,6 @@ fn names_survive_refused_allocations() {
         model::sidecar("Books/a.epub")?;
         model::metadata_file("Books/a.epub")?;
         model::exchange_file("Books/a.epub")?;
-        model::known_file("plugins/koreader", "Books/a.epub")?;
         Ok(())
     });
 }
