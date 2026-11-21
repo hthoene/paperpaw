@@ -51,6 +51,7 @@ use paperpaw_ui_kit::{
 
 /// Longest path taken from a hand-over, in bytes.
 pub const MAX_PATH: usize = 512;
+pub use pictures::{AFTER_MS as PICTURES_AFTER_MS, KEY as PICTURES_KEY};
 /// Most pages laid out to find the page before one.
 pub const BACK_LIMIT: usize = 4096;
 
@@ -140,6 +141,8 @@ struct Open {
     turned: bool,
     /// The pictures of the page on show: drawn a frame after its text (#252).
     pictures: pictures::Pass,
+    /// Its pictures still to be asked for outside a draw (#438).
+    missing: pictures::Missing,
     /// The picture of the page on show full screen, and how it is zoomed
     /// (`zoom.rs`).
     zoom: Option<zoom::Zoom>,
@@ -415,6 +418,7 @@ impl View {
             saved_at: None,
             turned: false,
             pictures: pictures::Pass::Whole,
+            missing: pictures::Missing::default(),
             zoom: None,
             report_due: false,
             said: false,
@@ -449,9 +453,7 @@ impl View {
         open.announce(host, docs);
         // Its pictures follow its text: their boxes are asked for when the
         // screen is shown (its place on the screen is the host's then).
-        if open.has_pictures() {
-            open.pictures = pictures::Pass::Ask;
-        }
+        open.ask_when_shown();
         Ok(Self {
             body: Body::Open(open),
             speaker: Speaker::new(0),
@@ -731,6 +733,8 @@ impl View {
     pub fn shown(&mut self, host: &Host<'_>, docs: &Documents) {
         if let Body::Open(open) = &mut self.body {
             open.decorate_again();
+            // Pictures still missing are asked for after the show (#438).
+            open.missing.due |= open.has_pictures();
         }
         if let Body::Open(open) = &mut self.body
             && core::mem::take(&mut open.report_due)
@@ -1267,6 +1271,7 @@ impl Open {
     /// so a page never shows or saves a mark by another page's words (#265).
     fn put_page(&mut self, page: Page, key: LayoutKey) {
         self.page = Some(page);
+        self.missing = pictures::Missing::default();
         self.laid = Some(key);
         self.words = Vec::new();
     }
