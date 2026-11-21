@@ -133,8 +133,7 @@ impl Firmware {
         let Some(mut frame) = self.state.in_flight.take() else {
             return;
         };
-        let network = &mut self.network;
-        if let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+        if let Err(e) = self.panel_wait() {
             warn!("display: {e:?}");
         }
         let shown = now();

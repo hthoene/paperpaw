@@ -29,6 +29,10 @@ impl Level {
 /// Automatic changes back only this far above a level, so that it does not go
 /// to and fro.
 pub const MARGIN: i64 = 5;
+/// The choice of `power.mode` that keeps the processor at full speed.
+pub const PERFORMANCE: &str = "power.mode.performance";
+/// The preset of the Performance mode.
+pub const PERFORMANCE_PRESET: &str = "core.performance";
 /// The choice of `power.mode` that goes by the battery.
 pub const AUTOMATIC: &str = "power.mode.auto";
 
@@ -61,6 +65,9 @@ pub struct Policy<'a> {
 pub struct Choice {
     /// How much it saves.
     pub level: Level,
+    /// The Performance mode (a Normal level that keeps the processor at its
+    /// full clock): only by hand, never by the battery.
+    pub performance: bool,
     /// The battery chose it, not the user.
     pub automatic: bool,
 }
@@ -73,15 +80,18 @@ pub fn choose(policy: &Policy<'_>, battery: Option<Battery>, worn: Level) -> Cho
         "power.mode.normal" => Some(Level::Normal),
         "power.mode.saving" => Some(Level::Saving),
         "power.mode.offline" => Some(Level::Offline),
+        PERFORMANCE => Some(Level::Normal),
         _ => None,
     };
     match by_hand {
         Some(level) => Choice {
             level,
+            performance: policy.mode == PERFORMANCE,
             automatic: false,
         },
         None => Choice {
             level: automatic(policy, battery, worn),
+            performance: false,
             automatic: true,
         },
     }
@@ -119,7 +129,19 @@ fn automatic(policy: &Policy<'_>, battery: Option<Battery>, worn: Level) -> Leve
 /// Whether wearing `choice` changes anything.
 #[must_use]
 pub fn must_wear(choice: Choice, worn_mode: &str, worn_automatic: bool) -> bool {
-    worn_mode != choice.level.preset() || worn_automatic != choice.automatic
+    worn_mode != choice.preset() || worn_automatic != choice.automatic
+}
+
+impl Choice {
+    /// The preset of the kind `core.power-mode` to wear.
+    #[must_use]
+    pub const fn preset(self) -> &'static str {
+        if self.performance {
+            PERFORMANCE_PRESET
+        } else {
+            self.level.preset()
+        }
+    }
 }
 
 /// What the power menu can offer.

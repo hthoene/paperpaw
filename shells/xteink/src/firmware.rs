@@ -333,6 +333,9 @@ impl Firmware {
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
     fn step(&mut self) {
+        // Work: the full clock, whatever the wait before left (#452).
+        crate::cpu_clock::work();
+        crate::cpu_clock::set_policy(paperpaw_x4::controls::clock_policy(self.kernel.power()));
         // Power held 8 s (G12): out, whatever else is going on. The timer's
         // readings reset the processor if this is not reached in time.
         if input::escape_requested() {
@@ -425,6 +428,27 @@ impl Firmware {
         self.tick();
         self.poll_frame();
         self.rest(battery, installing);
+    }
+
+    /// Waits for the panel's busy line to fall, at the slow clock where
+    /// that may be ([`Self::wait_clock`]). The radio's frames are taken out
+    /// of its queue meanwhile: five fit in it, and a refresh takes up to
+    /// 3.5 s.
+    fn panel_wait(&mut self) -> Result<(), paperpaw_x4::display::Error> {
+        self.wait_clock();
+        let network = &mut self.network;
+        let waited = self.panel.wait_with(|| network.keep_served());
+        crate::cpu_clock::work();
+        waited
+    }
+
+    /// A wait starts: the slow clock of the power mode, unless a radio is
+    /// on (its tasks need the full clock and the APB's 80 MHz). The next
+    /// [`crate::cpu_clock::work`] ends it.
+    fn wait_clock(&self) {
+        if !self.network.radio_on() {
+            crate::cpu_clock::wait();
+        }
     }
 
     /// Whether the button response is *Faster* (see `device`).
@@ -929,10 +953,7 @@ impl Firmware {
         let until = started.0 + expected;
         while expected > 0 && !input::settling() && power::nap_until(until.min(now().0 + idle)) {}
         let woke = now();
-        // The radio's frames are taken out of its queue meanwhile: five fit
-        // in it, and a refresh takes up to 3.5 s.
-        let network = &mut self.network;
-        let waited = self.panel.wait_with(|| network.keep_served());
+        let waited = self.panel_wait();
         let took = now().since(started);
         let busy = self.panel.take_busy_ms();
         info!(
@@ -972,8 +993,7 @@ impl Firmware {
         let refreshing = self.panel.start_refresh(Refresh::Fast, false).is_ok();
         let next = self.kernel.proceed(now());
         let worked = now();
-        let network = &mut self.network;
-        if refreshing && let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+        if refreshing && let Err(e) = self.panel_wait() {
             warn!("display: {e:?}");
         }
         self.state.panel_idle_at = Some(now().0 + self.panel_idle_ms());
@@ -1146,8 +1166,7 @@ impl Firmware {
         if cleaning {
             // The clean is over; the panel then shows white, which both memories
             // hold, and the frame goes into the new one.
-            let network = &mut self.network;
-            if let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+            if let Err(e) = self.panel_wait() {
                 failed = Some(e);
             }
             let before = now();
