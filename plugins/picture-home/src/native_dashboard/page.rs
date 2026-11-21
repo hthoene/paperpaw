@@ -60,37 +60,34 @@ impl Dashboard {
         }
         let size = style.title;
         if let Some((rect, word)) = &laid.pencil {
-            match (fonts.icons, laid.icons.pencil_place(self.editing)) {
-                (Some(icon_font), Some(glyph)) => {
-                    // As interface 6: the tick in black, the pencil faint, on
-                    // paper over the picture.
-                    let ink = if self.editing {
-                        Color::BLACK
-                    } else {
+            if self.editing {
+                // *Done* is the bar's filled button, as in Beta 3.
+                paperpaw_ui_kit::parts::bar_button(below, fonts.ui, style, *rect, word, true)?;
+            } else {
+                match (fonts.icons, laid.icons.pencil_place(false)) {
+                    (Some(icon_font), Some(glyph)) => {
+                        // As interface 6: the pencil faint, on paper over the
+                        // picture.
                         if plated {
                             paint::push(below, disc(*rect))?;
                         }
-                        style.note
-                    };
-                    paperpaw_ui_kit::icons::draw_centred(
-                        below, icon_font, glyph, size, *rect, ink,
-                    )?;
+                        paperpaw_ui_kit::icons::draw_centred(
+                            below, icon_font, glyph, size, *rect, style.note,
+                        )?;
+                    }
+                    _ => word_in(below, fonts.ui, style, *rect, word)?,
                 }
-                _ => word_in(below, fonts.ui, style, *rect, word)?,
             }
         }
         if let Some(rect) = laid.plus {
-            match (fonts.icons, laid.icons.plus.as_ref()) {
-                (Some(icon_font), Some(glyph)) => paperpaw_ui_kit::icons::draw_centred(
+            if plated {
+                let at = rect.inset(0, style.gap / 2);
+                paint::push(
                     below,
-                    icon_font,
-                    glyph,
-                    size,
-                    rect,
-                    Color::BLACK,
-                )?,
-                _ => word_in(below, fonts.ui, style, rect, "+")?,
+                    Paint::Focus(at, u32::from(at.height) / 2, None, PAPER),
+                )?;
             }
+            paperpaw_ui_kit::parts::bar_button(below, fonts.ui, style, rect, "+", false)?;
         }
         Ok(())
     }

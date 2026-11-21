@@ -5,9 +5,9 @@
 //! by the host after them, into the places kept for them.
 use crate::{
     native_covers::{Covers, Slot},
-    native_list::{BookList, Cell, Metrics, Row, pages},
+    native_list::{BookList, Cell, Metrics, Placed, Row, pages},
 };
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Rect,
     native::{
@@ -19,7 +19,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    Messages, Page, Paint, Style, header,
+    Messages, Page, Paint, Style, choice_chip, header,
     list::{backdrop, columns, ink},
     mem::collect,
     paint::{self, frame_rect},
@@ -79,6 +79,8 @@ fn bar(
 struct Look<'a> {
     font: &'a Font<'a>,
     style: &'a Style,
+    /// The height of a book's row with a line of title.
+    base: u16,
 }
 
 impl Look<'_> {
@@ -92,7 +94,7 @@ impl Look<'_> {
         out: &mut Vec<Paint>,
         cell: &Cell,
         left: Rect,
-        focused: bool,
+        (focused, tall): (bool, bool),
     ) -> Result<(), Error> {
         let (font, style) = (self.font, self.style);
         let ink = ink(style, focused);
@@ -122,9 +124,11 @@ impl Look<'_> {
                 Rect::new(left.x, y.saturating_add(line), left.width, small),
             )
         } else {
+            // A title of two lines pushes the note down by one.
+            let below = top.saturating_add(if tall { line.saturating_mul(2) } else { line });
             (
                 Rect::new(left.x, top, left.width, line),
-                Rect::new(left.x, top.saturating_add(line), left.width, small),
+                Rect::new(left.x, below, left.width, small),
             )
         };
         if cell.card {
@@ -140,20 +144,17 @@ impl Look<'_> {
             )?;
         } else {
             // The title and, at the right, how far it is read.
-            columns(
-                out,
-                font,
-                style,
-                Rect::new(
-                    first.x.saturating_sub(style.margin),
-                    first.y,
-                    first.width.saturating_add(style.margin),
-                    first.height,
-                ),
-                &cell.title,
-                &cell.value,
-                ink,
-            )?;
+            let row = Rect::new(
+                first.x.saturating_sub(style.margin),
+                first.y,
+                first.width.saturating_add(style.margin),
+                first.height,
+            );
+            if tall {
+                self.two_lines(out, cell, (row, left), ink)?;
+            } else {
+                columns(out, font, style, row, &cell.title, &cell.value, ink)?;
+            }
         }
         let chips = self.chips(out, cell, left, second, ink)?;
         let room = Rect::new(
@@ -177,6 +178,97 @@ impl Look<'_> {
             color,
             Some(room),
         )
+    }
+
+    /// The cover and the room for the words of a book's row `r`. A row that
+    /// took a second line of title keeps its cover's size, in the middle of it.
+    fn parts(&self, r: Rect) -> (Rect, Rect) {
+        let style = self.style;
+        let usual = Rect::new(r.x, r.y, r.width, r.height.min(self.base));
+        let mut cover = thumb(usual, style);
+        cover.y = cover
+            .y
+            .saturating_add(r.height.saturating_sub(usual.height) / 2);
+        let x = cover
+            .x
+            .saturating_add(cover.width)
+            .saturating_add(style.gap);
+        let left = Rect::new(
+            x,
+            r.y,
+            r.x.saturating_add(r.width)
+                .saturating_sub(x)
+                .saturating_sub(style.margin),
+            r.height,
+        );
+        (cover, left)
+    }
+
+    /// The filter row of a touch screen: the chip with the filter's name, and
+    /// the lens. Where they are, for the taps.
+    fn chip_row(
+        &self,
+        out: &mut Vec<Paint>,
+        cell: &Cell,
+        r: Rect,
+        focused: bool,
+        parts: &choice_chip::Parts,
+    ) -> Result<(), Error> {
+        backdrop(out, self.style, r, focused)?;
+        choice_chip::draw(
+            out,
+            self.font,
+            self.style,
+            parts,
+            &cell.note,
+            ink(self.style, focused),
+        )
+    }
+
+    /// How much of a row's first line the title may take: what `columns`
+    /// leaves it beside the value.
+    fn title_room(&self, wide: u16, value: &str) -> Result<f32, Error> {
+        let style = self.style;
+        let room = (f32::from(wide) - 3.0 * f32::from(style.margin)).max(0.0);
+        let value = self.font.measure_text(style.text, value)?;
+        Ok((room - value.min(room)).max(0.0))
+    }
+
+    /// Whether the title of `cell` needs more than one line in a row whose
+    /// words are `wide` wide.
+    fn wants_two(&self, cell: &Cell, wide: u16) -> Result<bool, Error> {
+        let room = self.title_room(wide.saturating_add(self.style.margin), &cell.value)?;
+        Ok(self.font.measure_text(self.style.text, &cell.title)? > room + 1.0)
+    }
+
+    /// A title on two lines, the value at the right of the first.
+    fn two_lines(
+        &self,
+        out: &mut Vec<Paint>,
+        cell: &Cell,
+        (row, left): (Rect, Rect),
+        ink: Color,
+    ) -> Result<(), Error> {
+        let (font, style) = (self.font, self.style);
+        let room = self.title_room(row.width, &cell.value)?;
+        let lines = text::wrap_with(|l| font.measure_text(style.text, l), &cell.title, room, 2)?;
+        let line = paperpaw_ui_kit::geometry::line_px(font, style.text)?;
+        let first = lines.first().map_or("", String::as_str);
+        columns(out, font, style, row, first, &cell.value, ink)?;
+        if let Some(more) = lines.get(1) {
+            let at = Rect::new(left.x, row.y.saturating_add(line), left.width, line);
+            text::label(
+                out,
+                font,
+                more,
+                style.text,
+                f32::from(at.x),
+                at,
+                ink,
+                Some(left),
+            )?;
+        }
+        Ok(())
     }
 
     /// The badges as chips at the right of the note's line, as far as they
@@ -238,20 +330,9 @@ impl Look<'_> {
     ) -> Result<Rect, Error> {
         let style = self.style;
         backdrop(out, style, r, focused)?;
-        let cover = thumb(r, style);
-        let x = cover
-            .x
-            .saturating_add(cover.width)
-            .saturating_add(style.gap);
-        let left = Rect::new(
-            x,
-            r.y,
-            r.x.saturating_add(r.width)
-                .saturating_sub(x)
-                .saturating_sub(style.margin),
-            r.height,
-        );
-        self.words(out, cell, left, focused)?;
+        let tall = cell.two && r.height > self.base;
+        let (cover, left) = self.parts(r);
+        self.words(out, cell, left, (focused, tall))?;
         if let Some(percent) = cell.progress {
             let high = self.bar_height();
             let at = Rect::new(
@@ -364,6 +445,41 @@ fn draw_empty(
 }
 
 impl BookList {
+    /// The cells of `page` (placed by [`pages`]) whose title is wider than
+    /// one line of the row: the books of a list, not the card.
+    fn long_titles(
+        &self,
+        font: &Font<'_>,
+        style: &Style,
+        page: &[Placed],
+        metrics: &Metrics,
+    ) -> Result<Vec<usize>, Error> {
+        let look = Look {
+            font,
+            style,
+            base: metrics.book_height(),
+        };
+        let mut wide = Vec::new();
+        for placed in page {
+            let Some(cell) = self.cells().get(placed.cell) else {
+                continue;
+            };
+            if !matches!(cell.row, Row::Book(_)) || cell.card {
+                continue;
+            }
+            let (_, left) = look.parts(Rect::new(
+                placed.rect.x,
+                placed.rect.y,
+                placed.rect.width,
+                look.base,
+            ));
+            if look.wants_two(cell, left.width)? {
+                paperpaw_ui_kit::mem::push(&mut wide, placed.cell)?;
+            }
+        }
+        Ok(wide)
+    }
+
     /// Draws the page the focus is on under `title`; asks `covering` for the
     /// covers of the books on it and has the host draw the ones that are made.
     ///
@@ -404,11 +520,23 @@ impl BookList {
                 1
             },
         };
-        let laid = pages(self.cells(), &metrics, self.grid())?;
+        let mut laid = pages(self.cells(), &metrics, self.grid())?;
         let page = laid
             .iter()
             .rposition(|p| p.first().is_some_and(|first| first.cell <= self.focus()))
             .unwrap_or(0);
+        if !self.grid() {
+            // The titles of this page that need a second line ask for it; the
+            // page gives it to as many as it has room for.
+            let wide = self.long_titles(
+                &font,
+                &style,
+                laid.get(page).map_or(&[][..], Vec::as_slice),
+                &metrics,
+            )?;
+            self.set_two(&wide);
+            laid = pages(self.cells(), &metrics, false)?;
+        }
         let mut head = Page::default();
         let mut messages = Messages::new()?;
         let title = match messages.copy(host, title) {
@@ -433,11 +561,14 @@ impl BookList {
             Look {
                 font: &font,
                 style: &style,
+                base: metrics.book_height(),
             },
             Vec::new(),
             Vec::new(),
         );
         let mut lowest = area.y;
+        let touch = display.has_touch();
+        let mut chip = None;
         // The rows of the band being drawn only are laid out: a frame is
         // drawn in bands, and what lies outside one is not painted by it.
         let band = (
@@ -457,6 +588,14 @@ impl BookList {
             hits.try_reserve(1).map_err(|_| Error::NoMemory)?;
             hits.push((r, placed.cell));
             let Row::Book(at) = cell.row else {
+                let parts = if cell.row == Row::Filter && touch {
+                    Some(choice_chip::layout(&font, &style, r, &cell.note, true)?)
+                } else {
+                    None
+                };
+                if parts.is_some() {
+                    chip = parts;
+                }
                 if outside(r) {
                     continue;
                 }
@@ -472,6 +611,8 @@ impl BookList {
                         style.muted,
                         Some(r),
                     )?;
+                } else if let Some(parts) = &parts {
+                    look.chip_row(&mut body, cell, r, focused, parts)?;
                 } else {
                     paperpaw_ui_kit::list::row(
                         &mut body,
@@ -524,6 +665,8 @@ impl BookList {
         self.starts = collect(laid.iter().filter_map(|p| p.first().map(|f| Ok(f.cell))))?;
         self.hits = hits;
         self.band = Some(Rect::new(0, 0, width, style.header));
+        self.touch = touch;
+        self.chip = chip;
         self.metrics = Some(metrics);
         Ok(())
     }

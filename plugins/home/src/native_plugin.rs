@@ -330,6 +330,7 @@ impl NativeHome {
     ) -> Result<(), Error> {
         if let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) {
             dashboard.shown(last_input);
+            dashboard.sync_hint(host);
         }
         if COVERS_IN_FOLLOWUP {
             self.covers_later(host, instance)?;
