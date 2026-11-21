@@ -429,8 +429,8 @@ pub static GERMAN: paperpaw_core::LanguageSeed = paperpaw_core::LanguageSeed {
     },
 };
 
-/// The front light's settings, also first in the reader's panel and in
-/// the quick panel.
+/// The front light's settings, also in the quick panel; not in the reader's
+/// font panel, which keeps to the text (#448).
 #[cfg(feature = "x4-pro")]
 fn register_light(r: &mut Staging) -> Result<(), RegisterError> {
     use alloc::borrow::Cow;
@@ -438,9 +438,7 @@ fn register_light(r: &mut Staging) -> Result<(), RegisterError> {
     use paperpaw_sdk::builtin::menus;
     r.add_settings(&LIGHT_SETTINGS)?;
     for (n, item) in [FRONTLIGHT, WARMTH].into_iter().enumerate() {
-        for (menu, order) in [(menus::READER_PANEL, -10), (menus::QUICK, 20)] {
-            r.add_menu_entry(MenuEntry::new(menu, item.clone().into()).order(order + n as i16))?;
-        }
+        r.add_menu_entry(MenuEntry::new(menus::QUICK, item.clone().into()).order(20 + n as i16))?;
     }
     r.add_icon(&FRONTLIGHT, Cow::Borrowed("bulb"))?;
     r.add_icon(&WARMTH, Cow::Borrowed("temperature"))?;

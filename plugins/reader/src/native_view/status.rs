@@ -48,6 +48,10 @@ impl Open {
                 .as_ref()
                 .map(|progress| progress.ppm(self.at.0, self.at.1)),
             page: self.page_numbers(host),
+            chapter_left: self
+                .chapter_left
+                .filter(|(at, _)| *at == self.at)
+                .map(|(_, left)| left),
             marks: &[],
         };
         then(&facts)

@@ -26,7 +26,7 @@ const MAX_TEXT: usize = 256;
 /// (`ui.md` section 6.3); the reply stays the operation's 4,096.
 const HANDOVER_INPUT: usize = 1280;
 /// Rows of the hand-over.
-const ROWS: usize = 7;
+const ROWS: usize = 8;
 
 impl Open {
     /// Opens the reader's menu bar over the page on show.
@@ -62,6 +62,7 @@ impl Open {
             (k4, v4),
             (k5, v5),
             (k6, v6),
+            (k7, v7),
         ] = values;
         let params = [
             Param::new(k0, v0)?,
@@ -71,6 +72,7 @@ impl Open {
             Param::new(k4, v4)?,
             Param::new(k5, v5)?,
             Param::new(k6, v6)?,
+            Param::new(k7, v7)?,
         ];
         let (mut input, mut out) = (buffer(HANDOVER_INPUT)?, buffer(SERVICE_BUFFER)?);
         let handover = ui.handover(host, &params, &mut input, &mut out)?;
@@ -83,7 +85,7 @@ impl Open {
 
 /// The keys and values the bar is handed: the menu, the bar's look, what a book
 /// of page pictures leaves out, the book's title and chapter (cut), where one is
-/// and what a tap on the title runs.
+/// and what a tap on the title runs, and on the chapter: the contents (#448).
 fn bar_values<'a>(
     title: &'a str,
     chapter: &'a str,
@@ -98,6 +100,7 @@ fn bar_values<'a>(
         ("text", cut(chapter)),
         ("page", place),
         ("action", "reader.book-info"),
+        ("text-action", "reader.show-toc"),
     ]
 }
 

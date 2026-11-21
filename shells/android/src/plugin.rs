@@ -29,7 +29,6 @@ pub const WARMTH: Setting<i64> = Setting::new("android.warmth");
 /// The home screen's shortcuts (see the `home` plugin).
 const HOME_ACTIONS: Id = Id::new_static("home.actions");
 /// The reader's panel of font and layout, every reader's.
-const READER_PANEL: Id = paperpaw_sdk::builtin::menus::READER_PANEL;
 
 /// The device's frontlight and its levels when PaperPaw started.
 #[derive(Clone, Copy)]
@@ -182,13 +181,12 @@ impl AndroidPlugin {
             )?;
             items.push(WARMTH);
         }
-        // In the reader's quick panel, first, and in the quick panel.
+        // In the quick panel; not in the reader's font panel, which keeps to
+        // the text (#448).
         for (n, item) in items.into_iter().enumerate() {
-            for (menu, order) in [(READER_PANEL, -10), (menus::QUICK, 20)] {
-                r.add_menu_entry(
-                    MenuEntry::new(menu, item.clone().into()).order(order + n as i16),
-                )?;
-            }
+            r.add_menu_entry(
+                MenuEntry::new(menus::QUICK, item.clone().into()).order(20 + n as i16),
+            )?;
         }
         r.add_icon(FRONTLIGHT, Cow::Borrowed("bulb"))?;
         r.add_icon(WARMTH, Cow::Borrowed("temperature"))?;

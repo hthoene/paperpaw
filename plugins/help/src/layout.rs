@@ -50,22 +50,38 @@ pub fn lay_out_zones(
         hint.frame = zone;
         // A narrow part (an edge) has its text beside it, on the side with more room.
         let narrow = u32::from(zone.width) * 4 < u32::from(dw);
-        let width = if narrow {
+        let mut width = if narrow {
             dw / 2
         } else {
             zone.width.saturating_sub(gap)
         };
-        let count = lines(
-            &hint.text,
-            f32::from(width.saturating_sub(gap.saturating_mul(2))),
-        )?;
+        let room = |width: u16| f32::from(width.saturating_sub(gap.saturating_mul(2)));
+        // A word is not broken where the box can be wider (half the display at
+        // most): a zone a third of the screen wide is narrower than a long
+        // word ("Vorherige Seite", #448).
+        for word in hint.text.split_whitespace() {
+            while width < dw / 2 && gap > 0 && lines(word, room(width))? > 1 {
+                width = width.saturating_add(gap).min(dw / 2);
+            }
+        }
+        let count = lines(&hint.text, room(width))?;
         let height = clamp(
             u64::from(small)
                 .saturating_mul(count as u64)
                 .saturating_add(u64::from(gap) * 2),
         );
         let x = if !narrow {
-            zone.x.saturating_add(gap / 2)
+            let wide = zone.width.saturating_sub(gap);
+            if width > wide {
+                // Widened: centred on its zone, within the display's margins.
+                zone.x
+                    .saturating_add(gap / 2)
+                    .saturating_sub((width - wide) / 2)
+                    .min(dw.saturating_sub(width.saturating_add(margin)))
+                    .max(margin.min(zone.x))
+            } else {
+                zone.x.saturating_add(gap / 2)
+            }
         } else if u32::from(zone.x) + u32::from(zone.width) / 2 < u32::from(dw) / 2 {
             zone.x
                 .saturating_add(zone.width)
@@ -120,6 +136,35 @@ pub fn covered_by(zones: &[ZoneHint], panel: Rect) -> Option<usize> {
                 .intersection(&z.label)
                 .is_some_and(|o| o.width >= 2 && o.height >= 2)
     })
+}
+
+/// Moves the text box of `hint`, which `panel` covers, to a part of its zone
+/// the panel leaves free (above it, else below it), a `gap` from the panel;
+/// whether there was room for it. The reader's tap zones are as tall as the
+/// page: their texts are seen beside the box, not only listed in it (#448).
+pub fn lift(hint: &mut ZoneHint, panel: Rect, gap: u16) -> bool {
+    let (frame, height) = (hint.frame, u32::from(hint.label.height));
+    let free = [
+        (
+            u32::from(frame.y),
+            u32::from(panel.y)
+                .min(frame.bottom())
+                .saturating_sub(u32::from(gap)),
+        ),
+        (
+            panel.bottom().max(u32::from(frame.y)) + u32::from(gap),
+            frame.bottom(),
+        ),
+    ];
+    let Some((top, bottom)) = free
+        .into_iter()
+        .find(|(top, bottom)| bottom.saturating_sub(*top) >= height)
+    else {
+        return false;
+    };
+    let y = top + (bottom - top - height) / 2;
+    hint.label.y = clamp(u64::from(y));
+    true
 }
 
 /// The zones as hints from `(zone, text)` pairs, none laid out yet.
@@ -199,6 +244,42 @@ mod tests {
         let panel = Rect::new(20, 0, 440, 200);
         let y = dialog_top(&zones, panel, 800, 20);
         assert_eq!(y, 580, "at the bottom, away from the zone at the top");
+    }
+
+    #[test]
+    fn a_long_word_widens_the_box_of_a_narrow_zone_rather_than_break() {
+        // A third of the screen: "Vorherige" does not fit 120 px; the box
+        // grows until no word is broken.
+        let mut zones = [hint((0, 120, 333, 760), "Vorherige Seite")];
+        let mut lines = |text: &str, room: f32| {
+            Ok(match text {
+                "Vorherige" if room < 130.0 => 2,
+                "Vorherige" | "Seite" => 1,
+                _ => 2,
+            })
+        };
+        lay_out_zones(&mut zones, (480, 800), (10, 20, 16), &mut lines).unwrap();
+        let label = zones[0].label;
+        assert!(label.width >= 150, "{label:?}");
+        assert!(label.x >= 10 && label.right() <= 460, "{label:?}");
+    }
+
+    #[test]
+    fn a_text_the_box_covers_moves_up_in_its_tall_zone() {
+        // A tap zone as tall as the page, its text in the middle, a box over
+        // the lower half: the text goes into the part above the box.
+        let mut zones = [hint((0, 120, 333, 760), "previous")];
+        lay_out_zones(&mut zones, (480, 800), (10, 20, 16), &mut |_, _| Ok(3)).unwrap();
+        let panel = Rect::new(20, 380, 440, 400);
+        assert_eq!(covered_by(&zones, panel), Some(0));
+        assert!(lift(&mut zones[0], panel, 10));
+        assert_eq!(covered_by(&zones, panel), None);
+        let label = zones[0].label;
+        assert!(label.y >= zones[0].frame.y && label.bottom() + 10 <= 380);
+        // A box over all of the zone leaves no room: the text stays covered.
+        let mut whole = [hint((0, 120, 333, 760), "previous")];
+        lay_out_zones(&mut whole, (480, 800), (10, 20, 16), &mut |_, _| Ok(3)).unwrap();
+        assert!(!lift(&mut whole[0], Rect::new(0, 0, 480, 800), 10));
     }
 
     #[test]

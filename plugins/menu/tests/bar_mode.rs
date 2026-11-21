@@ -14,7 +14,7 @@ use paperpaw_plugin_menu::native_model::{
 use paperpaw_sdk::{Point, Rect};
 
 /// What the reader hands over (`plugins/reader/src/native_view/menu_bar.rs`).
-const READER: [(&str, &str); 7] = [
+const READER: [(&str, &str); 8] = [
     ("menu", "core.reader-menu"),
     ("mode", "bar"),
     ("hide", "reader.search,reader.read-aloud"),
@@ -22,6 +22,7 @@ const READER: [(&str, &str); 7] = [
     ("text", "Chapter 1. Loomings."),
     ("page", "12 / 30"),
     ("action", "reader.book-info"),
+    ("text-action", "reader.show-toc"),
 ];
 
 fn row(item: &str, kind: Kind, flags: u32) -> Row {
@@ -85,6 +86,7 @@ fn the_readers_hand_over_is_read() {
     assert_eq!(handed.text, "Chapter 1. Loomings.");
     assert_eq!(handed.page, "12 / 30");
     assert_eq!(handed.action, "reader.book-info");
+    assert_eq!(handed.text_action, "reader.show-toc");
     assert_eq!(handed.depth, None);
     // Without `mode=bar` the menu is a list.
     let mut list = Handed::default();
@@ -129,6 +131,9 @@ fn a_tap_reaches_the_entries_then_the_title_area() {
     // The two lines: 30 + 20 + the gap, below a gap.
     assert_eq!(laid.info, Rect::new(0, 8, 480, 58));
     assert_eq!(laid.hit(Point::new(240, 20)), Hit::Info);
+    // The second line (the reader's chapter) on its own, below the title (#448).
+    assert_eq!(laid.text, Rect::new(0, 38, 480, 28));
+    assert_eq!(laid.hit(Point::new(240, 50)), Hit::Text);
     let first = laid.cells[0];
     let middle = Point::new(i32::from(first.x) + 5, i32::from(first.y) + 5);
     assert_eq!(laid.hit(middle), Hit::Entry(0));
