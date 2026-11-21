@@ -494,7 +494,7 @@ const paperpaw_sdk::memory::Memory::NONE: Self = Self { read: None }
 const paperpaw_sdk::memory::Placement::FAST: Self = Self(1)
 const paperpaw_sdk::memory::Placement::LARGE: Self = Self(2)
 const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "code-host.dll", "code-host.so", "code-host.dylib", ]
-const paperpaw_sdk::native::DRAFT: u16 = 38u16
+const paperpaw_sdk::native::DRAFT: u16 = 39u16
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
 const paperpaw_sdk::native::INTERFACE: u16 = 7u16
 const paperpaw_sdk::native::LAYOUT: u64 = 18_274_061_776_900_477_695u64
@@ -2541,7 +2541,7 @@ enum paperpaw_sdk::native::stage_schemas::core_lookup_v1::Record<'a> { LookupAsk
 enum paperpaw_sdk::native::stage_schemas::core_picture_v1::Record<'a> { PictureAsk(0: paperpaw_sdk::native::stage_schemas::core_picture_v1::PictureAsk<'a>), PictureTone(0: paperpaw_sdk::native::stage_schemas::core_picture_v1::PictureTone<'a>) }
 enum paperpaw_sdk::native::stage_schemas::core_status_v1::Record<'a> { StatusAsk(0: paperpaw_sdk::native::stage_schemas::core_status_v1::StatusAsk<'a>), StatusValue(0: paperpaw_sdk::native::stage_schemas::core_status_v1::StatusValue<'a>) }
 enum paperpaw_sdk::native::stage_schemas::core_widget_v1::Record { WidgetMeasure(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetMeasure), WidgetPlace(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetPlace), WidgetTargets(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTargets), WidgetSize(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetSize), WidgetTarget(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTarget) }
-enum paperpaw_sdk::native::storage::Root { Data, Files, Install, DocumentCache, Book, UserCss }
+enum paperpaw_sdk::native::storage::Root { Data, Files, Install, DocumentCache, Book, UserCss, PluginCss }
 enum paperpaw_sdk::native::ui::queries::HintInput { Any, Touch, Buttons }
 enum paperpaw_sdk::native::ui::stages::widget::WidgetCall { Measure { instance: paperpaw_sdk::native::ui::types::Instance, width: u32 }, Place { instance: paperpaw_sdk::native::ui::types::Instance, rect: paperpaw_sdk::native::callbacks::FrameRect }, Targets { instance: paperpaw_sdk::native::ui::types::Instance, rect: paperpaw_sdk::native::callbacks::FrameRect } }
 enum paperpaw_sdk::native::ui::status::StatusLine<'cb> { Own, Draw(0: paperpaw_sdk::native::ui::widgets::StatusLineHandle<'cb>) }

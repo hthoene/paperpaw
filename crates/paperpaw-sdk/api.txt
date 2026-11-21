@@ -5167,6 +5167,7 @@ pub paperpaw_sdk::native::storage::Root::Data
 pub paperpaw_sdk::native::storage::Root::DocumentCache
 pub paperpaw_sdk::native::storage::Root::Files
 pub paperpaw_sdk::native::storage::Root::Install
+pub paperpaw_sdk::native::storage::Root::PluginCss
 pub paperpaw_sdk::native::storage::Root::UserCss
 pub struct paperpaw_sdk::native::storage::DataStorage<'h, 'cb>
 impl<'h, 'cb> paperpaw_sdk::native::storage::DataStorage<'h, 'cb>

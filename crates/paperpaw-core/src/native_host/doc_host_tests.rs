@@ -105,6 +105,10 @@ struct World<'a> {
     calls: RefCell<Vec<(u64, u32, u32)>>,
     /// The `flags` of each op 2 `open` the format got.
     open_flags: RefCell<Vec<u32>>,
+    /// The `conversion` of each op 2 `open` the format got.
+    open_conversions: RefCell<Vec<u64>>,
+    /// Whether the frame has the kernel's place (`Frame::kernel_env`).
+    kernel_env: bool,
     hosts: HostServices,
     state: Rc<DocState>,
     /// The owner of the screen on top of the stack.
@@ -153,6 +157,9 @@ impl RegistryView for World<'_> {
 impl Frame for World<'_> {
     fn settings(&self) -> &Settings {
         self.settings.get()
+    }
+    fn kernel_env(&self) -> Option<&Place<'_>> {
+        self.kernel_env.then_some(self.env)
     }
     fn translator(&self) -> &Translator {
         self.env.i18n()
@@ -209,6 +216,7 @@ impl Frame for World<'_> {
                 }
                 if c.op == 2 {
                     self.open_flags.borrow_mut().push(c.flags);
+                    self.open_conversions.borrow_mut().push(c.conversion);
                 }
                 (c.op, c.arg.len())
             }
@@ -526,9 +534,21 @@ fn state_reply() -> Vec<u8> {
 }
 
 fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
-    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+    world_in(None, body)
+}
+
+/// [`world`] whose frame has the kernel's place, the plugins of which brought
+/// the stylesheets `sheets`; `None`: a frame without it.
+fn world_in<R>(sheets: Option<&[&'static str]>, body: impl FnOnce(&World<'_>) -> R) -> R {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
+    kernel.shared.stylesheets.extend(
+        sheets
+            .unwrap_or_default()
+            .iter()
+            .map(|sheet| alloc::borrow::Cow::Borrowed(*sheet)),
+    );
     let env = kernel.shared.place(Instant(0));
     let hosts = HostServices::new();
     let renames = Rc::new(Cell::new(0));
@@ -566,6 +586,8 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         texts: RefCell::new(Vec::new()),
         calls: RefCell::new(Vec::new()),
         open_flags: RefCell::new(Vec::new()),
+        open_conversions: RefCell::new(Vec::new()),
+        kernel_env: sheets.is_some(),
         hosts,
         state,
         top: Cell::new(OPENER),
@@ -665,6 +687,32 @@ fn a_book_is_opened_through_its_format_and_closed_telling_the_format() {
         assert_eq!(w.calls.borrow().last(), Some(&(EPUB, 5, 4)));
         assert_eq!(w.state.table.len(), 0);
     });
+}
+
+/// The plugins' stylesheets (root 7) change what a format makes of a book: a
+/// stylesheet added or changed is another conversion, so neither its cache nor
+/// the reader's pages of the one before are used (#463).
+#[test]
+fn the_plugins_stylesheets_are_part_of_the_conversion_key() {
+    let key = |sheets: &[&'static str]| {
+        world_in(Some(sheets), |w| {
+            w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+            w.open(0, "a.epub").unwrap();
+            w.open_conversions.borrow()[0]
+        })
+    };
+    let none = key(&[]);
+    assert_eq!(key(&["p{a}"]), key(&["p{a}"]));
+    assert_ne!(key(&["p{a}"]), none);
+    assert_ne!(key(&["p{a}"]), key(&["p{b}"]));
+    assert_ne!(key(&["p{a}", "h1{b}"]), key(&["p{a}"]));
+    // A frame without the kernel's place has none: the key of no stylesheets.
+    let frameless = world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.open(0, "a.epub").unwrap();
+        w.open_conversions.borrow()[0]
+    });
+    assert_eq!(frameless, none);
 }
 
 #[test]
