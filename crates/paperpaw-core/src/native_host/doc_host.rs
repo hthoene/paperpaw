@@ -517,13 +517,14 @@ impl DocState {
 
     /// The conversion key: a hash of everything that changes the output of an
     /// open (the book's path, the format, the flags, the sides, the CSS, the
-    /// options). The book's content fingerprint (LIB) joins it when the cache
-    /// is made.
+    /// options, the plugins' stylesheets `sheets`, root 7). The book's content
+    /// fingerprint (LIB) joins it when the cache is made.
     fn conversion_key(
         &self,
         open: &wire::ServiceDocOpen<'_>,
         format: FormatRef,
         options: Options<'_>,
+        sheets: &[alloc::borrow::Cow<'static, str>],
     ) -> Result<u64, i32> {
         let mut hash = 0xcbf2_9ce4_8422_2325_u64;
         let mut put = |bytes: &[u8]| {
@@ -553,6 +554,11 @@ impl DocState {
             put(option.key.as_bytes());
             put(option.value.as_bytes());
         });
+        // A stylesheet added, changed or gone is another conversion (and other
+        // pages); without any the key is what it was before root 7.
+        for sheet in sheets {
+            put(sheet.as_bytes());
+        }
         Ok(hash)
     }
 
@@ -618,14 +624,6 @@ macro_rules! frameless {
         }
         fn format_id(&self, format: FormatRef, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
             self.state().index()?.id(format, visit)
-        }
-        fn conversion_key(
-            &self,
-            open: &wire::ServiceDocOpen<'_>,
-            format: FormatRef,
-            options: Options<'_>,
-        ) -> Result<u64, i32> {
-            self.state().conversion_key(open, format, options)
         }
         fn document_closed(&self, document: &Document, reason: u32) {
             self.state().table.raise_closed(document, reason);
@@ -755,6 +753,15 @@ impl super::doc_service::DocHost for DocState {
         Err(ERR_UNSUPPORTED)
     }
     fn select_format(&self, _: u32, _: &str, _: &str) -> Result<FormatRef, i32> {
+        Err(ERR_UNSUPPORTED)
+    }
+    /// Without a frame nothing opens (`root_access` refuses first).
+    fn conversion_key(
+        &self,
+        _: &wire::ServiceDocOpen<'_>,
+        _: FormatRef,
+        _: Options<'_>,
+    ) -> Result<u64, i32> {
         Err(ERR_UNSUPPORTED)
     }
     fn preparing(&self) -> bool {
@@ -1166,6 +1173,18 @@ impl super::doc_service::DocHost for Bound<'_> {
         self
     }
     frameless!();
+    fn conversion_key(
+        &self,
+        open: &wire::ServiceDocOpen<'_>,
+        format: FormatRef,
+        options: Options<'_>,
+    ) -> Result<u64, i32> {
+        let sheets = self
+            .frame
+            .kernel_env()
+            .map_or(&[][..], crate::Place::stylesheets);
+        self.state.conversion_key(open, format, options, sheets)
+    }
     fn turned(&self, image: u32) -> Result<wire::ServiceDocImage, i32> {
         self.turned_image(image)
     }

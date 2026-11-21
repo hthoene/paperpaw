@@ -5,7 +5,8 @@
 //! writable, where the host reserves `.complete` and `.host/`. The font is
 //! copied through a temporary name that is renamed into place, so the plugin's
 //! `Storage::rename` must reach the host's `storage_rename` slot (it once
-//! answered `Unsupported`, and the font was silently lost).
+//! answered `Unsupported`, and the font was silently lost). Root 7 holds the
+//! stylesheets plugins bring for books, which an open reads (#463).
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
@@ -30,17 +31,21 @@ const TTF: &[u8] =
 const FORMAT_TOKEN: u32 = 1;
 const ROOT_BOOK: u32 = 3;
 const ROOT_CACHE: u32 = 6;
+const ROOT_PLUGIN_CSS: u32 = 7;
 
 mod op {
     pub const OPEN: u32 = 2;
     pub const SECTIONS: u32 = 7;
+    pub const BLOCK: u32 = 8;
     pub const FONTS: u32 = 16;
 }
 
-/// What the fake host holds: the book (root 3) and the document cache (root 6,
-/// by path below it), and the renames it was asked for.
+/// What the fake host holds: the book (root 3), the document cache (root 6,
+/// by path below it), the plugins' stylesheets (root 7, none where empty), and
+/// the renames it was asked for.
 struct Context {
     book: Vec<u8>,
+    plugin_css: Vec<u8>,
     cache: RefCell<BTreeMap<String, Vec<u8>>>,
     renames: RefCell<Vec<(String, String)>>,
     /// Root-6 names the plugin tried to change that the host keeps for itself.
@@ -148,6 +153,10 @@ unsafe extern "C" fn size(ctx: *mut c_void, root: u32, path: PpBytes, out: *mut 
             Some(file) => file.len(),
             None => return ERR_NOT_FOUND,
         },
+        ROOT_PLUGIN_CSS if path.is_empty() && !context.plugin_css.is_empty() => {
+            context.plugin_css.len()
+        }
+        ROOT_PLUGIN_CSS => return ERR_NOT_FOUND,
         _ => return ERR_INVALID,
     };
     // SAFETY: a writable aligned output.
@@ -171,6 +180,10 @@ unsafe extern "C" fn read_at(
             Some(file) => copy_out(file, offset, &out),
             None => ERR_NOT_FOUND,
         },
+        ROOT_PLUGIN_CSS if path.is_empty() && !context.plugin_css.is_empty() => {
+            copy_out(&context.plugin_css, offset, &out)
+        }
+        ROOT_PLUGIN_CSS => ERR_NOT_FOUND,
         _ => ERR_INVALID,
     }
 }
@@ -284,9 +297,14 @@ struct Native {
 
 impl Native {
     fn new(book: Vec<u8>) -> Self {
+        Self::with_plugin_css(book, Vec::new())
+    }
+
+    fn with_plugin_css(book: Vec<u8>, plugin_css: Vec<u8>) -> Self {
         let entry: &'static PpEntry = paperpaw_plugin_format_epub::NATIVE_ENTRY.entry();
         let context = Box::new(Context {
             book,
+            plugin_css,
             cache: RefCell::new(BTreeMap::new()),
             renames: RefCell::new(Vec::new()),
             denied: RefCell::new(Vec::new()),
@@ -377,6 +395,16 @@ fn rows(reply: &[u8]) -> Vec<stage::Record<'_>> {
 
 /// An EPUB 3 with one chapter whose stylesheet embeds `font` (`fonts/a.ttf`).
 fn book_with_font(font: &[u8]) -> Vec<u8> {
+    book(
+        "<p class=\"f0\">Font text</p>",
+        "@font-face { font-family: F0; src: url(fonts/a.ttf) } .f0 { font-family: F0 }\n",
+        Some(font),
+    )
+}
+
+/// An EPUB 3 with one chapter of `body` and the stylesheet `css`, and `font`
+/// as `fonts/a.ttf` if given.
+fn book(body: &str, css: &str, font: Option<&[u8]>) -> Vec<u8> {
     let container = "<?xml version=\"1.0\"?><container version=\"1.0\" \
         xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\"><rootfiles>\
         <rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/>\
@@ -388,18 +416,22 @@ fn book_with_font(font: &[u8]) -> Vec<u8> {
         <manifest><item id=\"c\" href=\"c.xhtml\" media-type=\"application/xhtml+xml\"/>\
         <item id=\"css\" href=\"style.css\" media-type=\"text/css\"/></manifest>\
         <spine><itemref idref=\"c\"/></spine></package>";
-    let chapter = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+    let chapter = format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
         <html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>t</title></head>\
-        <body><p class=\"f0\">Font text</p></body></html>";
-    let css = "@font-face { font-family: F0; src: url(fonts/a.ttf) } .f0 { font-family: F0 }\n";
-    ZipBuilder::new()
+        <body>{body}</body></html>"
+    );
+    let zip = ZipBuilder::new()
         .stored("mimetype", "application/epub+zip")
         .deflated("META-INF/container.xml", container)
         .deflated("OEBPS/content.opf", package)
         .deflated("OEBPS/c.xhtml", chapter)
-        .deflated("OEBPS/style.css", css)
-        .deflated("OEBPS/fonts/a.ttf", font.to_vec())
-        .build()
+        .deflated("OEBPS/style.css", css);
+    match font {
+        Some(font) => zip.deflated("OEBPS/fonts/a.ttf", font.to_vec()),
+        None => zip,
+    }
+    .build()
 }
 
 #[test]
@@ -459,4 +491,46 @@ fn the_sections_of_a_book_are_listed_after_its_first_native_open() {
         .filter(|row| matches!(row, stage::Record::FmtSection(_)))
         .count();
     assert!(sections >= 1, "the book's chapter is listed");
+}
+
+/// The first block of the book's only chapter, as op 8 answers it.
+fn first_block_align(native: &mut Native) -> u32 {
+    let opened = native.call(&fmt_call(op::OPEN, |c| c.text = ""));
+    let stage::Record::FmtState(state) = rows(&opened)[0] else {
+        panic!("open answers a state row");
+    };
+    assert_eq!((state.state, state.status), (0, 0), "the book opens");
+    let reply = native.call(&fmt_call(op::BLOCK, |_| {}));
+    rows(&reply)
+        .into_iter()
+        .find_map(|row| match row {
+            stage::Record::FmtBlock(block) => Some(block.align),
+            _ => None,
+        })
+        .expect("the chapter has a block")
+}
+
+/// A plugin's stylesheet (a style pack's `styles.css`, which the host keeps in
+/// memory and serves as root 7) applies after the book's own, as in Beta 3
+/// (#463); without one the book's own style stays.
+#[test]
+fn the_plugins_stylesheets_apply_after_the_books_own() {
+    use paperpaw_sdk::document::Align;
+    let book = || {
+        book(
+            "<p class=\"c\">Text</p>",
+            "p.c { text-align: center }\n",
+            None,
+        )
+    };
+    let mut plain = Native::new(book());
+    assert_eq!(
+        first_block_align(&mut plain),
+        u32::from(Align::Center.bits())
+    );
+    let mut styled = Native::with_plugin_css(book(), b"p.c { text-align: right }\n".to_vec());
+    assert_eq!(
+        first_block_align(&mut styled),
+        u32::from(Align::Right.bits())
+    );
 }

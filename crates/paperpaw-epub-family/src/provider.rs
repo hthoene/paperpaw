@@ -102,6 +102,11 @@ pub struct FormatProvider {
     /// The values of the format's own settings the next open is given
     /// ([`OpenOptions::setting`]).
     settings: Vec<(String, String)>,
+    /// Whether its documents apply the plugins' stylesheets (root 7,
+    /// [`FormatProvider::with_plugin_css`]).
+    reads_plugin_css: bool,
+    /// The plugins' stylesheets the next open is given ([`OpenOptions::css`]).
+    plugin_css: String,
     /// Links `file:<path>` are files on the card (kind 3), not the web
     /// ([`FormatProvider::with_file_links`]).
     file_links: bool,
@@ -170,6 +175,8 @@ impl FormatProvider {
             claims: None,
             slots: Vec::new(),
             settings: Vec::new(),
+            reads_plugin_css: false,
+            plugin_css: String::new(),
             file_links: false,
         }
     }
@@ -180,6 +187,26 @@ impl FormatProvider {
     pub const fn with_claims(mut self, claims: Claims) -> Self {
         self.claims = Some(claims);
         self
+    }
+
+    /// Its documents apply the stylesheets plugins bring for books after the
+    /// book's own (root 7, read at each open: [`FormatProvider::reads_plugin_css`]).
+    #[must_use]
+    pub const fn with_plugin_css(mut self) -> Self {
+        self.reads_plugin_css = true;
+        self
+    }
+
+    /// Whether its opens are given the plugins' stylesheets
+    /// ([`FormatProvider::set_plugin_css`]).
+    #[must_use]
+    pub const fn reads_plugin_css(&self) -> bool {
+        self.reads_plugin_css
+    }
+
+    /// The plugins' stylesheets the next open is given, joined.
+    pub fn set_plugin_css(&mut self, css: String) {
+        self.plugin_css = css;
     }
 
     /// Lists the links `file:<path>` its documents make as files on the card
@@ -326,6 +353,7 @@ impl FormatProvider {
         // Flags of the open: bit 0 the publisher's styles, bit 1 colour.
         let options = OpenOptions::default()
             .settings(self.settings.clone())
+            .css(core::mem::take(&mut self.plugin_css))
             .publisher_styles(call.flags & 1 != 0)
             .color(call.flags & 2 != 0)
             .image_fit(if call.image_side == 0 {

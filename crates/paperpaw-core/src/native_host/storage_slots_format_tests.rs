@@ -1,5 +1,6 @@
-//! Roots 3 (the book), 4 (the user's CSS file) and 6 (the document's cache)
-//! on the storage slots, for a plugin inside a format call.
+//! Roots 3 (the book), 4 (the user's CSS file), 6 (the document's cache) and
+//! 7 (the plugins' stylesheets) on the storage slots, for a plugin inside a
+//! format call.
 extern crate std;
 use super::tests::{Backend, bytes, output, scoped};
 use super::*;
@@ -45,19 +46,72 @@ fn within_on(
     book: Option<FormatBook<'_>>,
     call: impl FnOnce(&EnvironmentScope, Option<Format<'_>>),
 ) {
+    with_format(book, |format| {
+        scoped(backend, |env, kernel| {
+            let _running = kernel.shared.meter.enter(FORMAT);
+            call(env, format);
+        });
+    });
+}
+
+/// `call` with the format scope of a call for `book` (none for `None`).
+fn with_format(book: Option<FormatBook<'_>>, call: impl FnOnce(Option<Format<'_>>)) {
     let scope = FormatScope::new();
     let _guard = book.map(|book| scope.enter(OWNER, &book).unwrap());
     let linked = OwnerDirectory::new();
-    let format = Some(Format {
+    call(Some(Format {
         scope: &scope,
         owner: OWNER,
         features: AdmittedFeatures::default(),
         files: None,
         linked: &linked,
-    });
-    scoped(backend, |env, kernel| {
-        let _running = kernel.shared.meter.enter(FORMAT);
-        call(env, format);
+    }));
+}
+
+/// [`within`] in the frame of a kernel callback (it has the kernel's place)
+/// where the plugins brought the stylesheets `sheets`.
+fn within_styled(
+    sheets: &[&'static str],
+    book: Option<FormatBook<'_>>,
+    call: impl FnOnce(&EnvironmentScope, Option<Format<'_>>),
+) {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(card())
+        .build()
+        .unwrap();
+    kernel.shared.stylesheets.extend(
+        sheets
+            .iter()
+            .map(|sheet| alloc::borrow::Cow::Borrowed(*sheet)),
+    );
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
+    let shared = &kernel.shared;
+    let frame = crate::abi7::core_frame::CoreFrame {
+        callback: None,
+        instance: None,
+        env: &env,
+        meter: &shared.meter,
+        depth: None,
+        directory: None,
+        stack_generation: shared.stack_rows.generation(),
+        stack_rows: &shared.stack_rows,
+        font_removals: &shared.font_removals,
+        registry_generation: &shared.registry_generation,
+        usage: &shared.usage,
+        plugins: &shared.plugins,
+        work: &shared.work_states,
+        log: Default::default(),
+        ui: None,
+    };
+    with_format(book, |format| {
+        let scope = core::pin::pin!(EnvironmentScope::new());
+        scope
+            .as_ref()
+            .scope_core(&frame, || {
+                let _running = shared.meter.enter(FORMAT);
+                call(&scope, format);
+            })
+            .unwrap();
     });
 }
 
@@ -66,6 +120,16 @@ fn read(
     format: Option<Format<'_>>,
     root: u32,
     path: &str,
+) -> Result<std::string::String, i32> {
+    read_from(env, format, root, path, 0)
+}
+
+fn read_from(
+    env: &EnvironmentScope,
+    format: Option<Format<'_>>,
+    root: u32,
+    path: &str,
+    offset: u64,
 ) -> Result<std::string::String, i32> {
     let mut out = [0_u8; 16];
     // SAFETY: live input, exclusive output.
@@ -76,7 +140,7 @@ fn read(
             format,
             root,
             bytes(path.as_bytes()),
-            0,
+            offset,
             output(&mut out),
         )
     };
@@ -190,6 +254,34 @@ fn the_css_file_is_root_4_only_where_the_call_has_one_and_never_changed() {
     );
 }
 
+/// The stylesheets plugins brought (a style pack's `styles.css`) are root 7 of
+/// any format call, one file of them all, read from the kernel's memory (#463).
+#[test]
+fn the_plugins_stylesheets_are_root_7_one_file_never_changed() {
+    let book = || Some(book("books/a.epub", BookKind::File, "", ""));
+    within_styled(&["p{a}", "h1{b}"], book(), |env, format| {
+        assert_eq!(size_of(env, format, 7, ""), Ok(11));
+        assert_eq!(read(env, format, 7, ""), Ok("p{a}\nh1{b}\n".into()));
+        // From an offset, across the end of a sheet; at the end nothing.
+        assert_eq!(read_from(env, format, 7, "", 3), Ok("}\nh1{b}\n".into()));
+        assert_eq!(read_from(env, format, 7, "", 5), Ok("h1{b}\n".into()));
+        assert_eq!(read_from(env, format, 7, "", 11), Ok("".into()));
+        assert_eq!(read(env, format, 7, "x"), Err(ERR_NOT_FOUND));
+        assert_eq!(read(env, format, 7, "../x"), Err(ERR_INVALID));
+        assert_eq!(put(env, format, 7, "", b"x"), ERR_DENIED);
+    });
+    // No plugin brought one: there is none to read.
+    within_styled(&[], book(), |env, format| {
+        assert_eq!(size_of(env, format, 7, ""), Err(ERR_NOT_FOUND));
+        assert_eq!(read(env, format, 7, ""), Err(ERR_NOT_FOUND));
+    });
+    // Outside a format call they are no root.
+    within_styled(&["p{a}"], None, |env, format| {
+        assert_eq!(read(env, format, 7, ""), Err(ERR_UNSUPPORTED));
+        assert_eq!(read(env, None, 7, ""), Err(ERR_UNSUPPORTED));
+    });
+}
+
 #[test]
 fn the_cache_is_root_6_read_and_write_below_its_folder() {
     within(
@@ -274,9 +366,9 @@ fn a_document_without_a_cache_folder_has_no_root_6() {
 }
 
 #[test]
-fn outside_a_format_call_roots_3_4_and_6_are_unsupported_and_so_are_the_others() {
+fn outside_a_format_call_roots_3_4_6_and_7_are_unsupported_and_so_are_the_others() {
     within(None, |env, format| {
-        for root in [3, 4, 6] {
+        for root in [3, 4, 6, 7] {
             assert_eq!(
                 read(env, format, root, "x"),
                 Err(ERR_UNSUPPORTED),
@@ -293,7 +385,7 @@ fn outside_a_format_call_roots_3_4_and_6_are_unsupported_and_so_are_the_others()
     within(
         Some(book("books/a.epub", BookKind::File, CACHE, "style.css")),
         |env, _| {
-            for root in [3, 4, 6] {
+            for root in [3, 4, 6, 7] {
                 assert_eq!(
                     read(env, None, root, "x"),
                     Err(ERR_UNSUPPORTED),
@@ -305,7 +397,7 @@ fn outside_a_format_call_roots_3_4_and_6_are_unsupported_and_so_are_the_others()
     within(
         Some(book("books/a.epub", BookKind::File, CACHE, "style.css")),
         |env, format| {
-            for root in [1, 5, 7, 9] {
+            for root in [1, 5, 8, 9] {
                 assert_eq!(
                     read(env, format, root, "x"),
                     Err(ERR_UNSUPPORTED),

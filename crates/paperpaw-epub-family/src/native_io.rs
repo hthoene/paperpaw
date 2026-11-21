@@ -151,7 +151,8 @@ impl Storage for NativeIo<'_, '_> {
 
 /// Answers one `core.format` call of `provider` over the roots of the call
 /// `host` belongs to: what each native plugin of this family does in its
-/// `event`. The cache folder the parsers use is copied fallibly.
+/// `event`. The cache folder the parsers use is copied fallibly; an open of a
+/// provider that applies the plugins' stylesheets is given them (root 7).
 ///
 /// # Errors
 /// What [`FormatProvider::call`](crate::provider::FormatProvider::call) says;
@@ -162,12 +163,57 @@ pub fn serve(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, Error> {
+    if provider.reads_plugin_css() && crate::provider::FormatProvider::is_open(input) {
+        provider.set_plugin_css(plugin_css(host)?);
+    }
     let mut prefix = String::new();
     prefix
         .try_reserve_exact(provider.cache().len())
         .map_err(|_| Error::NoMemory)?;
     prefix.push_str(provider.cache());
     provider.call(&NativeIo::new(host, prefix), input, out)
+}
+
+/// The most of the plugins' stylesheets an open reads, as of one's own
+/// (`document.rs` `MAX_USER_CSS`): what is beyond is left out.
+const MAX_PLUGIN_CSS: u64 = 64 * 1024;
+
+/// The stylesheets plugins bring for books, root 7 of the call `host`
+/// belongs to, as one text: empty where no plugin has one or the host has no
+/// root 7 (one older than draft 39). Bytes that are no UTF-8 are replaced.
+///
+/// # Errors
+/// `NoMemory`; what reading root 7 says, but `NotFound` and `Unsupported`.
+fn plugin_css(host: &Host<'_>) -> Result<String, Error> {
+    let size = match storage::size(host, Root::PluginCss, "") {
+        Ok(size) => size.min(MAX_PLUGIN_CSS),
+        Err(Error::NotFound | Error::Unsupported) => return Ok(String::new()),
+        Err(error) => return Err(error),
+    };
+    let mut bytes = alloc::vec::Vec::new();
+    let len = usize::try_from(size).map_err(|_| Error::NoSpace)?;
+    bytes.try_reserve_exact(len).map_err(|_| Error::NoMemory)?;
+    bytes.resize(len, 0);
+    let mut done = 0;
+    while let Some(part) = bytes.get_mut(done..).filter(|rest| !rest.is_empty()) {
+        let end = min(part.len(), storage::MAX_DATA);
+        let n = storage::read_at(host, Root::PluginCss, "", done as u64, &mut part[..end])?;
+        if n == 0 {
+            break;
+        }
+        done += n;
+    }
+    bytes.truncate(done);
+    match String::from_utf8(bytes) {
+        Ok(text) => Ok(text),
+        Err(error) => match crate::fallible::lossy(error.as_bytes()) {
+            Ok(alloc::borrow::Cow::Owned(text)) => Ok(text),
+            Ok(alloc::borrow::Cow::Borrowed(text)) => {
+                crate::fallible::string(text).map_err(|_| Error::NoMemory)
+            }
+            Err(_) => Err(Error::NoMemory),
+        },
+    }
 }
 
 /// As [`serve`], where a call that opens a document is first given the

@@ -8,7 +8,8 @@ use crate::{
 use paperpaw_sdk::document::{Document, DocumentError};
 
 /// The `core.format` provider of EPUB books (`epub`): sniffed by its
-/// `mimetype` entry, the opened file named by the call's `text`.
+/// `mimetype` entry, the opened file named by the call's `text`; the plugins'
+/// stylesheets apply after the book's own.
 #[must_use]
 pub fn epub_provider() -> provider::FormatProvider {
     let dir = paperpaw_sdk::data::plugin_dir(PLUGIN.as_str());
@@ -21,6 +22,7 @@ pub fn epub_provider() -> provider::FormatProvider {
         dir,
         is_epub,
     )
+    .with_plugin_css()
 }
 
 /// The `core.format` provider of fixed-layout EPUB books of pictures (a page
