@@ -195,7 +195,8 @@ impl<S: 'static> super::Context<S> {
         let context = super::super::commands::dev::DevContext::new(
             self.declared_services.features(),
             hosts.radio_requests()?,
-        );
+        )
+        .with_net_policy(hosts.policy_made());
         Some(match hosts.firmware_cell() {
             Some(firmware) => {
                 // Allocates nothing: it shares the cell and the driver's skip

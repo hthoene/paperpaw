@@ -154,6 +154,10 @@
     "core.work"
   ],
   "features": [
-    "uses.network"
+    "uses.network",
+    {
+      "key": "uses.wifi",
+      "required": false
+    }
   ]
 }

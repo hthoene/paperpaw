@@ -141,6 +141,10 @@
     "core.ui"
   ],
   "features": [
-    "uses.network"
+    "uses.network",
+    {
+      "key": "uses.wifi",
+      "required": false
+    }
   ]
 }

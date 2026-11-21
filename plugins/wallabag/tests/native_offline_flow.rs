@@ -156,26 +156,17 @@ fn offline_mode_offers_to_go_online_once_and_go_online_fetches_again() {
     assert_eq!(online.status, 0);
     assert!(went_online(&online), "command.go_online is sent");
     assert_eq!(*sent.borrow(), [LOGIN, LOGIN]);
-    // That fetch was checked before the host went online (it does once the
-    // answer's callback has returned): its end fetches once more.
+    // Held back again (the host did not go online): offered once, it says it
+    // needs the network.
     let questions = dialogs.questions().len();
-    let once_more = held_back(&p, 2);
-    assert_eq!(once_more.status, 0);
-    assert_eq!(dialogs.questions().len(), questions, "not offered again");
-    assert!(
-        !once_more.batches_contain(NO_NETWORK.as_bytes()),
-        "not said"
-    );
-    assert_eq!(*sent.borrow(), [LOGIN, LOGIN, LOGIN]);
-    // Held back again: offered once, it says it needs the network.
-    let again = held_back(&p, 3);
+    let again = held_back(&p, 2);
     assert_eq!(again.status, 0);
     assert_eq!(dialogs.questions().len(), questions, "not offered again");
     assert!(again.batches_contain(NO_NETWORK.as_bytes()), "said");
-    assert_eq!(*sent.borrow(), [LOGIN, LOGIN, LOGIN]);
+    assert_eq!(*sent.borrow(), [LOGIN, LOGIN]);
     // The reader fetches anew: it may be offered again.
     assert_eq!(fetch(&p).status, 0);
-    assert_eq!(held_back(&p, 4).status, 0);
+    assert_eq!(held_back(&p, 3).status, 0);
     assert_eq!(dialogs.questions().len(), questions + 1);
 }
 

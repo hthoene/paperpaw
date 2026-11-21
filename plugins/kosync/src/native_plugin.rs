@@ -696,14 +696,7 @@ impl NativeKosync {
                 Ok(())
             }
             Purpose::Authorize | Purpose::Create if done.reason() == Reason::Offline => {
-                let create = pending.purpose == Purpose::Create;
-                if self.online.again() {
-                    // Sent again from *Go online* before the host went online
-                    // (`paperpaw_ui_kit::online`): once more.
-                    self.call_again(host, create)
-                } else {
-                    self.held_back(host, create)
-                }
+                self.held_back(host, pending.purpose == Purpose::Create)
             }
             Purpose::Authorize => self.signed(host, false, status),
             Purpose::Create => self.signed(host, true, status),

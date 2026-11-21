@@ -18,7 +18,9 @@ mod bluetooth;
 #[path = "commands_dev_firmware.rs"]
 mod firmware;
 use crate::Ask;
-use crate::native_host::{admitted_features::AdmittedFeatures, radio_requests::*};
+use crate::native_host::{
+    admitted_features::AdmittedFeatures, net_policy::NetPolicy, radio_requests::*,
+};
 use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 pub use bluetooth::FEATURE_BLUETOOTH;
 use core::{cell::RefCell, fmt, time::Duration};
@@ -254,6 +256,9 @@ pub(crate) struct DevContext<'a> {
     guard_owner: Option<&'a str>,
     /// The firmware table and the owner's key; none without a firmware host.
     firmware: Option<FirmwareContext>,
+    /// The network policy a granted `go_online` lifts at once; none before
+    /// the kernel made it.
+    policy: Option<Rc<NetPolicy>>,
 }
 
 impl<'a> DevContext<'a> {
@@ -264,7 +269,15 @@ impl<'a> DevContext<'a> {
             requests: Rc::clone(requests),
             guard_owner: None,
             firmware: None,
+            policy: None,
         }
+    }
+
+    /// The device's network policy, for a granted `go_online` to lift the
+    /// offline mode before the callback's next request ([`NetPolicy::went_online`]).
+    pub(crate) fn with_net_policy(mut self, policy: Option<&Rc<NetPolicy>>) -> Self {
+        self.policy = policy.map(Rc::clone);
+        self
     }
 
     /// The device's firmware table and the submitting plugin's owner key.
@@ -374,6 +387,30 @@ impl<'a> CommandStage<'a> {
             fw: None,
             boxed: None,
         });
+    }
+
+    /// Whether a `command.go_online` this callback submits is honoured: the
+    /// kernel's user-input window is open (see `apply_go_online`).
+    pub(crate) fn set_go_online_granted(&mut self, granted: bool) {
+        self.go_online_granted = granted;
+    }
+
+    /// An accepted batch with a `go_online` the kernel will honour lifts the
+    /// offline mode now, so that a request the callback makes after it is not
+    /// ended `Offline` before the kernel applies the batch (#461).
+    pub(super) fn dev_went_online(&self, batch: &CommandBatch<'_>) {
+        if !self.go_online_granted {
+            return;
+        }
+        let Some(policy) = self.dev.as_ref().and_then(|dev| dev.ctx.policy.as_ref()) else {
+            return;
+        };
+        if batch
+            .iter()
+            .any(|command| matches!(command, WireCommand::GoOnline { .. }))
+        {
+            policy.went_online();
+        }
     }
 
     /// Like `into_ui_output`, with the DEV commands to apply in order. The
@@ -713,6 +750,12 @@ fn join_op(request: u32, host: bool, ssid: &str, password: &str) -> Result<DevOp
 }
 
 impl crate::Kernel {
+    /// Whether a `go_online` a callback submits now is honoured (the window
+    /// after a user input), for its command stage.
+    pub(crate) fn go_online_granted(&self) -> bool {
+        input_is_recent(&self.dev_clock())
+    }
+
     /// The clock of the window rules: the kernel's time and its last user input.
     pub(crate) fn dev_clock(&self) -> KernelClock {
         KernelClock {
@@ -883,7 +926,7 @@ impl crate::Kernel {
     }
 }
 
-fn input_is_recent(clock: &dyn InputClock) -> bool {
+pub(crate) fn input_is_recent(clock: &dyn InputClock) -> bool {
     clock
         .last_input_ms()
         .is_some_and(|last| clock.now_ms().saturating_sub(last) <= INPUT_WINDOW_MS)

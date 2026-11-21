@@ -17,6 +17,11 @@
       "key": "uses.network",
       "required": false,
       "revision": 1
+    },
+    {
+      "key": "uses.wifi",
+      "required": false,
+      "revision": 1
     }
   ],
   "flags": 0,
@@ -59,5 +64,5 @@
     }
   ],
   "target": "esp32s3-xtensa-lx7-ilp32-windowed-le",
-  "total_bytes": 195
+  "total_bytes": 212
 }

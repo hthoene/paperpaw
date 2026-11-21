@@ -825,11 +825,6 @@ impl NativeCalibre {
                 self.queued = 0;
                 storage::remove(host, Root::Data, INCOMING).ok();
                 let reason = event.reason();
-                if reason == Reason::Offline && self.session.is_some() && self.online.again() {
-                    // Started again from *Go online* before the host went
-                    // online (`paperpaw_ui_kit::online`): once more.
-                    return self.restart(host);
-                }
                 match &mut self.session {
                     Some(session) => match reason {
                         Reason::Offline => session.offline(self.online.may_offer())?,
@@ -963,11 +958,6 @@ impl NativeCalibre {
             kind @ (BroadcastKind::Done | BroadcastKind::Failed) => {
                 self.broadcast = None;
                 let reason = event.reason();
-                if reason == Reason::Offline && self.session.is_some() && self.online.again() {
-                    // Started again from *Go online* before the host went
-                    // online (`paperpaw_ui_kit::online`): once more.
-                    return self.restart(host);
-                }
                 // A failed broadcast had no network to ask.
                 let no_network = kind == BroadcastKind::Failed
                     || matches!(

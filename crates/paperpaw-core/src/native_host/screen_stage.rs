@@ -44,6 +44,8 @@ pub(crate) struct StageInputs {
     pub(crate) answers: super::plugin_requests::AnswerView,
     /// Whose the device's one preview of settings is.
     pub(crate) preview: super::commands::PreviewHeld,
+    /// A `command.go_online` the callback submits is honoured.
+    pub(crate) go_online: bool,
 }
 
 /// The device-wide hand-off between the kernel and the screens' dispatch.
@@ -220,6 +222,7 @@ pub(crate) fn build_stage<'a>(parts: StageParts<'a>) -> CommandStage<'a> {
     stage.set_requests_open(inputs.requests_open, inputs.own_requests);
     stage.set_answer_view(inputs.answers);
     stage.set_preview_held(inputs.preview);
+    stage.set_go_online_granted(inputs.go_online);
     if let Some(directory) = directory {
         stage = stage.with_item_states(super::commands::ItemAdmit { directory });
     }
@@ -377,6 +380,7 @@ mod tests {
             own_requests: 0,
             answers: crate::native_host::plugin_requests::AnswerView::default(),
             preview: crate::native_host::commands::PreviewHeld::Nobody,
+            go_online: false,
         };
         assert!(queue.inputs().is_none());
         let outer = queue.arm(inputs(1));

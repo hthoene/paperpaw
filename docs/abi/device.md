@@ -243,6 +243,9 @@ Tags 1564-1592 and 1595 follow UIX's approved commands (1547-1558, 1561-1563) an
   (needs the user). A `join` of a network with a stored password, `wifi_on`, `scan`, `leave` and
   `off` need no input. `go_online` (`for_ms` 1-600,000) is honoured only within 2,000 ms after a
   user input (else `OK` and ignored, logged): no plugin turns the radio on in the background by it.
+  An honoured `go_online` lifts Offline mode at once for what the same callback starts after it
+  (`core.net` requests, `core.sockets` sockets), although the host applies the command only when the
+  callback has returned.
 - [D] **The 2,000 ms input window is the submitting plugin's own.** It counts only a user input
   that went to that plugin: an input record (key, pointer, gesture, widget) delivered to one of its
   callbacks, or the user running one of its actions (a menu entry, a key binding, a slot), and it
