@@ -106,6 +106,13 @@ impl Open {
         }
     }
 
+    /// The screen is on top again: pictures still missing from a page drawn
+    /// whole are asked for after the show (#438). A page whose pictures wait
+    /// for the show or a follow-up gets them there.
+    pub(super) fn missing_when_shown(&mut self) {
+        self.missing.due |= self.pictures == Pass::Whole && self.has_pictures();
+    }
+
     /// Whether the page on show (laid out) has pictures.
     pub(super) fn has_pictures(&self) -> bool {
         self.page
@@ -244,9 +251,10 @@ impl Open {
     /// while. They are asked for now, outside the draw, and only the boxes of
     /// those given are drawn again, a partial refresh of their rows.
     pub(super) fn fill_missing(&mut self, host: &Host<'_>, docs: &Documents) {
-        // Waiting for their follow-up or for the show: that draws them.
+        // Waiting for their follow-up or for the show: that draws them (and
+        // a refusal there wants the step again). Not declared again here: a
+        // pass that stays so would turn the step over and over.
         if self.pictures != Pass::Whole {
-            self.missing.due = true;
             return;
         }
         let missing = |page: &paperpaw_sdk::layout::Page| -> [u32; MAX_ASKED] {

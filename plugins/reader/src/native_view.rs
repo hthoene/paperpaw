@@ -733,8 +733,7 @@ impl View {
     pub fn shown(&mut self, host: &Host<'_>, docs: &Documents) {
         if let Body::Open(open) = &mut self.body {
             open.decorate_again();
-            // Pictures still missing are asked for after the show (#438).
-            open.missing.due |= open.has_pictures();
+            open.missing_when_shown();
         }
         if let Body::Open(open) = &mut self.body
             && core::mem::take(&mut open.report_due)
