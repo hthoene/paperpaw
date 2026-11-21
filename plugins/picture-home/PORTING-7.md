@@ -269,7 +269,8 @@ Blocked, each named (nothing invented):
   `paperpaw_ui_kit::status_line`: the items of the three lists with their values, laid out as interface 6,
   drawn here and by their owners; `native_dashboard/bar.rs`: drawing, a tap on an item that does
   something, and the bar that shows after a press: the first key press (not the power key) only shows
-  it, and the row of hints with it through `command.show_hints`). Differences: a bar shown after a
+  it, and the row of hints with it through `command.show_hints`; a tap where nothing is shows it
+  too, as interface 6 did, #459). Differences: a bar shown after a
   press goes at the first minute tick after its four seconds (`event.tick` is the only clock a screen
   has, so up to a minute, not four seconds); the row of hints shows as *Buttons row* says (always,
   after a press, never: `ScreenPolicy::hints`, draft 38, sent at each show where it changed, #448,

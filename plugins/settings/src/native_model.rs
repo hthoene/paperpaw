@@ -409,6 +409,23 @@ pub fn reset_plan(
     Ok(keys)
 }
 
+/// The most commands and bytes of keys and text one callback may stage
+/// (`docs/abi/commands.md`, `command.submit` 3: the same on every device).
+const CALLBACK_COMMANDS: usize = 64;
+const CALLBACK_BYTES: usize = 4096;
+/// What the notice after a reset takes of them, at most.
+const NOTICE_BYTES: usize = 512;
+
+/// Whether the reset plan `keys` fits one callback, with the notice after
+/// it. One that does not would be refused whole: the host drops everything a
+/// callback staged when a command does not fit (#459: then nothing was reset
+/// and nothing said).
+#[must_use]
+pub fn reset_fits(keys: &[String]) -> bool {
+    let bytes: usize = keys.iter().map(String::len).sum();
+    keys.len() < CALLBACK_COMMANDS && bytes + NOTICE_BYTES <= CALLBACK_BYTES
+}
+
 /// One setting of the reset plan: its key is added where the reset takes it
 /// (settings may be given one at a time, then [`reset_end`]).
 ///

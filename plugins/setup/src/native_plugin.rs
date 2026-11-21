@@ -37,7 +37,10 @@ mod image {
 const OPEN: u32 = 1;
 const STARTED: u32 = 2;
 const BOOK_OPENED: u32 = 3;
+const SETTING_CHANGED: u32 = 4;
 const GUIDE: u32 = 20;
+/// The setting whose change the guide's words follow.
+const LANGUAGE: &str = "core.language";
 /// The slot the guide fills.
 const SLOT: &str = "core.setup";
 
@@ -87,6 +90,13 @@ impl Plugin for NativeSetup {
             } if token == BOOK_OPENED => {
                 native_state::note_book_opened(host);
                 Ok(())
+            }
+            // The language (or several settings at once, the empty key): the
+            // guide's words and the page are read again in it.
+            Event::SettingChanged { key, .. }
+                if token == SETTING_CHANGED && (key == LANGUAGE || key.is_empty()) =>
+            {
+                self.language_changed(host)
             }
             Event::ScreenOpened {
                 screen: "setup.guide",
@@ -247,6 +257,24 @@ impl NativeSetup {
         guide.commit(0, loaded.gone, (loaded.setting, loaded.help));
         key_bar(host, &guide);
         self.screens.open(instance, guide)
+    }
+
+    /// The language changed: each open guide takes its words and its page
+    /// anew and is drawn again (#459: until then Next, Back, Skip and the end
+    /// page stayed in the language the guide opened in).
+    fn language_changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let mut any = false;
+        for guide in self.screens.all() {
+            guide.texts = texts(host)?;
+            let loaded = read_page(host, guide, guide.page)?;
+            guide.commit(guide.page, loaded.gone, (loaded.setting, loaded.help));
+            key_bar(host, guide);
+            any = true;
+        }
+        if any {
+            Self::redraw(host, RedrawMode::Partial)?;
+        }
+        Ok(())
     }
 
     fn redraw(host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {

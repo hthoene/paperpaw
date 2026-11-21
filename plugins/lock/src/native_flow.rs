@@ -88,6 +88,11 @@ impl Effects {
         }
     }
 
+    /// Drops the effects not taken yet.
+    pub(crate) fn discard(&mut self) {
+        *self = Self::default();
+    }
+
     /// The effects not taken yet, in order.
     pub fn iter(&self) -> impl Iterator<Item = &Effect> {
         self.list.iter().flatten()
@@ -350,6 +355,23 @@ impl Flow {
             self.message = Message::None;
             fx.push(Effect::Redraw);
         }
+    }
+
+    /// The code could not be kept, or not removed: the device's secrets
+    /// refused (on the X4 they seal with the radio, so Wi-Fi has to be on).
+    /// Nothing of the lock changed, so what was to follow is dropped; the
+    /// choice of kind is shown again and says so (#459: before, nothing
+    /// was said at all).
+    pub fn not_kept(&mut self, fx: &mut Effects) {
+        fx.discard();
+        // Wiped as it is dropped.
+        self.first = None;
+        self.step = Step::Choose;
+        self.focus = 0;
+        self.message = Message::None;
+        self.asked = false;
+        fx.push(Effect::Notify("lock.not-kept"));
+        fx.push(Effect::Redraw);
     }
 
     /// Kind `kind` was chosen: off at once, else the new code.

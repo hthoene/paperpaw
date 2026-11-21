@@ -104,3 +104,10 @@ freed at the end of the draw. The secrets calls use two 2 KiB buffers, the passw
   is staged for a device whose code is unknown.
 - `draw` has no command stage: it only makes a missing view. The guard policy is set when the screen
   shows or takes an input (`native_gate::guard_due`), and again there where the host refused it.
+
+## A code that cannot be kept says so (#459)
+
+`store::keep` / `store::forget` fail where `core.secrets` cannot seal (the X4 with the radio off). The
+effects after it (the kind, "done", Back) were dropped with the callback, so nothing was said. Now
+`Flow::not_kept` drops them, says `lock.not-kept` and shows the kinds again; a renewal (a better salt
+for a code that opens already) that cannot be kept is left for the next unlock, which goes on.

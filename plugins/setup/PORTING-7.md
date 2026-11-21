@@ -77,3 +77,9 @@ While the native plugins are not registered in the app, the settings list has no
 `boox-settings.png` was re-blessed for that (the list is the one of #422 without the row, the
 rows after it moved up; checked by eye). When the host activates native plugins it must be
 restored (the row comes back after *Updates*) and compared against Beta 3.
+
+## The guide's words follow the language (#459)
+
+The words copied at `opened` (Next, Back, Skip, the end page, On/Off, the sample) are read again when
+`core.language` changes (or several settings at once, the empty key: `event.setting_changed`, token 4),
+with the page shown, and the guide is drawn again, as interface 6 did on `SETTING_CHANGED`.

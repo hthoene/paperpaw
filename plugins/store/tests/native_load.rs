@@ -211,3 +211,23 @@ fn a_fetch_that_cannot_go_on_leaves_no_part_and_no_loading() {
     assert_eq!(ended, Err(Error::NoMemory));
     assert_eq!(loader.details(), (Some("plugin-a"), Details::Failed));
 }
+
+#[test]
+fn a_list_offline_mode_held_back_is_told_apart_and_forgotten_on_the_next_ask() {
+    // #459: the start then offers to go online (Beta 3), not only *No
+    // connection* with a tap that tries again in vain.
+    let mut wire = Script::new();
+    let mut loader = Loader::default();
+    loader.start_list(&mut wire).unwrap();
+    loader
+        .ended(&mut wire, &done(LIST_TOKEN, Reason::Offline, 0))
+        .unwrap();
+    assert_eq!(loader.trouble(), Trouble::Offline);
+    assert!(loader.held_offline());
+    loader.start_list(&mut wire).unwrap();
+    assert!(!loader.held_offline());
+    loader
+        .ended(&mut wire, &done(LIST_TOKEN, Reason::NoNetwork, 0))
+        .unwrap();
+    assert!(!loader.held_offline(), "no network is not Offline mode");
+}
