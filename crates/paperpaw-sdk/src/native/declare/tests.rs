@@ -730,6 +730,25 @@ fn a_screen_declared_with_its_hints_hidden_has_flag_bit_8() {
 }
 
 #[test]
+fn a_screen_declared_with_its_hints_on_a_press_has_flag_bit_13() {
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    d.screen(ScreenDecl::new("page", "demo.page.title", 1).hints_on_press())
+        .unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let batch = records_decode(&batches[0]).unwrap();
+    let flags: Vec<u32> = batch
+        .iter()
+        .filter_map(|record| match record {
+            Record::ScreenSpec(screen) => Some(screen.flags),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(flags, [0x2000]);
+}
+
+#[test]
 fn an_overlay_declared_to_dim_what_is_below_has_flag_bit_10() {
     let mut batches = Vec::new();
     let mut d = collecting(&mut batches);

@@ -1348,6 +1348,7 @@ pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::dims_below(self) -> 
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::grays(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::guards(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::hints_hidden(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::hints_on_press(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::holds_edges(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::instances(self, paperpaw_sdk::native::declare::Instances) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::overlay(self) -> Self

@@ -535,6 +535,13 @@ fn a_screen_declared_hints_hidden_says_so_and_another_leaves_it_to_its_plugin() 
 }
 
 #[test]
+fn a_screen_declared_hints_on_press_has_the_row_only_after_a_press() {
+    let (screen, _) = screen();
+    let screen = screen.with_flags((1 << 13) | (2 << 11));
+    assert_eq!(screen.hints(), Some(paperpaw_sdk::HintVisibility::OnPress));
+}
+
+#[test]
 fn a_screen_declared_to_dim_what_is_below_says_so_and_another_does_not() {
     let (screen, _) = screen();
     assert!(!screen.dims_below());

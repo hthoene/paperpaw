@@ -78,7 +78,7 @@ fn committed_raw_construction_refuses_duplicates_and_store_refuses_invalid_flags
         }
     }
     // An unknown bit, and `status_bar` 3 (bits 11-12, #123).
-    for flags in [1 << 13, 3 << 11] {
+    for flags in [1 << 14, 3 << 11] {
         let source = source(&[Record::ScreenSpec(ScreenSpec {
             name: "panel",
             title: "Panel",
@@ -133,6 +133,28 @@ fn a_screen_may_be_declared_with_its_hints_hidden() {
             "{flags:#x}"
         );
     }
+}
+
+#[test]
+fn a_screen_may_be_declared_with_its_hints_on_a_press_but_not_hidden_too() {
+    // Bit 13 `hints_on_press` (draft 38), beside the other policy bits.
+    let declared = |flags| {
+        let source = source(&[Record::ScreenSpec(ScreenSpec {
+            name: "page",
+            title: "Page",
+            token: 1,
+            flags,
+        })]);
+        pending(&source, false, &mut Allocations::default()).map(|_| ())
+    };
+    for flags in [1 << 13, (1 << 13) | (2 << 11) | (1 << 5)] {
+        assert!(declared(flags).is_ok(), "{flags:#x}");
+    }
+    // Bit 8 `hints_hidden` says the opposite.
+    assert!(matches!(
+        declared((1 << 13) | (1 << 8)),
+        Err(paperpaw_native::host_glue::ERR_INVALID)
+    ));
 }
 
 #[test]

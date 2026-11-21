@@ -541,6 +541,15 @@ impl ScreenDecl<'_> {
         self.policy_flags |= 256;
         self
     }
+    /// Show the row of button hints only for a few seconds after one of its
+    /// buttons was pressed, over the screen's bottom edge: the screen has the
+    /// whole display (the reader's page, as in Beta 3). Draft 38; not with
+    /// [`ScreenDecl::hints_hidden`].
+    #[must_use]
+    pub const fn hints_on_press(mut self) -> Self {
+        self.policy_flags |= 1 << 13;
+        self
+    }
 }
 
 /// An `action.spec` declaration with a plugin-owned callback token.

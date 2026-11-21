@@ -568,9 +568,15 @@ impl<D: Dispatch> NativeScreen<D> {
                 return hints;
             }
         }
-        // Declared hidden (`screen.spec.flags` bit 8); else as its plugin said.
-        (self.flags & super::declarations::SCREEN_HINTS_HIDDEN != 0)
-            .then_some(paperpaw_sdk::HintVisibility::Hidden)
+        // Declared hidden (`screen.spec.flags` bit 8) or on a press (bit 13);
+        // else always.
+        use super::declarations::{SCREEN_HINTS_HIDDEN, SCREEN_HINTS_ON_PRESS};
+        if self.flags & SCREEN_HINTS_HIDDEN != 0 {
+            Some(paperpaw_sdk::HintVisibility::Hidden)
+        } else {
+            (self.flags & SCREEN_HINTS_ON_PRESS != 0)
+                .then_some(paperpaw_sdk::HintVisibility::OnPress)
+        }
     }
     pub(crate) fn grays(&self) -> bool {
         // Declared (`screen.spec.flags` bit 9); the run-time policy of

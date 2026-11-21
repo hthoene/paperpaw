@@ -234,6 +234,11 @@ events 83, 88 and 90 are free).
     strip; the screen is not drawn). Home and the reader's page declare 2: they have status
     lines of their own. `screen_policy` may change these bits at run time (below); there 0
     keeps what the screen declared, so a policy sent for another bit leaves the bar as it was.
+  - bit 13 `hints_on_press` (draft 38, #448): the row of button hints shows only for a few
+    seconds after one of its buttons was pressed (or `command.show_hints`), over the screen's
+    bottom edge, and the screen has the whole display (interface 6 `HintVisibility::OnPress`:
+    the reader's page, as in Beta 3). With bit 8 it is `ERR_INVALID`. Declared only;
+    `screen_policy` cannot change it.
   Other bits stay `ERR_UNSUPPORTED`.
 - [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
   (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4, 5, 9 and 11-12 above; 11-12
@@ -1091,6 +1096,7 @@ and every device of that profile (the X3 too), not the model.
 | `Screen::grays` (dynamic) | `screen.spec.flags` bit 9 `grays`; `command.screen_policy` bit 9 |
 | `Screen::dims_below` | `screen.spec.flags` bit 10 `dims_below` |
 | `Registrar::set_screen_hints(screen, HintVisibility::Hidden)` | `screen.spec.flags` bit 8 `hints_hidden` |
+| `Registrar::set_screen_hints(screen, HintVisibility::OnPress)` | `screen.spec.flags` bit 13 `hints_on_press` (draft 38) |
 | `Env::stack`, `StackEntry` (`guards`, `overlay`, `slot`) | `core.ui` op 1, `ui_screen`; event 81 |
 | `Command::SetKeyLayer`, `ShowHints`, `Input` | `command.set_key_layer`, `show_hints`, `raise_input` |
 | `Registrar::add_input`, `add_gesture`, `InputSpec`, `GestureSpec` | `input.spec`; recognizer = filter verdict 5 |
