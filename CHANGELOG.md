@@ -4768,6 +4768,8 @@ change the plugin SDK.
 
 - The sleep screens of Calendar, Tasks, Reading statistics, Reading goal, All notes, News and Smart home read what they show when they open, not while they draw (#421). Updates of those store plugins.
 
+- **Calendar sleep screen on screens less tall than the X4's** (#439). The "Tomorrow" block of the calendar's sleep screen sat on the footer there, and its "Nothing planned" lay under the word "Calendar". The block now takes its place from the screen's height. The mailbox setting of the mail widgets also had no help sentence, so it showed its key; it has one in English and German now.
+
 - **A deflated book chapter of some sizes (about 27 to 28 KiB) was refused as "entry longer than its size"** (#4309). When the reader's window, sized to the entry, was filled to the last byte before the decoder had seen the end of the stream, the first "more output" answer was taken for an overlong entry. Only an answer that still wants to write after the window is full counts now.
 
 - **Bigger sliders and resize handles on touch screens** (#435, #436). In the quick panel the Front light and Light colour sliders (and every other slider in a panel) now have a row of their own across almost the whole width, under the label, so a finger hits and moves them easily; the − and + buttons sit tight together with the value at the right edge and the label keeps the rest of the line. Numbers on screens without touch use the same tight − value + row. When arranging the home screen, the corner that sizes a widget is a filled disc again, as in Beta 3, and its touch area is at least a fingertip.
