@@ -227,7 +227,7 @@ impl CommandSender<'_, '_> {
     /// # Errors
     /// Returns Invalid for empty IDs, embedded separators or list item limits,
     /// NoSpace for total field overflow, NoMemory for the temporary joined list,
-    /// or the host's refusal, including Denied without uses.registry.
+    /// or the host's refusal: Invalid for an unknown menu or entry or a submenu cycle.
     pub fn set_menu(&mut self, menu: impl AsRef<str>, items: Option<&[&str]>) -> Result<(), Error> {
         let menu = menu.as_ref();
         check_id(menu, wire::COMMAND_SET_MENU_MENU_MAX_BYTES)?;
