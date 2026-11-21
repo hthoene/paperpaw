@@ -218,30 +218,13 @@ pub fn sleep_asleep(until_ms: u64) -> bool {
 }
 
 /// One light sleep, as every nap takes it: on the crystal (#434, see
-/// [`crate::cpu_clock::across_sleep`]), and on the X4 a cable plugged in ends
-/// it ([`cable_wake`]).
+/// [`crate::cpu_clock::across_sleep`]), at esp-hal's sleep voltages (with ESP-IDF's
+/// lower ones the X3 crashed in a long nap, #451), and on the X4 a cable
+/// plugged in ends it ([`cable_wake`]).
 fn light(low_power: &mut LowPower<'static>) {
-    cable_wake(|| crate::cpu_clock::across_sleep(|| low_power.sleep_light(sleep_config())));
-}
-
-/// A light sleep's settings: on the ESP32-C3 ESP-IDF's
-/// (`rtc_sleep_get_default_config` with the crystal and the 8 MHz oscillator
-/// powered down, #451): the digital and the RTC domains held at about 0.6 V
-/// while asleep instead of esp-hal's 1.1 V, and the 8 MHz oscillator off.
-/// Memory, pads and VDD_SPI are kept as with esp-hal's.
-fn sleep_config() -> RtcSleepConfig {
-    #[cfg_attr(not(feature = "esp32c3"), allow(unused_mut))]
-    let mut config = RtcSleepConfig::default();
-    #[cfg(feature = "esp32c3")]
-    {
-        /// ESP-IDF's `RTC_CNTL_DBIAS_SLP`.
-        const DBIAS_ASLEEP: u8 = 5;
-        config.set_int_8m_pd_en(true);
-        config.set_dig_dbias_slp(DBIAS_ASLEEP);
-        config.set_rtc_dbias_slp(DBIAS_ASLEEP);
-        config.set_dbg_atten_slp(esp_hal::rtc_cntl::sleep::RTC_CNTL_DBG_ATTEN_LIGHTSLEEP_DEFAULT);
-    }
-    config
+    cable_wake(|| {
+        crate::cpu_clock::across_sleep(|| low_power.sleep_light(RtcSleepConfig::default()))
+    });
 }
 
 /// The X4's cable pin (GPIO 20, high while a cable is in), a source that ends
