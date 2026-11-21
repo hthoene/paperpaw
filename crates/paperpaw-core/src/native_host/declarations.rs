@@ -613,8 +613,12 @@ pub const SCREEN_DIMS_BELOW: u32 = 1 << 10;
 pub const SCREEN_STATUS_BAR_SHIFT: u32 = 11;
 /// The mask of bits 11-12.
 pub const SCREEN_STATUS_BAR: u32 = 3 << SCREEN_STATUS_BAR_SHIFT;
+/// `screen.spec` flag bit 13 (draft 38): the screen shows the row of button
+/// hints only for a few seconds after one of its buttons was pressed, over its
+/// bottom edge (the reader's page, as in Beta 3); not beside bit 8.
+pub const SCREEN_HINTS_ON_PRESS: u32 = 1 << 13;
 /// Every `screen.spec` flag bit this host knows.
-const SCREEN_FLAGS_KNOWN: u32 = 0x1fff;
+const SCREEN_FLAGS_KNOWN: u32 = 0x3fff;
 /// `action.spec` flag bit 0: runs only while one of the plugin's screens is on top.
 pub const ACTION_NEEDS_SCREEN: u32 = 1;
 
@@ -635,7 +639,9 @@ fn screen_check(plugin_id: &str, screen: &ScreenSpec<'_>) -> Check {
     if (flags >> 6) & 3 == 3 || flags & SCREEN_STATUS_BAR == SCREEN_STATUS_BAR {
         return Err(ERR_UNSUPPORTED);
     }
-    Ok(())
+    // No row of hints, and one on a press, at once.
+    let both = SCREEN_HINTS_HIDDEN | SCREEN_HINTS_ON_PRESS;
+    ensure(flags & both != both)
 }
 
 fn action_check(plugin_id: &str, action: &ActionSpec<'_>) -> Check {

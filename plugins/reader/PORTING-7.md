@@ -36,9 +36,10 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
   host and formats, `DOC-open-layout`), positions and book data (`add_book_data` has no native
   declaration; `LIB-position`), the screens, input and dialogs (H1–H4), reading aloud (a speech
   facade) and the timers.
-- **No native declaration exists yet for** the screen hints *on press* and the first-run help's wait
-  for the book (both SDK/host gaps; the help hints, the setup step *text size* and the sample widget
-  are declared since #257, see *The first run* at the end). Each is a gap in the declaration set;
+- **No native declaration exists yet for** the first-run help's wait for the book (an SDK/host gap;
+  the screen hints *on press* are declared since #448 with `hints_on_press`, draft 38; the help hints,
+  the setup step *text size* and the sample widget since #257, see *The first run* at the end). It is a
+  gap in the declaration set;
   `tests/abi7_declarations.rs` fails when the host admits the wait, so it cannot be forgotten.
 - **Owner ask #241 (the reading plugin extensible through plugins).** The reader's stages
   (`stage.spec`: inserted blocks between lines, text style, an input filter, with the layout key
@@ -190,7 +191,7 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   screens it offers would be empty. The views come next: the annotations screen (model in
   `native_annotations.rs`), then TOC, skim, search, footnote and the reading screen with the
   document host.
-- Still undeclared: the screen hints *on press* and the help's wait (see *The first run*); the status
+- Still undeclared: the help's wait (see *The first run*); the screen hints *on press*, the status
   places, the help hints, the setup step and the sample widget are declared since.
   `tests/hosted_construction.rs` runs `make` in the registered scope of the kernel's native host.
 - Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
