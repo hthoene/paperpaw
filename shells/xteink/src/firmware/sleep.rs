@@ -273,7 +273,9 @@ impl Firmware {
     /// Before sleeping: requests under way (a position pushed) go on until
     /// they are answered, [`SLEEP_WAIT_MS`] at the longest; the radio goes
     /// with the power then. `false` if a press came meanwhile (it waits
-    /// for the main loop): no sleep then.
+    /// for the main loop): no sleep then. Power held 8 s meanwhile (G12,
+    /// the press that put it to sleep held on) ends it with the escape
+    /// taken (`state.escape`): the caller switches off.
     pub(super) fn finish_work(&mut self) -> bool {
         let until = now().0 + SLEEP_WAIT_MS;
         if self.kernel.holds_sleep() {
@@ -281,6 +283,9 @@ impl Firmware {
         }
         while self.kernel.holds_sleep() && now().0 < until {
             power::feed();
+            if self.take_escape() {
+                return true;
+            }
             if input::waiting() {
                 return false;
             }

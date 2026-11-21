@@ -2,14 +2,37 @@
 //! that lay pages out for `native_index`, and the page numbers the host's
 //! report and the status lines carry once the count is complete.
 
+use paperpaw_sdk::digest::fnv1a64;
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::native::device::{Device, DeviceClass};
-use paperpaw_sdk::native::storage::DataStorage;
-use paperpaw_ui_kit::mem::buffer;
+use paperpaw_sdk::native::files::Files;
+use paperpaw_sdk::native::registry::{PageCursor, Registry, RegistryPluginState};
+use paperpaw_sdk::native::storage::{DataStorage, Root};
+use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
 use super::{Body, Documents, Host, Open, Setup, View};
 use crate::native_chapter::{self, Chapter};
-use crate::native_index::{self, Counter, Laid, Step};
+use crate::native_index::{self, Counter, Edition, Laid, Step};
+
+/// What the count of an open book asks the host only once.
+#[derive(Debug, Default)]
+pub(super) struct Asked {
+    /// The device's memory class (none where the host does not tell).
+    class: Option<Option<DeviceClass>>,
+    /// The book's file and the packs running, for the index's name
+    /// ([`Edition`]); asked again once a pack came (`packs_changed`).
+    file: Option<(u64, Option<u64>)>,
+    packs: Option<u64>,
+    /// The index was thrown away while the book is open (`distrust_index`).
+    mended: bool,
+    /// And its count is to be started again (`take_recount`).
+    recount: bool,
+}
+
+/// The most pages of plugins the registry is asked for.
+const MOST_PLUGIN_PAGES: usize = 16;
+/// The input of a registry call.
+const REGISTRY_INPUT: usize = 256;
 
 impl Open {
     /// The count of the layout now: the one open is kept if it is this
@@ -22,7 +45,8 @@ impl Open {
         else {
             return;
         };
-        let Ok(name) = native_index::file_name(&self.path, self.conversion, &layout) else {
+        let edition = self.edition(host);
+        let Ok(name) = native_index::file_name(&self.path, edition, &layout) else {
             return;
         };
         if self.counter.as_ref().is_some_and(|c| c.name() == name) {
@@ -78,11 +102,49 @@ impl Open {
     /// The device's memory class, asked once (none where the host does not
     /// tell: the pace of a small device).
     fn device_class(&mut self, host: &Host<'_>) -> Option<DeviceClass> {
-        if !self.class_asked {
-            self.class_asked = true;
-            self.class = read_class(host);
+        *self.count.class.get_or_insert_with(|| read_class(host))
+    }
+
+    /// The book's edition for the name of its index, its file and the packs
+    /// asked once (a file the card cannot tell of is size 0, as in Beta 3).
+    fn edition(&mut self, host: &Host<'_>) -> Edition {
+        let path = &self.path;
+        let (size, modified) = *self
+            .count
+            .file
+            .get_or_insert_with(|| book_file(host, path).unwrap_or((0, None)));
+        let packs = *self.count.packs.get_or_insert_with(|| packs_running(host));
+        Edition {
+            conversion: self.conversion,
+            size,
+            modified,
+            packs,
         }
-        self.class
+    }
+
+    /// A forward turn found no page after the one on show though the count
+    /// says there are more: the index counted pages this layout does not make
+    /// (counted while a letter measured otherwise). As Beta 3's
+    /// `distrust_index`, it is thrown away and the pages are counted again,
+    /// once while the book is open, so that the count is right and no page is
+    /// promised that does not come.
+    pub(super) fn distrust_index(&mut self, host: &Host<'_>) {
+        let storage = DataStorage::new(host);
+        let promised = self
+            .counter
+            .as_ref()
+            .is_some_and(|counter| counter.promises_more(&storage, self.at));
+        if self.count.mended || !promised {
+            return;
+        }
+        self.count.mended = true;
+        if let Some(counter) = self.counter.take() {
+            counter.forget(&storage);
+        }
+        if let Ok(setup) = self.settings.setup(host) {
+            self.ensure_counter(host, &setup);
+            self.count.recount = true;
+        }
     }
 
     /// The number of the page on show and of the pages of the book, once the
@@ -135,6 +197,24 @@ impl View {
         }
     }
 
+    /// A pack of letters came: the packs are asked again for the name of the
+    /// index, so that the pages are counted with the letters there are now.
+    pub fn packs_changed(&mut self) {
+        if let Body::Open(open) = &mut self.body {
+            open.count.packs = None;
+        }
+    }
+
+    /// Whether the count was started again by the last input (its index
+    /// thrown away, `distrust_index`): its steps are to be asked for. Asked
+    /// once.
+    pub fn take_recount(&mut self) -> bool {
+        match &mut self.body {
+            Body::Open(open) => core::mem::take(&mut open.count.recount),
+            Body::Message(_) | Body::Preparing(_) => false,
+        }
+    }
+
     /// Whether this screen's pages still need counting.
     #[must_use]
     pub fn counting(&self) -> bool {
@@ -158,4 +238,53 @@ fn read_class(host: &Host<'_>) -> Option<DeviceClass> {
     let (mut input, mut out) = (buffer(256).ok()?, buffer(1024).ok()?);
     let identity = device.device(host, &mut input, &mut out).ok()?;
     Some(identity.class())
+}
+
+/// The size and time of the book's file on the card.
+fn book_file(host: &Host<'_>, path: &str) -> Option<(u64, Option<u64>)> {
+    let files = Files::open(host).ok()?;
+    // The stat answers up to 4,096 bytes and the host asks for room for it.
+    let found = match (buffer(1024), buffer(4096)) {
+        (Ok(mut input), Ok(mut out)) => files
+            .stat(host, Root::Files, path, &mut input, &mut out)
+            .ok()
+            .map(|entry| (entry.size(), entry.modified())),
+        _ => None,
+    };
+    files.release(host).ok();
+    found
+}
+
+/// The packs of letters, fonts and hyphenation running, as one hash of their
+/// ids and versions in no order: another pack, other widths or breaks. 0
+/// where the registry cannot tell.
+fn packs_running(host: &Host<'_>) -> u64 {
+    let Ok(registry) = Registry::open(host) else {
+        return 0;
+    };
+    let packs = (|| {
+        let (mut input, mut out) = (buffer(REGISTRY_INPUT).ok()?, buffer(SERVICE_BUFFER).ok()?);
+        let mut sum = 0u64;
+        let mut cursor = PageCursor::start();
+        for _ in 0..MOST_PLUGIN_PAGES {
+            let page = registry.plugins(host, cursor, &mut input, &mut out).ok()?;
+            for plugin in page.rows() {
+                let id = plugin.id();
+                let letters = id.starts_with("font-")
+                    || id.starts_with("script-")
+                    || crate::native_script_hint::is_pack(id);
+                if letters && plugin.state() == RegistryPluginState::Running {
+                    sum = sum.wrapping_add(fnv1a64(id) ^ fnv1a64(plugin.version()).rotate_left(1));
+                }
+            }
+            match page.end().next_cursor() {
+                Some(next) => cursor = next,
+                None => break,
+            }
+        }
+        Some(sum)
+    })()
+    .unwrap_or(0);
+    registry.release(host).ok();
+    packs
 }

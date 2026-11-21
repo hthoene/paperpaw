@@ -329,18 +329,45 @@ impl Firmware {
         self.ota.as_ref().is_some_and(Ota::installing)
     }
 
+    /// Takes the escape's request (Power held 8 s, G12), if there is one:
+    /// `true` then, and the caller switches off. Latched: letting go of the
+    /// key from now on does not turn this into the normal suspend decision.
+    fn take_escape(&mut self) -> bool {
+        if !input::escape_requested() {
+            return false;
+        }
+        input::escape_take();
+        self.state.escape = true;
+        info!("Power held: switching off");
+        true
+    }
+
+    /// Waits for the panel's busy line to fall. The radio's frames are taken
+    /// out of its queue meanwhile: five fit in it, and a refresh takes up to
+    /// 3.5 s.
+    fn panel_wait(&mut self) -> Result<(), paperpaw_x4::display::Error> {
+        let network = &mut self.network;
+        let waited = self.panel.wait_with(|| network.keep_served());
+        // The newer X3's UC8279d is driven by a mode of its own, not tried
+        // on every module: an update on trial whose first refresh times out
+        // shows nothing on this X3, and goes back to the firmware before it.
+        #[cfg(feature = "x3")]
+        if waited == Err(paperpaw_x4::display::Error::Timeout)
+            && self.panel.uc8279d_unshown()
+            && let Some(ota) = &mut self.ota
+        {
+            ota.give_up("the display's first refresh timed out");
+        }
+        waited
+    }
+
     /// One turn of the main loop. Its frame lies under every plugin's work,
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
     fn step(&mut self) {
         // Power held 8 s (G12): out, whatever else is going on. The timer's
         // readings reset the processor if this is not reached in time.
-        if input::escape_requested() {
-            input::escape_take();
-            // Latched here, in the main loop: letting go of the key from now
-            // on does not turn this into the normal suspend decision.
-            self.state.escape = true;
-            info!("Power held: switching off");
+        if self.take_escape() {
             return self.sleep(false);
         }
         // Beta 3's veiled values, sealed the first time a radio is on.
@@ -929,10 +956,7 @@ impl Firmware {
         let until = started.0 + expected;
         while expected > 0 && !input::settling() && power::nap_until(until.min(now().0 + idle)) {}
         let woke = now();
-        // The radio's frames are taken out of its queue meanwhile: five fit
-        // in it, and a refresh takes up to 3.5 s.
-        let network = &mut self.network;
-        let waited = self.panel.wait_with(|| network.keep_served());
+        let waited = self.panel_wait();
         let took = now().since(started);
         let busy = self.panel.take_busy_ms();
         info!(
@@ -972,8 +996,7 @@ impl Firmware {
         let refreshing = self.panel.start_refresh(Refresh::Fast, false).is_ok();
         let next = self.kernel.proceed(now());
         let worked = now();
-        let network = &mut self.network;
-        if refreshing && let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+        if refreshing && let Err(e) = self.panel_wait() {
             warn!("display: {e:?}");
         }
         self.state.panel_idle_at = Some(now().0 + self.panel_idle_ms());
@@ -1146,8 +1169,7 @@ impl Firmware {
         if cleaning {
             // The clean is over; the panel then shows white, which both memories
             // hold, and the frame goes into the new one.
-            let network = &mut self.network;
-            if let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+            if let Err(e) = self.panel_wait() {
                 failed = Some(e);
             }
             let before = now();
