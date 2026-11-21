@@ -151,6 +151,7 @@
   ],
   "features": [
     "uses.network",
-    "uses.storage"
+    "uses.storage",
+    "uses.wifi"
   ]
 }

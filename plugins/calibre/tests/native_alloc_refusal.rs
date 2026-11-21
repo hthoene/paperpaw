@@ -140,6 +140,10 @@ fn a_session_survives_refused_allocations() {
         )?;
         says(&mut session, &mut device, op::ERROR, "{\"message\": \"x\"}")?;
         session.closed(Some("lost"))?;
+        // Held back by Offline mode, with the offer to go online.
+        session.start(64 * 1024, "")?;
+        session.find_offline(true)?;
+        session.offline(true)?;
         Ok(())
     });
 }

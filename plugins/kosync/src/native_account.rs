@@ -189,6 +189,13 @@ impl Account {
         }
     }
 
+    /// The request was held back by Offline mode and not sent again: no
+    /// longer waiting, and the line says the network is needed.
+    pub fn needs_network(&mut self) {
+        self.busy = false;
+        self.message = Some(Message::NoNetwork);
+    }
+
     /// Signed out: the account is gone from the screen.
     pub fn sign_out(&mut self) {
         self.signed_in.clear();
@@ -315,6 +322,18 @@ mod tests {
         assert_eq!(a.chosen(Row::SignIn), Todo::Nothing);
         assert_eq!(a.message, Some(Message::NoNetwork));
         assert!(!a.busy);
+    }
+
+    #[test]
+    fn held_back_it_waits_no_longer_and_says_it_needs_the_network() {
+        let mut a = account("");
+        a.typed_user("anna").unwrap();
+        a.typed_password("pw").unwrap();
+        assert_eq!(a.chosen(Row::SignIn), Todo::Call { create: false });
+        a.needs_network();
+        assert!(!a.busy);
+        assert_eq!(a.message, Some(Message::NoNetwork));
+        assert_eq!(a.chosen(Row::SignIn), Todo::Call { create: false });
     }
 
     #[test]

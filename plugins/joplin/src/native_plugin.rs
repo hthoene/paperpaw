@@ -30,6 +30,7 @@ use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     files::Volume,
     mem::{self, SERVICE_BUFFER, buffer, push, wipe},
+    online::{Chosen, Offer},
     read_event,
     text::copy,
 };
@@ -81,6 +82,9 @@ pub struct NativeJoplin {
     typing: Option<(AskId, Row)>,
     /// How the last sending went, in words; empty until one has.
     message: String,
+    /// Offline mode held back the sending the reader started: the offer to
+    /// go online (once until *Send* or the action anew), and to send again.
+    online: Offer<Start>,
 }
 
 /// The handles of the services, opened when first needed.
@@ -384,7 +388,10 @@ impl Plugin for NativeJoplin {
             }
             // The action (also a rule's): the work that sends is declared and
             // runs at once.
-            Event::ActionRun { .. } if token == SEND_TOKEN => self.declared(host, SEND_KEY, true),
+            Event::ActionRun { .. } if token == SEND_TOKEN => {
+                self.online.reset();
+                self.declared(host, SEND_KEY, true)
+            }
             Event::Started { .. } if token == STARTED_TOKEN => self.retry_later(host),
             Event::WorkDue(due) if token == WORK_TOKEN => {
                 let start = if due.key() == SEND_KEY {
@@ -504,6 +511,11 @@ impl NativeJoplin {
     fn stepped(&mut self, host: &Host<'_>, step: Result<Outcome, Error>) -> Result<(), Error> {
         let told = match step {
             Ok(Outcome::Quiet) => Ok(()),
+            Ok(Outcome::Ended {
+                tell: Tell::Offline,
+                quiet: false,
+                apart,
+            }) => self.held_back(host, apart),
             Ok(Outcome::Ended { tell, quiet, apart }) => self.tell(host, tell, quiet, apart),
             Err(Error::NoMemory) => self.tell(host, Tell::NoMemory, false, 0),
             // A step the host refused costs this sending; the notes keep waiting.
@@ -511,6 +523,44 @@ impl NativeJoplin {
         };
         self.retry_later(host)?;
         told
+    }
+
+    /// Offline mode held back the sending the reader started: asked once to
+    /// go online (Beta 3's offer), else it needs the network.
+    fn held_back(&mut self, host: &Host<'_>, apart: usize) -> Result<(), Error> {
+        if self.online.again() {
+            // Sent again from *Go online* before the host went online
+            // (`paperpaw_ui_kit::online`): once more.
+            return self.offered(host, Chosen::Online(Start::Action));
+        }
+        if self.online.may_offer() {
+            let asked = match self.handles.ui(host) {
+                Ok(ui) => self.online.ask(host, ui, Start::Action),
+                Err(error) => Err(error),
+            };
+            match asked {
+                Ok(()) => return Ok(()),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                // No question can be asked: said as without the offer.
+                Err(_) => {}
+            }
+        }
+        self.tell(host, Tell::Offline, false, apart)
+    }
+
+    /// The reader's answer to the offer: *Go online* sends again as the
+    /// action does (the work that sends, at once); *Not now* says it needs
+    /// the network.
+    fn offered(&mut self, host: &Host<'_>, chosen: Chosen<Start>) -> Result<(), Error> {
+        match chosen {
+            Chosen::Online(again) => match self.handles.declare(host, SEND_KEY, true) {
+                Ok(()) => Ok(()),
+                Err(Error::NoMemory) => Err(Error::NoMemory),
+                // No work can be declared: sent at once instead.
+                Err(_) => self.start(host, again),
+            },
+            Chosen::NotNow(_) => self.tell(host, Tell::Offline, false, 0),
+        }
     }
 
     /// Says how a sending ended (a sending that runs by itself tells only what
@@ -667,7 +717,10 @@ impl NativeJoplin {
                     .set_setting(SERVICE, SettingValue::Text(next.key()))?;
                 Ok(())
             }
-            Row::Send => self.start(host, Start::Action),
+            Row::Send => {
+                self.online.reset();
+                self.start(host, Start::Action)
+            }
             _ => self.ask(host, row),
         }
     }
@@ -714,6 +767,9 @@ impl NativeJoplin {
 
     /// An answer to a question the plugin asked.
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        if let Some(chosen) = self.online.answered(host, answer)? {
+            return self.offered(host, chosen);
+        }
         if answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
@@ -800,3 +856,7 @@ fn notify(host: &Host<'_>, message: &str) {
         let _ = CommandSender::new(host, &mut scratch).notify(notice);
     }
 }
+
+#[cfg(all(test, feature = "linked"))]
+#[path = "native_offline_tests.rs"]
+mod offline_tests;

@@ -38,6 +38,7 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push, wipe},
+    online::{Chosen, Offer},
     read_event,
     text::{concat, copy},
 };
@@ -121,6 +122,9 @@ pub struct NativeCalibre {
     /// The end of a character that a read cut in two.
     carry: Vec<u8>,
     asked: Option<RequestId>,
+    /// Offline mode: the offer to go online, for the session the reader
+    /// started (what is done again is starting it again).
+    online: Offer<()>,
     /// What the device is, read when the screen opens.
     small: bool,
     managed: bool,
@@ -184,7 +188,15 @@ impl Plugin for NativeCalibre {
                 let done = self.on_broadcast(host, &event);
                 self.survive_no_memory(host, done)
             }
-            Event::Answered { answer, .. } => self.answered(host, answer),
+            // The offer's answer first, then the password's.
+            Event::Answered { answer, .. } => match self.online.answered(host, answer)? {
+                Some(Chosen::Online(())) => self.restart(host),
+                Some(Chosen::NotNow(())) => {
+                    let steps = self.no_network()?;
+                    self.run(host, steps)
+                }
+                None => self.answered(host, answer),
+            },
             _ => Ok(()),
         }
     }
@@ -210,7 +222,10 @@ impl Plugin for NativeCalibre {
             let act = view.acts.get(index).copied().flatten();
             match act {
                 Some(Act::Connect) => self.connect_found(host)?,
-                Some(Act::Again) => self.restart(host)?,
+                Some(Act::Again) => {
+                    self.online.reset();
+                    self.restart(host)?;
+                }
                 Some(Act::Password) => self.ask_password(host)?,
                 None => {}
             }
@@ -370,6 +385,7 @@ impl NativeCalibre {
     /// The screen opened: a new session, started.
     fn begin(&mut self, host: &Host<'_>) -> Result<(), Error> {
         self.reset_wire(host);
+        self.online.reset();
         self.session = Some(Session::new(max_message(self.small), self.managed));
         let steps = self.start_steps(host)?;
         self.run(host, steps)
@@ -436,6 +452,8 @@ impl NativeCalibre {
         self.reset_wire(host);
         self.session = None;
         self.asked = None;
+        // An open offer goes with the screen: its answer starts nothing.
+        self.online = Offer::new();
     }
 
     fn connect_found(&mut self, host: &Host<'_>) -> Result<(), Error> {
@@ -518,6 +536,10 @@ impl NativeCalibre {
                     Some(session) => session.dropped(),
                     None => Ok(Vec::new()),
                 }
+            }
+            Step::OfferOnline => {
+                self.offer_online(host)?;
+                Ok(Vec::new())
             }
             Step::Redraw => Ok(Vec::new()),
         }
@@ -656,6 +678,19 @@ impl NativeCalibre {
         }
     }
 
+    /// Offline mode held the session back: the host's question whether to
+    /// go online. Not asked (refused, no `core.ui`), the screen says there is
+    /// no network.
+    fn offer_online(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(ui) = &self.ui else {
+            return Ok(());
+        };
+        match self.online.ask(host, ui, ()) {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            _ => Ok(()),
+        }
+    }
+
     fn no_network(&mut self) -> Result<Vec<Step>, Error> {
         match &mut self.session {
             Some(session) => session.no_network(),
@@ -790,12 +825,17 @@ impl NativeCalibre {
                 self.queued = 0;
                 storage::remove(host, Root::Data, INCOMING).ok();
                 let reason = event.reason();
+                if reason == Reason::Offline && self.session.is_some() && self.online.again() {
+                    // Started again from *Go online* before the host went
+                    // online (`paperpaw_ui_kit::online`): once more.
+                    return self.restart(host);
+                }
                 match &mut self.session {
                     Some(session) => match reason {
-                        Reason::NoNetwork
-                        | Reason::Offline
-                        | Reason::NetworkOff
-                        | Reason::Saving => session.no_network()?,
+                        Reason::Offline => session.offline(self.online.may_offer())?,
+                        Reason::NoNetwork | Reason::NetworkOff | Reason::Saving => {
+                            session.no_network()?
+                        }
                         Reason::None | Reason::ScreenClosed => session.closed(None)?,
                         other => session.closed(Some(reason_words(other)))?,
                     },
@@ -920,21 +960,26 @@ impl NativeCalibre {
                     None => Vec::new(),
                 }
             }
-            BroadcastKind::Done => {
+            kind @ (BroadcastKind::Done | BroadcastKind::Failed) => {
                 self.broadcast = None;
-                let no_network = matches!(
-                    event.reason(),
-                    Reason::NoNetwork | Reason::Offline | Reason::NetworkOff | Reason::Saving
-                );
-                match &mut self.session {
-                    Some(session) => session.find_over(no_network)?,
-                    None => Vec::new(),
+                let reason = event.reason();
+                if reason == Reason::Offline && self.session.is_some() && self.online.again() {
+                    // Started again from *Go online* before the host went
+                    // online (`paperpaw_ui_kit::online`): once more.
+                    return self.restart(host);
                 }
-            }
-            BroadcastKind::Failed => {
-                self.broadcast = None;
+                // A failed broadcast had no network to ask.
+                let no_network = kind == BroadcastKind::Failed
+                    || matches!(
+                        reason,
+                        Reason::NoNetwork | Reason::NetworkOff | Reason::Saving
+                    );
                 match &mut self.session {
-                    Some(session) => session.find_over(true)?,
+                    // Held back by Offline mode: the offer to go online.
+                    Some(session) if reason == Reason::Offline => {
+                        session.find_offline(self.online.may_offer())?
+                    }
+                    Some(session) => session.find_over(no_network)?,
                     None => Vec::new(),
                 }
             }
@@ -1005,6 +1050,8 @@ impl NativeCalibre {
             }
             Err(_) => {}
         }
+        // The reader starts the connection anew: it may be offered again.
+        self.online.reset();
         self.restart(host)
     }
 

@@ -111,16 +111,22 @@ impl Files for Faulty {
 
 fn report(sync: &Sync) -> String {
     match sync.report() {
-        Some(r) => format!(
-            "{} loaded {} failed {} unreachable {} only_lists {} skipped {} {}",
-            r.catalog,
-            r.loaded,
-            r.failed,
-            r.unreachable,
-            r.only_lists,
-            r.skipped,
-            if r.running { "running" } else { "done" }
-        ),
+        Some(r) => {
+            format!(
+                "{} loaded {} failed {} unreachable {} only_lists {} skipped {} {}",
+                r.catalog,
+                r.loaded,
+                r.failed,
+                r.unreachable,
+                r.only_lists,
+                r.skipped,
+                if r.running { "running" } else { "done" }
+            ) + &if r.offline > 0 {
+                format!(" offline {}", r.offline)
+            } else {
+                String::new()
+            }
+        }
         None => "no report".to_string(),
     }
 }
@@ -638,6 +644,31 @@ fn an_unreachable_catalog_does_not_stop_the_others() {
     assert_eq!(
         last_report(),
         "Mine loaded 1 failed 0 unreachable 1 only_lists 0 skipped 0 done"
+    );
+    drop(plugin);
+}
+
+/// A catalog Offline mode held back (reason 11) is unreachable, and counted
+/// apart: a sync the reader started offers to go online for it (#459).
+#[test]
+fn a_catalog_held_back_by_offline_mode_is_counted_apart() {
+    let host = ScriptedHost::new();
+    setup(&host, vec![cat("https://down.example/opds"), cat(URL)], 50);
+    let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
+    let mut ids = Ids(0);
+    plugin.event(START, &nothing()).unwrap();
+    log();
+    // The first is not there (no answer), the second held back.
+    plugin
+        .event(DONE, &done(ids.next(), web::SYNC_FEED, 0, 4))
+        .unwrap();
+    assert!(log()[0].starts_with(&format!("GET {URL}")));
+    plugin
+        .event(DONE, &done(ids.next(), web::SYNC_FEED, 0, 11))
+        .unwrap();
+    assert_eq!(
+        last_report(),
+        "Mine loaded 0 failed 0 unreachable 2 only_lists 0 skipped 0 done offline 1"
     );
     drop(plugin);
 }

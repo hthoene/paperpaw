@@ -3,7 +3,9 @@
 //! and the secret are kept among the plugin's secrets, the rest as settings),
 //! and the fetch of the articles (`Fetcher`): started by the *Fetch articles*
 //! row or the action, ended by the `http_done` events of its requests; the
-//! reader's page turns note the articles read to the end.
+//! reader's page turns note the articles read to the end. Where Offline mode
+//! holds back a fetch the reader started, the plugin offers to go online
+//! and fetches again on *Go online* (#459, as Beta 3).
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -25,6 +27,7 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push, wipe},
+    online::{Chosen, Offer},
     read_event,
     text::copy,
 };
@@ -69,6 +72,12 @@ struct View {
     note: String,
 }
 
+/// What is done again on *Go online*: the fetch the reader started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Again {
+    Fetch,
+}
+
 /// The interface-7 wallabag plugin.
 #[derive(Debug, Default)]
 pub struct NativeWallabag {
@@ -80,6 +89,11 @@ pub struct NativeWallabag {
     screens: Screens<View>,
     /// The row being typed, and its question.
     typing: Option<(AskId, Row)>,
+    /// The offer to go online where Offline mode held the fetch back, and
+    /// whether the fetch under way is the reader's (a rule's or a due work's
+    /// stays quiet: it only says it needs the network).
+    online: Offer<Again>,
+    by_reader: bool,
 }
 
 impl Plugin for NativeWallabag {
@@ -118,11 +132,12 @@ impl Plugin for NativeWallabag {
                 if background {
                     self.fetch_later(host)
                 } else {
-                    self.fetch(host)
+                    self.online.reset();
+                    self.fetch(host, true)
                 }
             }
             // The fetch that waited for its moment: as the action, now.
-            Event::WorkDue(_) if token == WORK_TOKEN => self.fetch(host),
+            Event::WorkDue(_) if token == WORK_TOKEN => self.fetch(host, false),
             Event::HttpDone(done) if token == HTTP_TOKEN => self.fetch_done(host, &done),
             Event::PageTurned(reading) if token == PAGE_TOKEN => {
                 if is_read(reading.page(), reading.pages(), reading.progress_ppm())
@@ -177,7 +192,8 @@ impl Plugin for NativeWallabag {
             && let Some(row) = SHOWN.get(index).copied()
         {
             if row == Row::Fetch {
-                self.fetch(host)?;
+                self.online.reset();
+                self.fetch(host, true)?;
             } else {
                 self.ask(host, row)?;
             }
@@ -313,6 +329,14 @@ impl NativeWallabag {
 
     /// An answer to a question the plugin asked.
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        // The offer to go online first: on *Go online* the fetch again.
+        match self.online.answered(host, answer)? {
+            Some(Chosen::Online(Again::Fetch)) => return self.fetch(host, true),
+            Some(Chosen::NotNow(Again::Fetch)) => {
+                return self.finished(host, Finish::held_back());
+            }
+            None => {}
+        }
         if answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
@@ -401,8 +425,10 @@ impl NativeWallabag {
     }
 
     /// Starts a fetch: the account is read from the settings and the secrets,
-    /// and what is missing is said.
-    fn fetch(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    /// and what is missing is said. `by_reader`: the reader started it (the
+    /// row, the action, *Go online*), so Offline mode holding it back offers
+    /// to go online.
+    fn fetch(&mut self, host: &Host<'_>, by_reader: bool) -> Result<(), Error> {
         if self.fetcher.running() {
             return Ok(());
         }
@@ -430,17 +456,41 @@ impl NativeWallabag {
         let text = say.copy(host, "wallabag.fetching")?;
         self.notice(host, &text)?;
         let login = Login::new(&url, &user, &client, &password, &secret);
+        self.by_reader = by_reader;
         match self.fetcher.start(host, &DataFiles::new(host), &login)? {
             Some(finish) => self.finished(host, finish),
             None => Ok(()),
         }
     }
 
-    /// The end of a request of the fetch.
+    /// The end of a request of the fetch. Held back by Offline mode, the
+    /// reader's fetch offers to go online, once until the reader fetches anew.
     fn fetch_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
         match self.fetcher.done(host, &DataFiles::new(host), done)? {
+            // Fetched again from *Go online* before the host went online
+            // (`paperpaw_ui_kit::online`): once more.
+            Some(finish) if finish.offline && self.by_reader && self.online.again() => {
+                self.fetch(host, true)
+            }
+            Some(finish) if finish.offline && self.by_reader && self.online.may_offer() => {
+                self.offer(host, finish)
+            }
             Some(finish) => self.finished(host, finish),
             None => Ok(()),
+        }
+    }
+
+    /// Asks whether to go online for the fetch; where the question cannot be
+    /// asked, says that it needs the network.
+    fn offer(&mut self, host: &Host<'_>, finish: Finish) -> Result<(), Error> {
+        let asked = match &self.ui {
+            Some(ui) => self.online.ask(host, ui, Again::Fetch),
+            None => Err(Error::State),
+        };
+        match asked {
+            Ok(()) => Ok(()),
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => self.finished(host, finish),
         }
     }
 

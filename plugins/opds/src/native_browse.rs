@@ -28,6 +28,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::{
     mem::push,
+    online::Chosen,
     text::{concat, copy},
 };
 
@@ -114,6 +115,18 @@ pub enum Step {
     Saved(String),
     /// Back left the first feed: the screen closes.
     Leave,
+    /// Offline mode held the feed back (the line says no network): the
+    /// screen may offer to go online and then load it again (#459).
+    Offline(Retry),
+}
+
+/// A feed Offline mode held back, to load again once the reader went online.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Retry {
+    pub url: String,
+    /// Going back to it, as it was asked for.
+    pub back: bool,
 }
 
 /// A book being downloaded: its title, and how much came of how much (where
@@ -293,6 +306,26 @@ impl Browser {
         self.note = note;
     }
 
+    /// The reader's answer to the offer to go online for `retry` (#459):
+    /// *Go online* loads the feed again, *Not now* says it needs the network.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn offered(
+        &mut self,
+        host_: &Host<'_>,
+        web: &mut Web,
+        chosen: Chosen<Retry>,
+    ) -> Result<(), Error> {
+        match chosen {
+            Chosen::Online(retry) => self.load(host_, web, &retry.url, retry.back),
+            Chosen::NotNow(_) => {
+                self.say(Note::NoNetwork);
+                Ok(())
+            }
+        }
+    }
+
     /// The text of `Loading` for `url`.
     fn loading_note(url: &str) -> Result<Note, Error> {
         Ok(Note::Loading(copy(host(url))?))
@@ -342,7 +375,7 @@ impl Browser {
             Ended::Fine => return Ok(true),
             Ended::Stopped => return Ok(false),
             Ended::Unauthorized => Note::Unauthorized,
-            Ended::NoNetwork => Note::NoNetwork,
+            Ended::NoNetwork | Ended::Offline => Note::NoNetwork,
             Ended::Unreached => Note::FailedHost(copy(host(url))?),
             Ended::Untrusted => Note::CertificateUnknown,
             Ended::Status(status) => Note::Error {
@@ -394,6 +427,9 @@ impl Browser {
         let ended = web::ended(done);
         if !self.told(ended, &url)? {
             files::remove(files, FEED_FILE);
+            if ended == Ended::Offline {
+                return Ok(Step::Offline(Retry { url, back }));
+            }
             return Ok(Step::Nothing);
         }
         // Links are resolved where the feed came from, after redirects.

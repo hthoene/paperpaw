@@ -245,6 +245,9 @@ pub enum Ended {
     Status(u32),
     /// No network, a network off or on hold.
     NoNetwork,
+    /// Held back by Offline mode: where the reader asked for it, going online
+    /// is offered (#459); elsewhere it is no network.
+    Offline,
     /// It ended for a request of the same kind replacing it, or was
     /// cancelled: it is not told.
     Stopped,
@@ -264,9 +267,8 @@ pub fn ended(done: &HttpDone) -> Ended {
             0 => Ended::Unreached,
             status => Ended::Status(status),
         },
-        Reason::NoNetwork | Reason::Offline | Reason::Saving | Reason::NetworkOff => {
-            Ended::NoNetwork
-        }
+        Reason::Offline => Ended::Offline,
+        Reason::NoNetwork | Reason::Saving | Reason::NetworkOff => Ended::NoNetwork,
         Reason::Replaced | Reason::Cancelled => Ended::Stopped,
         Reason::Tls => Ended::Untrusted,
         _ => Ended::Unreached,
