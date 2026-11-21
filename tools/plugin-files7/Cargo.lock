@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-calibre"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -472,7 +472,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-koreader"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -528,7 +528,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-news"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
