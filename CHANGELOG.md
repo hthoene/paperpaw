@@ -4814,11 +4814,10 @@ change the plugin SDK.
 - **X4 and X3 sleep between page turns without crashing** (#434, #451). The
   processor could crash on waking from its light sleep (the X3 logged a false
   "Stack overflow", the X4 restarted), most often on the first nap. It now
-  sleeps on its crystal, at the lower sleep voltages of Espressif's own SDK,
-  and sets its fast clock up again after each wake, as that SDK does. On the
-  X4 a cable plugged in wakes it at once, so the computer finds it ready; its
-  battery switch is never held in a sleep, which is what made other firmware
-  hang on plugging in.
+  sleeps on its crystal and sets its fast clock up again after each wake, as
+  Espressif's own SDK does. On the X4 a cable plugged in wakes it at once, so
+  the computer finds it ready; its battery switch is never held in a sleep,
+  which is what made other firmware hang on plugging in.
 
 - **"Only this book" and the per-book settings of Beta 3 work again** (#454). The interface-7 reader never told the host which book it shows (`command.set_scope`), so the scoped settings (font, size, margins, ...) of a book were the global ones and *Only this book* wrote to every book. The reader (1.2.2) now names the book on the card when its screen comes on top, as Beta 3 did; the host reads and writes `.paperpaw/plugins/reader/books/<book key>/settings.ini`, the file Beta 3 kept, so a Beta-3 user's per-book settings apply as they are.
 - **Wi-Fi from the web flasher (or a `wifi.ini` written by hand) is joined again, and the file goes** (#454). The firmware writes `wifi.ini` at the top of the card; the interface-7 Wi-Fi plugin reads only the one in its data folder and has no access to the card's files, so the networks were never kept and the plaintext passwords stayed on the card. At a start, before any plugin hears of it, the host adds the file to `.paperpaw/plugins/wifi/wifi.ini` and removes it from the top of the card (one over 16 KiB is removed unread, as the plugin does; one that cannot be read or handed over stays for the next start).
