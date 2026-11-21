@@ -300,11 +300,15 @@ fn route(
             kind: InputGestureKind::Tap,
             ..
         } => {
-            let Some(drawn) = view.drawn.as_ref() else {
-                return Ok(Handled::Yes);
-            };
-            view.flow
-                .tap(position, (&drawn.layout, drawn.back), lock, ctx, fx)?
+            match view.drawn.as_ref() {
+                Some(drawn) => {
+                    view.flow
+                        .tap(position, (&drawn.layout, drawn.back), lock, ctx, fx)?
+                }
+                // The list of kinds is drawn without a pad: the list takes the tap.
+                None if view.flow.step() == Step::Choose => Act::List,
+                None => return Ok(Handled::Yes),
+            }
         }
         // Locked, no other gesture gets past; setting up, nothing is locked.
         Input::Gesture { .. } => {
@@ -361,7 +365,7 @@ fn draw_kinds(
     for kind in Flow::kinds(read.touch) {
         let key = paperpaw_ui_kit::text::concat(&[model::KIND_PREFIX, kind])?;
         let name = messages.copy(host, &key)?;
-        let mark = if kind == current { "✓" } else { "" };
+        let mark = if kind == current { "•" } else { "" };
         paperpaw_ui_kit::mem::push(&mut items, Item::row(&name, mark)?)?;
     }
     view.list.replace(items);
