@@ -280,10 +280,16 @@ impl SettingEvents {
     }
 
     /// Forgets the queues of plugins that no longer subscribe (stopped or
-    /// unloaded): what they held is dropped, never delivered.
+    /// unloaded): what they held is dropped, never delivered. A running
+    /// plugin keeps the queue of an addressed event it needs no subscription
+    /// for (`bluetooth_events`).
     fn prune(&self, instances: &NativeInstances) {
         if let Ok(mut queues) = self.queues.try_borrow_mut() {
-            queues.retain(|(owner, _)| Self::listens(instances, *owner));
+            queues.retain(|(owner, queue)| {
+                Self::listens(instances, *owner)
+                    || queue.holds(wire::EVENT_BLUETOOTH_TAG)
+                        && matches!(instances.state(*owner), Ok(InstanceState::Running(_)))
+            });
             release_idle(&mut queues);
         }
     }
@@ -546,7 +552,7 @@ impl crate::Kernel {
         };
         // A held lifecycle or reading edge was encoded when it was held.
         if let Some((tag, held)) = ready.event_bytes() {
-            if instances.subscribed(owner, tag) {
+            if instances.subscribed(owner, tag) || super::bluetooth_events::addressed(tag) {
                 // A failing callback does not get the event again.
                 let _ = self.native_event_call(owner, &lease, held);
             }

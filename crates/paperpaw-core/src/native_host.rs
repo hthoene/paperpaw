@@ -241,6 +241,7 @@ mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
 pub(crate) mod secret_bytes;
 
+pub(crate) mod bluetooth_events;
 pub(crate) mod book_data_steps;
 pub(crate) mod book_scope;
 pub(crate) mod busy_adapters;

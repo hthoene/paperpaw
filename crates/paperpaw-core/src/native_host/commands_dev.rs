@@ -1,6 +1,6 @@
-//! Slot-15 DEV commands for power and Wi-Fi (`docs/abi/device.md` section 3):
-//! commands 1564-1575 are checked and staged here, and applied by the kernel's
-//! interface-6 commands after the callback.
+//! Slot-15 DEV commands for power, Wi-Fi and Bluetooth (`docs/abi/device.md`
+//! section 3): commands 1564-1575 and 1583-1591 are checked and staged here,
+//! and applied by the kernel's interface-6 commands after the callback.
 //!
 //! Staging (`CommandStage::stage`) refuses a whole batch before anything is
 //! kept: a feature not admitted is `ERR_DENIED`, one the host does not
@@ -13,11 +13,14 @@
 
 use super::{CommandBatch, CommandStage, WireCommand, ui};
 
+#[path = "commands_dev_bluetooth.rs"]
+mod bluetooth;
 #[path = "commands_dev_firmware.rs"]
 mod firmware;
 use crate::Ask;
 use crate::native_host::{admitted_features::AdmittedFeatures, radio_requests::*};
 use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
+pub use bluetooth::FEATURE_BLUETOOTH;
 use core::{cell::RefCell, fmt, time::Duration};
 pub use firmware::{FEATURE_FIRMWARE, FEATURE_INSTALL};
 pub(crate) use firmware::{FirmwareContext, FirmwareOp, FwRelease};
@@ -186,6 +189,7 @@ pub(crate) enum DevOp {
     Join(JoinOp),
     /// A firmware command; the request was accepted when it was submitted.
     Firmware(FirmwareOp),
+    Bluetooth(bluetooth::BtWire),
 }
 
 /// A DEV command and the number of ordinary staged commands before it.
@@ -319,7 +323,8 @@ impl fmt::Debug for DevStage<'_> {
     }
 }
 
-/// Whether this wire command belongs to the Wi-Fi or power area.
+/// Whether this wire command belongs to the Wi-Fi, power, Bluetooth or
+/// firmware area.
 pub(super) fn is_dev(command: &WireCommand<'_>) -> bool {
     area(command).is_some()
 }
@@ -338,7 +343,7 @@ fn area(command: &WireCommand<'_>) -> Option<&'static str> {
         | WireCommand::PowerOff { .. }
         | WireCommand::Restart { .. }
         | WireCommand::Wear { .. } => Some(FEATURE_POWER),
-        _ => firmware::area(command),
+        _ => bluetooth::area(command).or_else(|| firmware::area(command)),
     }
 }
 
@@ -465,6 +470,8 @@ impl<'a> CommandStage<'a> {
             } else {
                 match area(&command) {
                     Some(FEATURE_WIFI) => wifi += 1,
+                    // No batch limit: nothing is reserved for them.
+                    Some(FEATURE_BLUETOOTH) => {}
                     Some(_) => power += 1,
                     None => continue,
                 }
@@ -529,6 +536,7 @@ impl<'a> CommandStage<'a> {
             WireCommand::PowerOff { .. } | WireCommand::Restart { .. } => {
                 self.guard_allows().map(|()| 0)
             }
+            _ if bluetooth::area(command).is_some() => Self::validate_bluetooth(command),
             _ => self.validate_firmware(command),
         }
     }
@@ -590,6 +598,7 @@ impl<'a> CommandStage<'a> {
                 ssid,
                 password,
             } => join_op(request, true, ssid, password.expose())?,
+            _ if bluetooth::area(command).is_some() => Self::bluetooth_op(command)?,
             _ => self.firmware_op(command)?,
         };
         let dev = self.dev.as_mut().ok_or(ERR_UNSUPPORTED)?;
@@ -787,6 +796,7 @@ impl crate::Kernel {
             }
             DevOp::Join(join) => self.apply_join(owner, join, host, token),
             DevOp::Firmware(op) => Self::apply_firmware(op, fw),
+            DevOp::Bluetooth(op) => self.apply_native_bluetooth(owner, op),
         }
     }
 

@@ -10,7 +10,7 @@
 )]
 use super::*;
 
-use paperpaw_sdk::bluetooth::{BtError, BtEvent, BtFailure, BtOp, BtRequest, DeviceId};
+use paperpaw_sdk::bluetooth::{BtCommand, BtError, BtEvent, BtFailure, BtOp, BtRequest, DeviceId};
 use paperpaw_sdk::event::{Event, EventData};
 use paperpaw_sdk::replies::Confirmed;
 use paperpaw_sdk::{Arg, Uses};
@@ -37,17 +37,31 @@ impl Kernel {
     pub(crate) fn apply_bluetooth(&mut self, request: BtRequest) {
         let (command, from) = request.into_parts();
         let plugin = from.as_ref().map_or("", |f| f.as_str()).to_string();
-        let asked = Asked {
-            screens: self.stack.len(),
-            reader: self.shared.reader,
-            now: self.shared.now,
-        };
         let allowed = plugin == crate::meter::CORE
             || self
                 .shared
                 .plugins
                 .get(&plugin)
                 .is_some_and(|info| info.manifest.uses.contains(Uses::BLUETOOTH));
+        self.bluetooth_command(plugin, command, allowed);
+    }
+
+    /// A native plugin's Bluetooth command: the host admitted its signed
+    /// `uses.bluetooth` when it was staged (`commands_dev_bluetooth.rs`).
+    pub(crate) fn apply_admitted_bluetooth(&mut self, request: BtRequest) {
+        let (command, from) = request.into_parts();
+        let plugin = from.as_ref().map_or("", |f| f.as_str()).to_string();
+        self.bluetooth_command(plugin, command, true);
+    }
+
+    /// Plugin `plugin`'s command, once it is known whether it may use
+    /// Bluetooth (`allowed`).
+    fn bluetooth_command(&mut self, plugin: String, command: BtCommand, allowed: bool) {
+        let asked = Asked {
+            screens: self.stack.len(),
+            reader: self.shared.reader,
+            now: self.shared.now,
+        };
         let answer = self
             .io
             .bluetooth

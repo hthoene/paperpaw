@@ -53,7 +53,7 @@ const _: () = assert!(
     "MAX_SERVICES is too small for the all-wired offer"
 );
 /// The most features a list holds.
-const MAX_FEATURES: usize = 8;
+const MAX_FEATURES: usize = 9;
 
 /// What is offered to the linked plugins for one combination of wired
 /// services: the services and the consent features.
@@ -151,11 +151,14 @@ struct Wired {
     /// Plugin jobs are taken (the emulated device installs plugins from the
     /// card: [`card_plugins`]): `uses.install` is backed.
     install: bool,
+    /// The profile's device has the radio the pretend Bluetooth answers for
+    /// (`bluetooth.rs`): `uses.bluetooth` is backed.
+    bluetooth: bool,
 }
 
 impl Wired {
     /// How many combinations there are (one bit a service).
-    const COMBINATIONS: usize = 1 << 10;
+    const COMBINATIONS: usize = 1 << 11;
 
     fn index(self) -> usize {
         [
@@ -169,6 +172,7 @@ impl Wired {
             self.lookup,
             self.wifi,
             self.install,
+            self.bluetooth,
         ]
         .into_iter()
         .enumerate()
@@ -182,9 +186,10 @@ impl Wired {
 /// `core.net`), `uses.storage` (the card's files, `core.files`) and
 /// `uses.library` (`core.library`) and, on a profile whose device has Wi-Fi,
 /// `uses.wifi` (the pretend radio answers the radio commands) and, where the
-/// emulated device installs plugins ([`card_plugins`]), `uses.install`. Not
-/// offered, because the desktop does not back them yet: `uses.bluetooth`,
-/// `uses.firmware`. A plugin that needs one is refused at admission.
+/// emulated device installs plugins ([`card_plugins`]), `uses.install`, and on
+/// a profile whose device has Bluetooth, `uses.bluetooth` (the pretend radio).
+/// Not offered, because the desktop does not back it yet: `uses.firmware`. A
+/// plugin that needs it is refused at admission.
 fn features(wired: Wired) -> &'static [Feature<'static>] {
     let offer = offer(wired);
     &offer.features[..offer.features_len]
@@ -231,6 +236,8 @@ fn features_of(wired: Wired) -> [(&'static str, bool); MAX_FEATURES] {
         ("uses.wifi", wired.wifi),
         // Plugin installs, checks and removals (`device.md` 5.1, 5.2).
         ("uses.install", wired.install),
+        // The Bluetooth commands (`device.md` 3), answered by the pretend radio.
+        ("uses.bluetooth", wired.bluetooth),
     ]
 }
 
@@ -578,6 +585,7 @@ fn take_plugin_jobs(kernel: &mut Kernel, profile: &Profile, on: Wired) -> bool {
         secrets: on.secrets,
         lookup: false,
         wifi: on.wifi,
+        bluetooth: false,
     };
     // With code plugins on, the device installs libraries built for this
     // computer (`code-host.so`, signed by a trailer), checked against what the
@@ -685,6 +693,7 @@ pub fn prepare(
         on_card.files = true;
     }
     on_card.wifi = profile.wifi;
+    on_card.bluetooth = profile.bluetooth > 0;
     match (inputs.storage.clone(), sealer(inputs.simulated)) {
         (None, _) => eprintln!("native plugins: no secrets (the card cannot be opened)"),
         (Some(storage), Ok(sealer)) => {
@@ -1035,6 +1044,7 @@ mod tests {
             lookup: true,
             wifi: true,
             install: true,
+            bluetooth: true,
         };
         let (services, features) = keys(all);
         assert_eq!(services.len(), bare_services.len() + 8);
@@ -1058,6 +1068,7 @@ mod tests {
                 "uses.library",
                 "uses.wifi",
                 "uses.install",
+                "uses.bluetooth",
             ]
         );
         // The same combination again is the same list.
@@ -1093,6 +1104,7 @@ mod tests {
             secrets: prepared.on.secrets,
             lookup: false,
             wifi: prepared.on.wifi,
+            bluetooth: false,
         };
         let theirs = paperpaw_x4::native_offer::card_host(
             firmware,
@@ -1126,6 +1138,7 @@ mod tests {
                 lookup: on(7),
                 wifi: on(8),
                 install: on(9),
+                bluetooth: on(10),
             };
             assert_eq!(wired.index(), index);
             // The firmware wires the network's three and the card's three
@@ -1136,6 +1149,7 @@ mod tests {
                 secrets: wired.secrets,
                 lookup: false,
                 wifi: wired.wifi,
+                bluetooth: false,
             };
             let keys = |list: &[Feature<'_>]| {
                 list.iter()
