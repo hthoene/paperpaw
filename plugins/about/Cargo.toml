@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-about"
 description = "PaperPaw about page: version, licence and the licences of what it bundles"
-version = "1.0.4"
+version = "1.0.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -18,11 +18,14 @@ native-entry = []
 [dependencies]
 paperpaw-sdk.workspace = true
 paperpaw-ui-kit.workspace = true
+# The licences are kept deflated in the program and inflated a part at a time.
+miniz_oxide = { version = "=0.9.1", default-features = false }
 
 [build-dependencies]
 # `kernel` only for the build script (not unified with the plugin's own use of
 # the SDK): it makes the tables a linked build keeps in the program.
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
+miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
 
 [dev-dependencies]
 paperpaw-core.workspace = true

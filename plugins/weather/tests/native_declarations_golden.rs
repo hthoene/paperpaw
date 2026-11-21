@@ -39,6 +39,7 @@ fn the_declarations_are_the_reviewed_golden() {
     framed(|d| declarations::navigation(d), &mut all);
     framed(|d| declarations::widgets(d), &mut all);
     framed(|d| declarations::events(d), &mut all);
+    framed(|d| declarations::about(d), &mut all);
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/declarations.bin.v1");
     if std::env::var_os("PAPERPAW_BLESS").is_some() {
         std::fs::write(path, &all).unwrap();
@@ -47,4 +48,21 @@ fn the_declarations_are_the_reviewed_golden() {
         all == std::fs::read(path).unwrap(),
         "the declarations changed: review, then PAPERPAW_BLESS=1 cargo test"
     );
+}
+
+/// The schema of `about.lines` is a copy of the owner's: `about.lines@1`
+/// never changes once published, so the copy cannot drift legitimately.
+#[test]
+fn the_about_schema_is_byte_for_byte_the_owners() {
+    let mine = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/stages/subscribed/about.lines@1.def"
+    ))
+    .unwrap();
+    let owners = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../about/stages/about.lines@1.def"
+    ))
+    .unwrap();
+    assert_eq!(mine, owners);
 }

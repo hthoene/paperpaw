@@ -32,8 +32,14 @@
       "major": 1,
       "min_table_bytes": 0,
       "semantic_revision": 0
+    },
+    {
+      "key": "core.ui",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
     }
   ],
   "target": "esp32s3-xtensa-lx7-ilp32-windowed-le",
-  "total_bytes": 115
+  "total_bytes": 134
 }
