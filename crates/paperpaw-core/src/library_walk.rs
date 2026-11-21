@@ -51,7 +51,7 @@ impl LibraryWalk {
         library::catalog::is_growing(storage).then(|| self.0.get().progress.unwrap_or(0))
     }
 
-    /// Whether the catalog work gave no sign of life for [`STALL_MS`] by
+    /// Whether the catalog work gave no sign of life for `STALL_MS` (90 s) by
     /// `now_ms` (the kernel's clock) while it had something to do: a walk
     /// that stopped, or a catalog that is wanted and never begun.
     #[must_use]
