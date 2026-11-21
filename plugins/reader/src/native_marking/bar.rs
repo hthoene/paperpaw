@@ -137,6 +137,45 @@ pub fn items(touch: bool, highlight: Option<bool>, one_page: bool, translate: bo
     kept
 }
 
+/// Steps a style is made smaller in for the chips to fit one row.
+const TIGHTER: usize = 5;
+
+/// The style and fingertip the chips of `labels` are laid out with: `style`
+/// where they fit one row `room` wide, else lower chips, closer together and
+/// without a fingertip's height (the bar keeps it, and a tap in it is the
+/// nearest chip's), step by step until they fit one row or are as low as
+/// their text allows. The text keeps its size: it stays readable, and long
+/// labels take a second row.
+///
+/// # Errors
+/// The host's refusals of the font, `NoMemory`.
+fn one_row(
+    font: &Font<'_>,
+    style: &Style,
+    finger: u16,
+    room: u16,
+    labels: &[&str],
+) -> Result<(Style, u16), Error> {
+    let mut tight = style.clone();
+    if Chips::height_for(font, &tight, finger, room, labels)? <= Chips::height(&tight, finger) {
+        return Ok((tight, finger));
+    }
+    // The lowest chip that holds its text with room above and below it.
+    let least = (style.small * 1.8) as u16;
+    for _ in 0..TIGHTER {
+        if Chips::height_for(font, &tight, 0, room, labels)? <= Chips::height(&tight, 0) {
+            break;
+        }
+        let row = tight.row.saturating_mul(9) / 10;
+        if row.saturating_mul(7) / 10 < least {
+            break;
+        }
+        tight.row = row;
+        tight.gap = (tight.gap.saturating_mul(3) / 4).max(2);
+    }
+    Ok((tight, 0))
+}
+
 /// The bar laid out on a display: the chips and where the bar is.
 #[derive(Debug)]
 pub struct Bar {
@@ -174,16 +213,15 @@ impl Bar {
         for (slot, label) in shown.iter_mut().zip(&labels) {
             *slot = label.as_str();
         }
-        // Chips that do not fit one row go on the next: the bar is as high as
-        // its rows.
-        let rows = Chips::height_for(
-            font,
-            style,
-            finger,
-            width.saturating_sub(2 * style.margin),
-            &shown[..labels.len()],
-        )?
-        .max(Chips::height(style, finger));
+        // All chips in one row where they fit (#448): smaller, the whole bar
+        // is still a fingertip high and a tap in it is the nearest chip's.
+        // Chips that do not fit even so go on the next row: the bar is as
+        // high as its rows.
+        let room = width.saturating_sub(2 * style.margin);
+        let shown = &shown[..labels.len()];
+        let (tight, tight_finger) = one_row(font, style, finger, room, shown)?;
+        let rows = Chips::height_for(font, &tight, tight_finger, room, shown)?
+            .max(Chips::height(style, finger));
         let height = rows.saturating_add(2 * style.margin);
         let top = tall.saturating_sub(height);
         let area = Rect::new(0, top, width, height);
@@ -193,7 +231,7 @@ impl Bar {
             width.saturating_sub(2 * style.margin),
             height.saturating_sub(2 * style.margin),
         );
-        let chips = Chips::new(font, style, finger, inner, &shown[..labels.len()])?;
+        let chips = Chips::new(font, &tight, tight_finger, inner, shown)?;
         let mut kept = Vec::new();
         kept.try_reserve_exact(items.len())
             .map_err(|_| Error::NoMemory)?;

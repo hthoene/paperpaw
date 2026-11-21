@@ -422,7 +422,11 @@ impl NativeReader {
         let Some(ui) = &self.ui else {
             return Err(Error::State);
         };
-        let view = AnnotationsView::open(host, ui, self.library.as_ref(), handover)?;
+        let reading = self
+            .docs
+            .as_ref()
+            .zip(self.screens.top(SCREEN).map(|v| &*v));
+        let view = AnnotationsView::open(host, ui, self.library.as_ref(), (handover, reading))?;
         self.annotations.open(instance, view)
     }
 

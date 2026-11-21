@@ -149,7 +149,7 @@ setting core.group.controls | core.double-tap-ms Int { min: 150, max: 1000 } def
 setting core.group.controls | core.tap-slop Int { min: 1, max: 20 } default=Int(3) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.tap-slop
 setting core.group.controls | core.swipe-distance Int { min: 2, max: 50 } default=Int(8) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.swipe-distance
 setting core.group.controls | reader.corner-bookmark Bool default=Bool(true) Advanced scoped=false guarded=false secret=false kept=false title=reader.setting.corner-bookmark
-setting core.group.controls | reader.hold-chapters Bool default=Bool(false) Advanced scoped=false guarded=false secret=false kept=false title=reader.setting.hold-chapters
+setting core.group.controls | reader.hold-chapters Bool default=Bool(true) Advanced scoped=false guarded=false secret=false kept=false title=reader.setting.hold-chapters
 setting core.group.developer | core.usb-link Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=core.setting.usb-link
 setting core.group.developer | fonts-browser.catalog Text default=Text("https://paperpaw.org/api/v1/fonts.json") Basic scoped=false guarded=false secret=false kept=false title=fonts-browser.setting.catalog
 setting core.group.developer | store.catalog Text default=Text("https://paperpaw.org/api/v1/plugins.json") Basic scoped=false guarded=false secret=false kept=false title=store.setting.catalog
@@ -318,7 +318,7 @@ setting core.group.status | core.status-bar.screens Text default=Text("") Advanc
 setting core.group.status | reader.status.size Int { min: 5, max: 16 } default=Int(6) Basic scoped=false guarded=false secret=false kept=false title=reader.status.size
 setting core.group.status | reader.status.edge Int { min: 0, max: 150 } default=Int(15) Advanced scoped=false guarded=false secret=false kept=false title=reader.status.edge
 setting core.group.status | reader.status.top-lines List default=Text("") Basic scoped=false guarded=false secret=false kept=false title=reader.status.top-lines
-setting core.group.status | reader.status.bottom-lines List default=Text("core.status-line.items, reader.status-line.progress, reader.status-line.empty") Basic scoped=false guarded=false secret=false kept=false title=reader.status.bottom-lines
+setting core.group.status | reader.status.bottom-lines List default=Text("core.status-line.items, reader.status-line.chapter, reader.status-line.progress, reader.status-line.empty") Basic scoped=false guarded=false secret=false kept=false title=reader.status.bottom-lines
 setting core.group.status | reader.status.top-left List default=Text("") Basic scoped=false guarded=false secret=false kept=false title=reader.status.top-left
 setting core.group.status | reader.status.top-center List default=Text("") Basic scoped=false guarded=false secret=false kept=false title=reader.status.top-center
 setting core.group.status | reader.status.top-right List default=Text("") Basic scoped=false guarded=false secret=false kept=false title=reader.status.top-right
@@ -1396,6 +1396,8 @@ key-layer | reader.selecting
 key core.home | swipe.up -> home.all-tools Plugin
 key core.reader | long.confirm -> reader.hold-select Plugin
 key core.reader | long.left -> reader.select-text Plugin
+key core.reader | long.page-back -> reader.prev-chapter Plugin
+key core.reader | long.page-forward -> reader.next-chapter Plugin
 key core.reader | tap.bottom -> reader.quick-settings Plugin
 key core.reader | edge.left -> core.prev-page Plugin
 key core.reader | edge.right -> core.next-page Plugin
@@ -1738,7 +1740,7 @@ native Spec power | SettingSpec(SettingSpec { name: "offline-below", kind: 1, fl
 native Spec power | SettingSpec(SettingSpec { name: "normal-while-charging", kind: 0, flags: 0, group: "power.group", title: "power.setting.normal-while-charging", help: "power.setting.normal-while-charging.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
 native Spec reader | SettingSpec(SettingSpec { name: "open-last", kind: 0, flags: 16, group: "core.group.reading-behaviour", title: "reader.setting.open-last", help: "reader.setting.open-last.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
 native Spec reader | SettingSpec(SettingSpec { name: "corner-bookmark", kind: 0, flags: 16, group: "core.group.controls", title: "reader.setting.corner-bookmark", help: "reader.setting.corner-bookmark.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
-native Spec reader | SettingSpec(SettingSpec { name: "hold-chapters", kind: 0, flags: 16, group: "core.group.controls", title: "reader.setting.hold-chapters", help: "reader.setting.hold-chapters.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
+native Spec reader | SettingSpec(SettingSpec { name: "hold-chapters", kind: 0, flags: 16, group: "core.group.controls", title: "reader.setting.hold-chapters", help: "reader.setting.hold-chapters.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
 native Spec reader | SettingSpec(SettingSpec { name: "turn-wide-pictures", kind: 0, flags: 16, group: "core.group.reading-behaviour", title: "reader.setting.turn-wide-pictures", help: "reader.setting.turn-wide-pictures.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
 native Spec reader | SettingSpec(SettingSpec { name: "auto-turn-seconds", kind: 1, flags: 16, group: "core.group.reading-behaviour", title: "reader.setting.auto-turn-seconds", help: "reader.setting.auto-turn-seconds.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 30, 0, 0, 0, 0, 0, 0, 0], min: 5, max: 600, choices: "" })
 native Spec reader | SettingSpec(SettingSpec { name: "aloud-speed", kind: 1, flags: 0, group: "core.group.reading-aloud", title: "reader.setting.aloud-speed", help: "reader.setting.aloud-speed.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0], min: 50, max: 300, choices: "" })
@@ -1748,7 +1750,7 @@ native Spec reader | SettingSpec(SettingSpec { name: "aloud-timer", kind: 2, fla
 native Spec reader | SettingSpec(SettingSpec { name: "status.size", kind: 1, flags: 0, group: "core.group.status", title: "reader.status.size", help: "reader.status.size.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0], min: 5, max: 16, choices: "" })
 native Spec reader | SettingSpec(SettingSpec { name: "status.edge", kind: 1, flags: 16, group: "core.group.status", title: "reader.status.edge", help: "reader.status.edge.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 150, choices: "" })
 native Spec reader | SettingSpec(SettingSpec { name: "status.top-lines", kind: 5, flags: 0, group: "core.group.status", title: "reader.status.top-lines", help: "reader.status.lines.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
-native Spec reader | SettingSpec(SettingSpec { name: "status.bottom-lines", kind: 5, flags: 0, group: "core.group.status", title: "reader.status.bottom-lines", help: "reader.status.lines.help", default: [1, 0, 0, 0, 3, 0,… (617 bytes, 8c4f57668707aea0)
+native Spec reader | SettingSpec(SettingSpec { name: "status.bottom-lines", kind: 5, flags: 0, group: "core.group.status", title: "reader.status.bottom-lines", help: "reader.status.lines.help", default: [1, 0, 0, 0, 3, 0,… (749 bytes, f3a793db588aac00)
 native Spec reader | SettingSpec(SettingSpec { name: "status.top-left", kind: 5, flags: 0, group: "core.group.status", title: "reader.status.top-left", help: "reader.status.part.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
 native Spec reader | SettingSpec(SettingSpec { name: "status.top-center", kind: 5, flags: 0, group: "core.group.status", title: "reader.status.top-center", help: "reader.status.part.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
 native Spec reader | SettingSpec(SettingSpec { name: "status.top-right", kind: 5, flags: 0, group: "core.group.status", title: "reader.status.top-right", help: "reader.status.part.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
@@ -2518,8 +2520,10 @@ native StatusItem reader | StatusItem(StatusItem { name: "status.title", title: 
 native StatusItem reader | StatusItem(StatusItem { name: "status.chapter", title: "reader.status.item.chapter", tap: "", priority: 64, min_width: 0, token: 16, flags: 0 })
 native StatusItem reader | StatusItem(StatusItem { name: "status.page", title: "reader.status.item.page", tap: "", priority: 224, min_width: 0, token: 16, flags: 0 })
 native StatusItem reader | StatusItem(StatusItem { name: "status.progress", title: "reader.status.item.progress", tap: "", priority: 128, min_width: 0, token: 16, flags: 0 })
+native StatusItem reader | StatusItem(StatusItem { name: "status.chapter-left", title: "reader.status.item.chapter-left", tap: "", priority: 160, min_width: 0, token: 16, flags: 0 })
 native StatusItem wifi | StatusItem(StatusItem { name: "status", title: "wifi.status.item", tap: "open", priority: 0, min_width: 0, token: 2, flags: 0 })
 native StatusLine reader | StatusLine(StatusLine { name: "status-line.progress", title: "reader.status.line.progress", height: 2100, token: 17, flags: 0 })
+native StatusLine reader | StatusLine(StatusLine { name: "status-line.chapter", title: "reader.status.line.chapter", height: 2100, token: 17, flags: 0 })
 native StatusLine reader | StatusLine(StatusLine { name: "status-line.empty", title: "reader.status.line.empty", height: 2100, token: 17, flags: 0 })
 native StatusPlace home | StatusPlace(StatusPlace { name: "status-line", title: "home.widget.status", left: "status.left", center: "status.center", right: "status.right" })
 native StatusPlace picture-home | StatusPlace(StatusPlace { name: "bar", title: "picture-home.setting.bar", left: "picture-home.bar.left-items", center: "picture-home.bar.center-items", right: "picture-home.bar.right-items" })

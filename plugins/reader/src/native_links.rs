@@ -281,6 +281,8 @@ pub struct Returns {
     places: Vec<Locator>,
     /// Where the last link landed: the way back is offered there only.
     landed: Option<Locator>,
+    /// The number of the page the way back leads to, where it is known.
+    page: Option<u32>,
 }
 
 impl Returns {
@@ -290,6 +292,7 @@ impl Returns {
         Self {
             places: Vec::new(),
             landed: None,
+            page: None,
         }
     }
 
@@ -303,6 +306,7 @@ impl Returns {
             self.places.remove(0);
         }
         self.places.push(from);
+        self.page = None;
         Ok(())
     }
 
@@ -313,7 +317,25 @@ impl Returns {
 
     /// The place to return to, forgetting it.
     pub fn back(&mut self) -> Option<Locator> {
+        self.page = None;
         self.places.pop()
+    }
+
+    /// The place the way back leads to, kept.
+    #[must_use]
+    pub fn to(&self) -> Option<Locator> {
+        self.places.last().copied()
+    }
+
+    /// The way back leads to page `page` (from 1), where it is known (#448).
+    pub fn set_page(&mut self, page: Option<u32>) {
+        self.page = page;
+    }
+
+    /// The number of the page the way back leads to, where it is known.
+    #[must_use]
+    pub const fn page(&self) -> Option<u32> {
+        self.page
     }
 
     /// Whether there is a place to return to.

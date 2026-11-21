@@ -95,7 +95,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     for (name, default, group, advanced) in [
         ("open-last", true, BEHAVIOUR, true),
         ("corner-bookmark", true, CONTROLS, true),
-        ("hold-chapters", false, CONTROLS, true),
+        ("hold-chapters", true, CONTROLS, true),
         ("turn-wide-pictures", false, BEHAVIOUR, true),
     ] {
         let title = ["reader.setting.", name].concat();
@@ -247,7 +247,8 @@ pub fn status_settings<F: FnMut(&[u8]) -> Result<(), i32>>(
         (
             "status.bottom-lines",
             "reader.status.bottom-lines",
-            "core.status-line.items, reader.status-line.progress, reader.status-line.empty",
+            "core.status-line.items, reader.status-line.chapter, reader.status-line.progress, \
+             reader.status-line.empty",
             SECTION_BOTTOM,
         ),
     ] {
@@ -313,6 +314,11 @@ pub fn status<F: FnMut(&[u8]) -> Result<(), i32>>(
         ("status.chapter", "reader.status.item.chapter", 64),
         ("status.page", "reader.status.item.page", 224),
         ("status.progress", "reader.status.item.progress", 128),
+        (
+            "status.chapter-left",
+            "reader.status.item.chapter-left",
+            160,
+        ),
     ] {
         let item = StatusItemDecl::new(name, title, STATUS_ITEM)
             .map_err(refused("status item"))?
@@ -321,6 +327,7 @@ pub fn status<F: FnMut(&[u8]) -> Result<(), i32>>(
     }
     for (name, title) in [
         ("status-line.progress", "reader.status.line.progress"),
+        ("status-line.chapter", "reader.status.line.chapter"),
         ("status-line.empty", "reader.status.line.empty"),
     ] {
         // A line is as high as 2.1 times the text size.

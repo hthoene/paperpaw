@@ -54,6 +54,8 @@ pub(crate) struct BarView {
     page: String,
     /// Run by a tap on the two lines; empty for none.
     action: String,
+    /// Run by a tap on the second line instead; empty: [`BarView::action`].
+    text_action: String,
     /// The entries, their titles short where the catalog has a short one.
     rows: Vec<Row>,
     /// The settings among them.
@@ -94,6 +96,11 @@ impl BarView {
         } else {
             String::new()
         };
+        let text_action = if bar::valid_action(&handed.text_action)? {
+            handed.text_action
+        } else {
+            String::new()
+        };
         let mut view = Self {
             menu: handed.menu,
             hide: handed.hide,
@@ -101,6 +108,7 @@ impl BarView {
             text: handed.text,
             page: handed.page,
             action,
+            text_action,
             keys: !touch,
             ..Self::default()
         };
@@ -547,14 +555,20 @@ impl BarView {
                 self.focus = index;
                 return self.run(host, index);
             }
-            Hit::Info if !self.action.is_empty() => {
-                // The bar closes first, so the action reaches the screen below.
-                let mut scratch = buffer(256)?;
-                let mut commands = CommandSender::new(host, &mut scratch);
-                commands.back()?;
-                commands.run_action(&self.action)?;
+            hit @ (Hit::Info | Hit::Text) => {
+                let action = match hit {
+                    Hit::Text if !self.text_action.is_empty() => &self.text_action,
+                    _ => &self.action,
+                };
+                if !action.is_empty() {
+                    // The bar closes first, so the action reaches the screen below.
+                    let mut scratch = buffer(256)?;
+                    let mut commands = CommandSender::new(host, &mut scratch);
+                    commands.back()?;
+                    commands.run_action(action)?;
+                }
             }
-            Hit::Info | Hit::Inside => {}
+            Hit::Inside => {}
         }
         Ok(Outcome::Handled(Handled::Yes))
     }

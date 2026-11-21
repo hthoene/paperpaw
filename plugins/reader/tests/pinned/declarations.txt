@@ -2,7 +2,7 @@
 [specs]
 open-last|0|16|core.group.reading-behaviour|reader.setting.open-last|reader.setting.open-last.help|b:1|0|0|""
 corner-bookmark|0|16|core.group.controls|reader.setting.corner-bookmark|reader.setting.corner-bookmark.help|b:1|0|0|""
-hold-chapters|0|16|core.group.controls|reader.setting.hold-chapters|reader.setting.hold-chapters.help|b:0|0|0|""
+hold-chapters|0|16|core.group.controls|reader.setting.hold-chapters|reader.setting.hold-chapters.help|b:1|0|0|""
 turn-wide-pictures|0|16|core.group.reading-behaviour|reader.setting.turn-wide-pictures|reader.setting.turn-wide-pictures.help|b:0|0|0|""
 auto-turn-seconds|1|16|core.group.reading-behaviour|reader.setting.auto-turn-seconds|reader.setting.auto-turn-seconds.help|i:30|5|600|""
 aloud-speed|1|0|core.group.reading-aloud|reader.setting.aloud-speed|reader.setting.aloud-speed.help|i:100|50|300|""
@@ -12,7 +12,7 @@ aloud-timer|2|0|core.group.reading-aloud|reader.setting.aloud-timer|reader.setti
 status.size|1|0|core.group.status|reader.status.size|reader.status.size.help|i:6|5|16|""
 status.edge|1|16|core.group.status|reader.status.edge|reader.status.edge.help|i:15|0|150|""
 status.top-lines|5|0|core.group.status|reader.status.top-lines|reader.status.lines.help|t:|0|0|""
-status.bottom-lines|5|0|core.group.status|reader.status.bottom-lines|reader.status.lines.help|t:core.status-line.items, reader.status-line.progress, reader.status-line.empty|0|0|""
+status.bottom-lines|5|0|core.group.status|reader.status.bottom-lines|reader.status.lines.help|t:core.status-line.items, reader.status-line.chapter, reader.status-line.progress, reader.status-line.empty|0|0|""
 status.top-left|5|0|core.group.status|reader.status.top-left|reader.status.part.help|t:|0|0|""
 status.top-center|5|0|core.group.status|reader.status.top-center|reader.status.part.help|t:|0|0|""
 status.top-right|5|0|core.group.status|reader.status.top-right|reader.status.part.help|t:|0|0|""
@@ -178,5 +178,7 @@ StatusItem
 StatusItem
 StatusItem
 StatusItem
+StatusItem
+StatusLine
 StatusLine
 StatusLine

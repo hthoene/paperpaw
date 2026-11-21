@@ -96,14 +96,12 @@ pub fn emulated(light: Light) -> impl Fn(&mut Staging) -> Result<(), RegisterErr
             r.add_setting(number(&WARMTH, "emulator.warmth", default, step))?;
             items.push(WARMTH);
         }
-        // First in the reader's panel, and in the quick panel, as on the
-        // devices.
+        // In the quick panel, as on the devices; not in the reader's font
+        // panel, which keeps to the text (#448).
         for (n, item) in items.into_iter().enumerate() {
-            for (menu, order) in [(menus::READER_PANEL, -10), (menus::QUICK, 20)] {
-                r.add_menu_entry(
-                    MenuEntry::new(menu, item.clone().into()).order(order + n as i16),
-                )?;
-            }
+            r.add_menu_entry(
+                MenuEntry::new(menus::QUICK, item.clone().into()).order(20 + n as i16),
+            )?;
         }
         r.add_icon(&FRONTLIGHT, Cow::Borrowed("bulb"))?;
         r.add_icon(&WARMTH, Cow::Borrowed("temperature"))?;

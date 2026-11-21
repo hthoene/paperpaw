@@ -8,6 +8,7 @@ use paperpaw_sdk::{
         commands::CommandSender,
         document::LinkKind,
         fonts::Font,
+        formatting::Arg,
         snapshot::Snapshot,
         ui::{Open, Param, Ui},
     },
@@ -237,6 +238,17 @@ impl Marking {
         self.returns.landed_on(page);
     }
 
+    /// The place the way back leads to, if there is one.
+    #[must_use]
+    pub fn returns_to(&self) -> Option<paperpaw_sdk::document::Locator> {
+        self.returns.to()
+    }
+
+    /// The number of the page the way back leads to: its button names it.
+    pub fn set_back_page(&mut self, page: Option<u32>) {
+        self.returns.set_page(page);
+    }
+
     /// The *Back* button over the page's top margin, on the left, where the way
     /// back is offered; none where it is not.
     fn back_button(&self, host: &Host<'_>, ctx: &Ctx<'_>) -> Result<Option<Rect>, Error> {
@@ -244,7 +256,7 @@ impl Marking {
             return Ok(None);
         }
         let font = Font::acquire_role(host, paperpaw_sdk::native::fonts::FontRole::Ui)?;
-        let shown = back_chip(host, ctx, &font);
+        let shown = back_chip(host, ctx, &font, self.returns.page());
         let released = font.release();
         shown.and_then(|chip| released.map(|()| chip.and_then(|(c, _)| c.cell(0))))
     }
@@ -287,8 +299,8 @@ impl Marking {
             }
             link_bar(ops, host, font, style, display, link)?;
         }
-        if let Some((chips, _)) =
-            back_chip(host, ctx, font)?.filter(|_| self.returns.offered_on(ctx.page_start))
+        if let Some((chips, _)) = back_chip(host, ctx, font, self.returns.page())?
+            .filter(|_| self.returns.offered_on(ctx.page_start))
         {
             chips.prepare(ops, font, usize::MAX, None)?;
         }
@@ -297,15 +309,28 @@ impl Marking {
 }
 
 /// The *Back* chip and its label, in the top margin on the left of the content
-/// box so it covers no text.
+/// box so it covers no text: the page it leads to where that is known
+/// (`page`, #448), else *Back*.
 fn back_chip(
     host: &Host<'_>,
     ctx: &Ctx<'_>,
     font: &Font<'_>,
+    page: Option<u32>,
 ) -> Result<Option<(Chips, String)>, Error> {
     let display = paperpaw_sdk::native::snapshot::capture_snapshot(host)?;
     let style = UiStyle::read(host, &display, font)?;
-    let label = Messages::new()?.copy(host, "reader.link-back")?;
+    let mut messages = Messages::new()?;
+    let label = match page {
+        Some(page) => messages.format(
+            host,
+            "reader.link-back-page",
+            &[Arg::Int {
+                name: "page",
+                value: i64::from(page),
+            }],
+        )?,
+        None => messages.copy(host, "reader.link-back")?,
+    };
     let finger = Chips::finger(&display);
     let top = ctx.area.y;
     let height = Chips::height(&style, finger)

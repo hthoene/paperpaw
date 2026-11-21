@@ -18,7 +18,7 @@ const MANY: Id = Id::new_static("s.many");
 const OPEN_T: Id = Id::new_static("s.open-t");
 
 /// A screen that does what its params say: `name` (logged), `overlay`
-/// (the lower half), `refuse` (to close), `hints` (`hidden`, `on-press`).
+/// (the lower half, `top`: a strip at the top), `refuse` (to close), `hints` (`hidden`, `on-press`).
 struct Configured {
     log: Log,
     params: Params,
@@ -43,7 +43,10 @@ impl crate::testing::Fake for Configured {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
     fn region(&self, _: &Place<'_>) -> Option<Rect> {
-        self.says("overlay").map(|_| Rect::new(0, 45, 90, 45))
+        self.says("overlay").map(|at| match at {
+            "top" => Rect::new(0, 0, 90, 20),
+            _ => Rect::new(0, 45, 90, 45),
+        })
     }
 
     fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
@@ -320,6 +323,29 @@ fn a_screen_says_its_own_row_of_hints() {
     kernel.open_screen(Instant(1), SCREEN, named("page").with("hints", "hidden"));
     assert!(!kernel.stack[1].hinted);
     assert_eq!(kernel.shared.device.display.height, 90);
+}
+
+/// A menu over a page without the row shows the row, also where its
+/// labels are those the row had before the page (#448): the row is drawn
+/// again whole, not taken as still shown.
+#[test]
+fn a_menu_over_a_page_without_hints_draws_the_row_again() {
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(stack_plugin_manifest(), stack_plugin(log()))
+        .button_row(&["back", "confirm", "left", "right"])
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    kernel.open_screen(Instant(1), SCREEN, named("list"));
+    render(&mut kernel);
+    kernel.open_screen(Instant(2), SCREEN, named("page").with("hints", "hidden"));
+    render(&mut kernel);
+    assert!(kernel.hint_row().is_none());
+    assert!(kernel.frame().data.iter().all(|byte| *byte == 0xff));
+    kernel.open_screen(Instant(3), SCREEN, named("menu").with("overlay", "top"));
+    render(&mut kernel);
+    assert!(kernel.hint_row().is_some());
+    assert!(kernel.frame().data.iter().any(|byte| *byte != 0xff));
 }
 
 /// A screen opened again with the same params while it is open is gone
