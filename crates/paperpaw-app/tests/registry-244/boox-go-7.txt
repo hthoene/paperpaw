@@ -2813,7 +2813,7 @@ native HelpHint vocabulary | HelpHint(HelpHint { screen: "vocabulary.review", in
 native HelpHint vocabulary | HelpHint(HelpHint { screen: "vocabulary.review", input: 0, x: 0, y: 0, width: 0, height: 0, text: "vocabulary.help.back" })
 native Format format-cbz | FormatSpec(FormatSpec { name: "cbz", title: "format-cbz.title", extensions: "cbz", flags: 8, priority: 0, token: 1 })
 native Format format-docx | FormatSpec(FormatSpec { name: "docx", title: "format-docx.title", extensions: "docx", flags: 1, priority: 0, token: 1 })
-native Format format-epub | FormatSpec(FormatSpec { name: "epub", title: "format-epub.title", extensions: "epub", flags: 2, priority: 0, token: 1 })
+native Format format-epub | FormatSpec(FormatSpec { name: "epub", title: "format-epub.title", extensions: "epub", flags: 18, priority: 0, token: 1 })
 native Format format-fb2 | FormatSpec(FormatSpec { name: "fb2", title: "format-fb2.title", extensions: "fb2\nfb2.zip", flags: 16, priority: 0, token: 1 })
 native Format format-html | FormatSpec(FormatSpec { name: "html", title: "format-html.title", extensions: "html\nhtm\nxhtml", flags: 16, priority: 0, token: 1 })
 native Format format-images | FormatSpec(FormatSpec { name: "pictures", title: "format-images.title", extensions: "jpg\njpeg\npng\ngif", flags: 24, priority: 0, token: 1 })
