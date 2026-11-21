@@ -7,7 +7,7 @@
 //! the help's wait for the book) is listed in `PORTING-7.md`.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, HelpHintDecl, Instances,
+    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, HelpHintDecl, HintRow, Instances,
     KeyBindingDecl, Kind, MenuEntryDecl, ReaderDecl, ScreenDecl, SetupPage, SetupStepDecl,
     SlotOfferDecl, SpecDecl, StageDecl, StatusBar, StatusItemDecl, StatusLineDecl, StatusPlaceDecl,
     WidgetDecl,
@@ -357,7 +357,7 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         // press, as in Beta 3, and no status bar of the host: it has status
         // lines of its own.
         if token == SCREEN {
-            decl = decl.hints_on_press().status_bar(StatusBar::Hide);
+            decl = decl.hints(HintRow::OnPress).status_bar(StatusBar::Hide);
         }
         // The note and the skim bar are laid over the page, which shows above them.
         d.screen(if matches!(token, FOOTNOTE | SKIM) {

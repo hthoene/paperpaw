@@ -37,7 +37,7 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
   declaration; `LIB-position`), the screens, input and dialogs (H1–H4), reading aloud (a speech
   facade) and the timers.
 - **No native declaration exists yet for** the first-run help's wait for the book (an SDK/host gap;
-  the screen hints *on press* are declared since #448 with `hints_on_press`, draft 38; the help hints,
+  the screen hints *on press* are declared since #448 with `hints`, draft 38; the help hints,
   the setup step *text size* and the sample widget since #257, see *The first run* at the end). It is a
   gap in the declaration set;
   `tests/abi7_declarations.rs` fails when the host admits the wait, so it cannot be forgotten.
@@ -1005,11 +1005,10 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   prepared book that opened; hooks in `native_plugin.rs` `reading_shown` and `document_changed`); the host takes
   it as nothing for a screen that does not wait. A test fails once the host admits bit 3: then add
   `.waits_ready()` to the reading screen in `declarations::screens` (one line).
-- **Screen hints *on press* (`HintVisibility::OnPress`): not declarable.** `ScreenDecl` has `hints_hidden`
-  (bit 8, Beta 3's `Hidden`) and nothing for *on press*; the reader declares neither, so the row of button
-  hints shows as on any screen (and takes its room). SDK/ABI/host gap: a `screen.spec` bit (9) `hints_on_press`
-  with `ScreenDecl::hints_on_press`, the host showing the row for a few seconds after a press (as
-  `command.show_hints`). A test records the gap.
+- **Screen hints *on press* (`HintVisibility::OnPress`): declared since #448** (draft 38): the reading page
+  says `ScreenDecl::hints(HintVisibility::OnPress)` (`screen.spec.flags` bits 13-14 = 2), so the host shows
+  the row for a few seconds after a press, over the page's bottom edge, and the page has the whole display,
+  as Beta 3's `set_screen_hints(SCREEN, OnPress)`; `tests/abi7_declarations.rs` pins it.
 - **Setup step *text size*** (`setup.font-size`, order 30, the page `Setting("core.font-size")`): admitted
   (`setup.step`, `registry.md` 6) and listed by `core.registry` op 15. Its title is the setting's own
   (`core.setting.font-size`): Beta 3's empty title meant that, and a native step needs a title; no new text.

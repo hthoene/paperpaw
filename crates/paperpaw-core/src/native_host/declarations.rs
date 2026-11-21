@@ -613,12 +613,27 @@ pub const SCREEN_DIMS_BELOW: u32 = 1 << 10;
 pub const SCREEN_STATUS_BAR_SHIFT: u32 = 11;
 /// The mask of bits 11-12.
 pub const SCREEN_STATUS_BAR: u32 = 3 << SCREEN_STATUS_BAR_SHIFT;
-/// `screen.spec` flag bit 13 (draft 38): the screen shows the row of button
-/// hints only for a few seconds after one of its buttons was pressed, over its
-/// bottom edge (the reader's page, as in Beta 3); not beside bit 8.
-pub const SCREEN_HINTS_ON_PRESS: u32 = 1 << 13;
+/// `screen.spec` flag bits 13-14 `hints` (draft 38, #448): when the row of
+/// button hints shows; 0 as bit 8 says (always, or never), 1 always, 2 for a
+/// few seconds after one of the screen's buttons was pressed, over its bottom
+/// edge (the reader's page, as in Beta 3), 3 never; `command.screen_policy`
+/// may change them at run time (there 0 keeps what the screen declared).
+pub const SCREEN_HINTS_SHIFT: u32 = 13;
+/// The mask of bits 13-14.
+pub const SCREEN_HINTS: u32 = 3 << SCREEN_HINTS_SHIFT;
 /// Every `screen.spec` flag bit this host knows.
-const SCREEN_FLAGS_KNOWN: u32 = 0x3fff;
+const SCREEN_FLAGS_KNOWN: u32 = 0x7fff;
+
+/// What bits 13-14 of `flags` say of the row of hints; `None` for 0.
+pub(crate) fn hint_visibility(flags: u32) -> Option<paperpaw_sdk::HintVisibility> {
+    use paperpaw_sdk::HintVisibility::{Hidden, OnPress, Shown};
+    match (flags & SCREEN_HINTS) >> SCREEN_HINTS_SHIFT {
+        1 => Some(Shown),
+        2 => Some(OnPress),
+        3 => Some(Hidden),
+        _ => None,
+    }
+}
 /// `action.spec` flag bit 0: runs only while one of the plugin's screens is on top.
 pub const ACTION_NEEDS_SCREEN: u32 = 1;
 
@@ -639,9 +654,12 @@ fn screen_check(plugin_id: &str, screen: &ScreenSpec<'_>) -> Check {
     if (flags >> 6) & 3 == 3 || flags & SCREEN_STATUS_BAR == SCREEN_STATUS_BAR {
         return Err(ERR_UNSUPPORTED);
     }
-    // No row of hints, and one on a press, at once.
-    let both = SCREEN_HINTS_HIDDEN | SCREEN_HINTS_ON_PRESS;
-    ensure(flags & both != both)
+    // No row of hints (bit 8), and a row always or on a press, at once.
+    let hints = hint_visibility(*flags);
+    ensure(
+        flags & SCREEN_HINTS_HIDDEN == 0
+            || hints.is_none_or(|h| h == paperpaw_sdk::HintVisibility::Hidden),
+    )
 }
 
 fn action_check(plugin_id: &str, action: &ActionSpec<'_>) -> Check {

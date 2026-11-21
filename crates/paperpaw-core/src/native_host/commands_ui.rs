@@ -834,10 +834,14 @@ impl crate::Kernel {
             let bar = self.stack[index].status_bar();
             self.stack[index].policy = Some(change.flags);
             moved |= bar != self.stack[index].status_bar();
+            // Made for the part above the row of hints only while it always shows.
+            let hinted = self.hints_of(&self.stack[index]) == paperpaw_sdk::HintVisibility::Shown;
+            moved |= core::mem::replace(&mut self.stack[index].hinted, hinted) != hinted;
             changed = true;
         }
         if moved {
-            // The status bar came or went: the screens' parts change.
+            // The status bar or the row of hints came or went: the screens'
+            // parts change.
             self.lay_out_shown();
         }
         if changed {

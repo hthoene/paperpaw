@@ -56,8 +56,14 @@ fn probes(r: &mut Staging) -> Result<(), RegisterError> {
 }
 
 fn opened(config: &str, id: &'static str) -> crate::Kernel {
-    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .user_config(config)
+    opened_on(
+        crate::Kernel::builder(crate::tests::DEVICE).user_config(config),
+        id,
+    )
+}
+
+fn opened_on(builder: crate::KernelBuilder, id: &'static str) -> crate::Kernel {
+    let mut kernel = builder
         .items(
             Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
                 .uses(paperpaw_sdk::Uses::NOTHING),
@@ -150,4 +156,38 @@ fn a_run_time_policy_moves_the_screen_and_zero_keeps_what_it_declared() {
     assert!(top(&kernel) > 0);
     kernel.native_screen_policies(&probe, 1, change(HIDE));
     assert_eq!(top(&kernel), 0, "hidden at run time");
+}
+
+/// The row of hints set at run time (`hints`, bits 13-14, #448): on a press
+/// the screen gets the whole display and the row shows only after one; 0
+/// keeps what the screen declared (always, below it).
+#[test]
+fn a_run_time_hints_policy_gives_the_screen_the_display_and_zero_keeps_the_declared() {
+    use crate::native_host::commands::PolicyChange;
+    use paperpaw_sdk::HintVisibility;
+    let builder = crate::Kernel::builder(crate::tests::DEVICE).button_row(&["back", "confirm"]);
+    let mut kernel = opened_on(builder, "probe.old");
+    let serial = kernel.stack.last().unwrap().serial;
+    let change = |flags| {
+        alloc::vec![PolicyChange {
+            instance: serial,
+            flags,
+            ready: false,
+        }]
+    };
+    let height = |kernel: &crate::Kernel| kernel.stack.last().unwrap().area.height;
+    let display = kernel.framebuffer.bounds().height;
+    let below_the_row = height(&kernel);
+    assert!(below_the_row < display, "declared: above the row");
+    let probe = Id::new_static("probe");
+    kernel.native_screen_policies(&probe, 1, change(2 << 13));
+    assert_eq!(kernel.base_hints(), HintVisibility::OnPress);
+    assert_eq!(height(&kernel), display, "on a press: all of the display");
+    // A policy for another bit (secret) keeps what the screen declared.
+    kernel.native_screen_policies(&probe, 1, change(1 << 4));
+    assert_eq!(kernel.base_hints(), HintVisibility::Shown);
+    assert_eq!(height(&kernel), below_the_row);
+    kernel.native_screen_policies(&probe, 1, change(3 << 13));
+    assert_eq!(kernel.base_hints(), HintVisibility::Hidden);
+    assert_eq!(height(&kernel), display);
 }

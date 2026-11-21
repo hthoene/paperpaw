@@ -157,6 +157,7 @@ impl Plugin for NativePictureHome {
                 if let Some(dashboard) = self.dashboards.get(instance) {
                     dashboard.shown();
                     dashboard.sync_hint(host);
+                    dashboard.sync_hint_row(host, instance);
                     // Without the picture the page is
                     // plain, and nothing else fails for it.
                     dashboard.want_picture(host, &mut self.cookie).ok();

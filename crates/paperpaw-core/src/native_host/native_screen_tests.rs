@@ -536,9 +536,16 @@ fn a_screen_declared_hints_hidden_says_so_and_another_leaves_it_to_its_plugin() 
 
 #[test]
 fn a_screen_declared_hints_on_press_has_the_row_only_after_a_press() {
-    let (screen, _) = screen();
-    let screen = screen.with_flags((1 << 13) | (2 << 11));
-    assert_eq!(screen.hints(), Some(paperpaw_sdk::HintVisibility::OnPress));
+    use paperpaw_sdk::HintVisibility::{Hidden, OnPress, Shown};
+    for (flags, hints) in [
+        ((2 << 13) | (2 << 11), OnPress),
+        (1 << 13, Shown),
+        (3 << 13, Hidden),
+        ((3 << 13) | (1 << 8), Hidden),
+    ] {
+        let (screen, _) = screen();
+        assert_eq!(screen.with_flags(flags).hints(), Some(hints), "{flags:#x}");
+    }
 }
 
 #[test]
