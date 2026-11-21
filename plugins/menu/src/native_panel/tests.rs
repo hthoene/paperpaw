@@ -23,6 +23,7 @@ fn geometry() -> Geometry {
         button: 40,
         border: 2,
         label: 150,
+        value: 50,
         pager: 45,
         margin: 20,
         rtl: false,
@@ -344,16 +345,17 @@ fn controls_share_their_row() {
     assert!(row.controls[0].1.x >= 20 + 150);
     assert_eq!(row.controls[1].1.right(), 480 - 20);
 
-    // A stepper's `−` and `+` are at the ends of what follows the label.
+    // A stepper's `−` and `+` are tight at the right end, the room of a
+    // value between them.
     let area = Rect::new(0, 0, 480, 60);
     let stepper = place(&Line::Stepper(2), area, &geometry()).unwrap();
     let [(minus, left), (plus, right)] = stepper.controls.as_slice() else {
         panic!("two buttons");
     };
     assert_eq!((*minus, *plus), (Control::Step(2, -1), Control::Step(2, 1)));
-    assert_eq!(left.x, 20 + 150);
     assert_eq!(right.right(), 480 - 20);
-    assert!(left.right() < u32::from(right.x));
+    assert_eq!(left.right() + 50, u32::from(right.x));
+    assert!(left.x > 20 + 150, "the label has the room");
 }
 
 #[test]
