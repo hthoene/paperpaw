@@ -144,6 +144,11 @@ impl Board {
     // A frame of its own, off the stack before the kernel is built.
     #[inline(never)]
     pub fn take(mut p: Peripherals) -> Self {
+        // The battery's latch (the flash's free WP pad) is never pad-held
+        // (#451): a light sleep leaves it driving as awake (esp-hal selects
+        // no sleep settings for it, and VDD_SPI, its supply, stays on). A
+        // latch held through a sleep is what hung CrossPoint's X4 when a
+        // cable came in.
         let power_latch = Output::new(p.GPIO13, Level::High, OutputConfig::default());
         let delay = Delay::new();
         // Which controller the panel has, asked on its lines before the
