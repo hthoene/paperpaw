@@ -311,6 +311,8 @@ pub struct ItemList {
     /// functions that change an item grew the frame of every plugin that has a
     /// list past the band of the X4 (#288).
     kept: Option<alloc::boxed::Box<band::Kept>>,
+    /// The arrow keys stay on the page (`focus::keep_arrows_stay`).
+    arrows_stay: Option<bool>,
 }
 
 impl ItemList {
@@ -466,6 +468,27 @@ impl ItemList {
         (0..from).rev().find(|i| self.items[*i].selectable())
     }
 
+    /// Where an arrow key that steps to `target` (onwards with `forward`)
+    /// takes the focus: there, unless the arrow keys stay on the page and it
+    /// is off the page of the last frame (or there is none): then to the
+    /// page's other end (`focus::round_page`).
+    fn on_page(&self, target: Option<usize>, forward: bool) -> Option<usize> {
+        if self.arrows_stay != Some(true) {
+            return target;
+        }
+        let page = self.page_of(self.focus);
+        let start = self.starts.get(page).copied().unwrap_or(0);
+        let end = self
+            .starts
+            .get(page + 1)
+            .copied()
+            .unwrap_or(self.items.len());
+        let rests = |i: &usize| self.items.get(*i).is_some_and(Item::selectable);
+        let first = (start..end).find(rests)?;
+        let last = (start..end).rev().find(rests)?;
+        Some(crate::focus::round_page(target, forward, (first, last)))
+    }
+
     fn page_of(&self, item: usize) -> usize {
         self.starts
             .iter()
@@ -488,8 +511,12 @@ impl ItemList {
                     "core.confirm" if self.items.get(self.focus).is_some_and(Item::selectable) => {
                         return ItemStep::Chosen(self.focus);
                     }
-                    "core.down" | "core.next" | "core.right" => self.after(self.focus),
-                    "core.up" | "core.previous" | "core.left" => self.before(self.focus),
+                    "core.down" | "core.next" | "core.right" => {
+                        self.on_page(self.after(self.focus), true)
+                    }
+                    "core.up" | "core.previous" | "core.left" => {
+                        self.on_page(self.before(self.focus), false)
+                    }
                     "core.next-page" => first_of(page + 1).or_else(|| self.after(self.focus)),
                     "core.prev-page" if page > 0 => first_of(page - 1),
                     "core.prev-page" => self.before(self.focus),
@@ -588,6 +615,7 @@ impl ItemList {
     /// # Errors
     /// Propagates command queueing errors; the focus is unchanged then.
     pub fn input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<ItemStep, Error> {
+        crate::focus::keep_arrows_stay(host, &mut self.arrows_stay, input);
         let step = self.decide(input);
         match step {
             ItemStep::Focus(to) => {
