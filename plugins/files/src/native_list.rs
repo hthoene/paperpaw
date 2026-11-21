@@ -48,6 +48,9 @@ pub struct Cell {
     pub card: bool,
     /// The badges plugins put on the book, as chips.
     pub chips: Vec<String>,
+    /// The title is too long for one line: it takes a second where its page
+    /// has room (set by the draw, which measures; see [`pages`]).
+    pub two: bool,
 }
 
 impl Cell {
@@ -64,6 +67,7 @@ impl Cell {
             progress: None,
             card: false,
             chips: Vec::new(),
+            two: false,
         })
     }
 
@@ -75,6 +79,11 @@ impl Cell {
 
     const fn is_book(&self) -> bool {
         matches!(self.row, Row::Book(_)) && !self.card
+    }
+
+    /// Whether the title asks for a second line (a book's row of a list).
+    const fn wants_two(&self) -> bool {
+        self.two && self.is_book()
     }
 }
 
@@ -108,6 +117,12 @@ impl Metrics {
     #[must_use]
     pub const fn book_height(&self) -> u16 {
         self.row + self.row / 2 + self.gap
+    }
+
+    /// What a second line of the title adds to a book's row.
+    #[must_use]
+    pub const fn extra_height(&self) -> u16 {
+        self.row / 2
     }
 
     /// The last-read card.
@@ -214,7 +229,34 @@ pub fn pages(cells: &[Cell], metrics: &Metrics, grid: bool) -> Result<Vec<Vec<Pl
             y += u32::from(high);
         }
     }
+    if !grid {
+        widen(&mut pages, cells, metrics);
+    }
     Ok(pages)
+}
+
+/// A book whose title needs a second line gets the room for it where its
+/// page has some left over (the books of a page are the ones of the usual
+/// row's height: the density does not change), the first such books first;
+/// the rows below move down by what was added.
+fn widen(pages: &mut [Vec<Placed>], cells: &[Cell], metrics: &Metrics) {
+    let extra = metrics.extra_height();
+    let bottom = u32::from(metrics.area.y) + u32::from(metrics.area.height);
+    for page in pages {
+        let used = page.last().map_or(0, |last| {
+            u32::from(last.rect.y) + u32::from(last.rect.height)
+        });
+        let mut slack = bottom.saturating_sub(used);
+        let mut shift = 0u16;
+        for placed in page.iter_mut() {
+            placed.rect.y = placed.rect.y.saturating_add(shift);
+            if slack >= u32::from(extra) && cells.get(placed.cell).is_some_and(Cell::wants_two) {
+                placed.rect.height = placed.rect.height.saturating_add(extra);
+                slack -= u32::from(extra);
+                shift = shift.saturating_add(extra);
+            }
+        }
+    }
 }
 
 /// What an input means to the list.
@@ -231,6 +273,8 @@ pub enum ListStep {
     Header(&'static str),
     /// The title was tapped: the library's menu.
     Menu,
+    /// The lens was tapped: the search.
+    Search,
     Ignored,
 }
 
@@ -248,6 +292,10 @@ pub struct BookList {
     pub(crate) header: Page,
     /// The header's band, where a tap on the title is the menu.
     pub(crate) band: Option<Rect>,
+    /// Drawn for a touch screen: the filter row is a chip with a lens.
+    pub(crate) touch: bool,
+    /// Where the chip and the lens of the filter row were drawn.
+    pub(crate) chip: Option<paperpaw_ui_kit::choice_chip::Parts>,
 }
 
 impl BookList {
@@ -261,6 +309,13 @@ impl BookList {
         };
         list.focus = list.cells.iter().position(Cell::selectable).unwrap_or(0);
         list
+    }
+
+    /// Whether the filter row is a chip that opens a list of the filters (a
+    /// touch screen), instead of a row that steps from one filter to the next.
+    #[must_use]
+    pub const fn touch(&self) -> bool {
+        self.touch
     }
 
     #[must_use]
@@ -282,6 +337,14 @@ impl BookList {
     /// The focus on `index`, or the last cell when there is none so far.
     pub fn set_focus(&mut self, index: usize) {
         self.focus = index.min(self.cells.len().saturating_sub(1));
+    }
+
+    /// Which cells ask for a second line of title: exactly those at `wide`
+    /// (the others are cleared).
+    pub fn set_two(&mut self, wide: &[usize]) {
+        for (at, cell) in self.cells.iter_mut().enumerate() {
+            cell.two = wide.contains(&at);
+        }
     }
 
     /// The first cell that is a book.
@@ -412,6 +475,9 @@ impl BookList {
         if let Some(action) = self.header.action(position) {
             return ListStep::Header(action);
         }
+        if self.chip.is_some_and(|chip| chip.on_lens(position)) {
+            return ListStep::Search;
+        }
         if self.band.is_some_and(|band| band.contains(position)) {
             return ListStep::Menu;
         }
@@ -445,7 +511,7 @@ impl BookList {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).run_action(action)?;
             }
-            ListStep::Menu | ListStep::Ignored => {}
+            ListStep::Menu | ListStep::Search | ListStep::Ignored => {}
         }
         Ok(step)
     }
@@ -599,5 +665,50 @@ mod tests {
         assert_eq!(list.visible_books().unwrap(), [0, 1, 2, 3, 4]);
         list.set_focus(6);
         assert_eq!(list.visible_books().unwrap(), [5, 6, 7]);
+    }
+
+    #[test]
+    fn a_long_title_takes_a_second_line_only_where_the_page_has_room_left() {
+        // 400 high: five rows of 68 leave 60; a second line adds 20.
+        let m = metrics();
+        let mut cells = books(5);
+        for at in [0, 2, 3, 4] {
+            cells[at].two = true;
+        }
+        let page = &pages(&cells, &m, false).unwrap()[0];
+        let heights: Vec<u16> = page.iter().map(|p| p.rect.height).collect();
+        // Three of the four fit the slack; the fourth keeps the usual height.
+        assert_eq!(heights, [88, 68, 88, 88, 68]);
+        assert_eq!(page[1].rect.y, 50 + 88);
+        let last = page.last().unwrap().rect;
+        assert!(last.y + last.height <= 450, "the page keeps its density");
+        // A grid never widens, and no flag means the usual rows.
+        let grid = pages(&cells, &m, true).unwrap();
+        assert!(grid[0].iter().all(|p| p.rect.height == m.tile_height()));
+        cells.iter_mut().for_each(|c| c.two = false);
+        assert!(
+            pages(&cells, &m, false).unwrap()[0]
+                .iter()
+                .all(|p| p.rect.height == 68)
+        );
+    }
+
+    #[test]
+    fn the_lens_of_a_touch_screen_is_the_search() {
+        let mut list = BookList::new(vec![cell(Row::Filter)], false);
+        list.chip = Some(paperpaw_ui_kit::choice_chip::Parts {
+            chip: Rect::new(12, 54, 150, 40),
+            lens: Some(Rect::new(420, 54, 40, 40)),
+        });
+        list.hits = vec![(Rect::new(0, 50, 480, 48), 0)];
+        let tap = |x| Input::Gesture {
+            now_ms: 0,
+            position: Point::new(x, 70),
+            kind: InputGestureKind::Tap,
+        };
+        assert_eq!(list.decide(&tap(430)), ListStep::Search);
+        // The chip and the rest of the row choose the filter row.
+        assert_eq!(list.decide(&tap(50)), ListStep::Chosen(0));
+        assert_eq!(list.decide(&tap(300)), ListStep::Chosen(0));
     }
 }

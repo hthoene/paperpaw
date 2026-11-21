@@ -115,18 +115,24 @@ xteink-x4: screen home.dashboard
 Text "Library" at 35,9 84x40
 Text "Show" at 35,87 57x35
 Text "All books · 4 books" at 259,87 186x35
-Text "Alice's Adventures in W…" at 120,143 253x35
-Text "Lewis Carroll" at 120,177 108x29
-Text "A" at 59,163 20x52
-Text "Alice's Adventures in W…" at 120,251 253x35
-Text "Lewis Carroll" at 120,285 108x29
-Text "A" at 59,271 20x52
-Text "Die Verwandlung" at 120,359 171x35
-Text "Franz Kafka" at 120,393 98x29
-Text "D" at 57,379 23x52
-Text "Die Verwandlung" at 120,467 171x35
-Text "Franz Kafka" at 120,501 98x29
-Text "D" at 57,487 23x52
+Text "Alice's Adventures in" at 120,143 207x35
+Text "Wonderland" at 120,177 124x35
+Text "New" at 374,211 38x29
+Text "Lewis Carroll" at 120,211 108x29
+Text "A" at 59,178 20x52
+Text "Alice's Adventures in" at 120,281 207x35
+Text "Wonderland" at 120,315 124x35
+Text "New" at 374,349 38x29
+Text "Lewis Carroll" at 120,349 108x29
+Text "A" at 59,316 20x52
+Text "Die Verwandlung" at 120,419 171x35
+Text "New" at 374,453 38x29
+Text "Franz Kafka" at 120,453 98x29
+Text "D" at 57,439 23x52
+Text "Die Verwandlung" at 120,527 171x35
+Text "New" at 374,561 38x29
+Text "Franz Kafka" at 120,561 98x29
+Text "D" at 57,547 23x52
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Heading "Vocabulary" at 0,0 480x58
@@ -302,18 +308,24 @@ xteink-x4: screen home.dashboard
 Text "Library" at 35,9 84x40
 Text "Show" at 35,87 57x35
 Text "All books · 4 books" at 259,87 186x35
-Text "Alice's Adventures in W…" at 120,143 253x35
-Text "Lewis Carroll" at 120,177 108x29
-Text "A" at 59,163 20x52
-Text "Alice's Adventures in W…" at 120,251 253x35
-Text "Lewis Carroll" at 120,285 108x29
-Text "A" at 59,271 20x52
-Text "Die Verwandlung" at 120,359 171x35
-Text "Franz Kafka" at 120,393 98x29
-Text "D" at 57,379 23x52
-Text "Die Verwandlung" at 120,467 171x35
-Text "Franz Kafka" at 120,501 98x29
-Text "D" at 57,487 23x52
+Text "Alice's Adventures in" at 120,143 207x35
+Text "Wonderland" at 120,177 124x35
+Text "New" at 374,211 38x29
+Text "Lewis Carroll" at 120,211 108x29
+Text "A" at 59,178 20x52
+Text "Alice's Adventures in" at 120,281 207x35
+Text "Wonderland" at 120,315 124x35
+Text "New" at 374,349 38x29
+Text "Lewis Carroll" at 120,349 108x29
+Text "A" at 59,316 20x52
+Text "Die Verwandlung" at 120,419 171x35
+Text "New" at 374,453 38x29
+Text "Franz Kafka" at 120,453 98x29
+Text "D" at 57,439 23x52
+Text "Die Verwandlung" at 120,527 171x35
+Text "New" at 374,561 38x29
+Text "Franz Kafka" at 120,561 98x29
+Text "D" at 57,547 23x52
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Text "0 %" at 414,753 31x29

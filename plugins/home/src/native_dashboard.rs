@@ -187,6 +187,8 @@ pub struct Dashboard {
     /// Editing the home screen: the pencil is *Done*, *Add* shows; what is
     /// tapped offers the item's options.
     editing: bool,
+    /// Whether *Back* is named *Done* in the row of button hints.
+    hinted: bool,
     /// The options of an item, over the page.
     options: Option<arrange::Options>,
     /// An item the buttons are moving or sizing.
@@ -942,6 +944,10 @@ impl Dashboard {
                     *rect,
                     style.note,
                 )?,
+                // Editing: *Done* is the bar's filled button, as in Beta 3.
+                _ if self.editing => {
+                    paperpaw_ui_kit::parts::bar_button(&mut below, font, style, *rect, word, true)?;
+                }
                 _ => name(&mut below, font, style, *rect, word)?,
             }
         }
@@ -960,7 +966,7 @@ impl Dashboard {
             }
         }
         if let Some(rect) = laid.plus {
-            name(&mut below, font, style, rect, "+")?;
+            paperpaw_ui_kit::parts::bar_button(&mut below, font, style, rect, "+", false)?;
         }
         if let Some(nav) = self.nav {
             for dot in dash::dots(laid.footer_area(), style.gap, laid.pages, nav.page) {
@@ -1014,6 +1020,23 @@ impl Dashboard {
     /// # Errors
     /// Allocation and host errors.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
+        let handled = self.input_step(host, ui, input);
+        crate::native_hint::sync(host, self.editing, &mut self.hinted);
+        handled
+    }
+
+    /// Names *Back* in the row of button hints as the page's state asks (see
+    /// `native_hint`); for a callback that may send commands.
+    pub fn sync_hint(&mut self, host: &Host<'_>) {
+        crate::native_hint::sync(host, self.editing, &mut self.hinted);
+    }
+
+    fn input_step(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        input: &Input<'_>,
+    ) -> Result<Handled, Error> {
         self.just_shown = false;
         self.listing.covers_later(false);
         self.ensure(host, ui)?;

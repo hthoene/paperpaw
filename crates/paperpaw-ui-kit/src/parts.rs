@@ -105,6 +105,24 @@ pub fn pill(
     crate::text::label(out, font, &shown, style.small, x, at, tone, Some(at))
 }
 
+/// A button of an editing bar (home's *+* and *Done*): a capsule in the middle
+/// of `cell`, a gap shorter than it, outlined in the style's ink, or filled
+/// with it where `filled` (the bar's main button), `label` centred.
+///
+/// # Errors
+/// Font refusals and [`Error::NoMemory`].
+pub fn bar_button(
+    out: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    cell: Rect,
+    label: &str,
+    filled: bool,
+) -> Result<(), Error> {
+    let at = cell.inset(0, style.gap / 2);
+    pill(out, font, style, at, label, (style.ink, filled))
+}
+
 /// The first letter of `title` in capitals, up to three characters of what
 /// it uppercases to: what stands for a book with a title too long for a
 /// small place.
