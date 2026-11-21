@@ -46,6 +46,11 @@ mod waveform;
 
 /// How long the main loop rests when there is nothing to do.
 const POLL_MS: u64 = 10;
+/// A panel refresh is waited for at least this long (the slow clock's
+/// threshold, `cpu_clock::idle`).
+const PANEL_WAIT_MS: u64 = 50;
+/// The power mode that keeps the full clock (`core.performance`).
+use paperpaw_x4::controls::PERFORMANCE_MODE;
 /// How often the battery is read.
 const STATUS_MS: u64 = 60_000;
 /// On battery, the longest the processor sleeps between readings of the
@@ -333,6 +338,11 @@ impl Firmware {
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
     fn step(&mut self) {
+        // Work: the full clock, whatever the wait before it left (#452).
+        crate::cpu_clock::busy();
+        #[cfg(feature = "remote")]
+        crate::cpu_clock::report();
+        self.clock_policy();
         // Power held 8 s (G12): out, whatever else is going on. The timer's
         // readings reset the processor if this is not reached in time.
         if input::escape_requested() {
@@ -425,6 +435,34 @@ impl Firmware {
         self.tick();
         self.poll_frame();
         self.rest(battery, installing);
+    }
+
+    /// Waits for the panel's busy line to fall. The radio's frames are taken
+    /// out of its queue meanwhile; with the radio off nothing else is done,
+    /// and the processor waits at the slow clock (`cpu_clock`).
+    fn panel_wait(&mut self) -> Result<(), paperpaw_x4::display::Error> {
+        if !self.network.radio_on() {
+            crate::cpu_clock::idle(PANEL_WAIT_MS);
+        }
+        let network = &mut self.network;
+        let waited = self.panel.wait_with(|| network.keep_served());
+        crate::cpu_clock::busy();
+        waited
+    }
+
+    /// The clock's policy by the power mode (ADR 0025): Performance keeps the
+    /// full clock, Saving and Offline wait at a slower one than Normal.
+    fn clock_policy(&self) {
+        use crate::cpu_clock::Policy;
+        use paperpaw_sdk::power::PowerLevel;
+        let power = self.kernel.power();
+        crate::cpu_clock::set_policy(if power.mode.as_str() == PERFORMANCE_MODE {
+            Policy::Full
+        } else if matches!(power.level, PowerLevel::Saving | PowerLevel::Offline) {
+            Policy::Saving
+        } else {
+            Policy::OnDemand
+        });
     }
 
     /// Whether the button response is *Faster* (see `device`).
@@ -931,8 +969,7 @@ impl Firmware {
         let woke = now();
         // The radio's frames are taken out of its queue meanwhile: five fit
         // in it, and a refresh takes up to 3.5 s.
-        let network = &mut self.network;
-        let waited = self.panel.wait_with(|| network.keep_served());
+        let waited = self.panel_wait();
         let took = now().since(started);
         let busy = self.panel.take_busy_ms();
         info!(
@@ -972,8 +1009,7 @@ impl Firmware {
         let refreshing = self.panel.start_refresh(Refresh::Fast, false).is_ok();
         let next = self.kernel.proceed(now());
         let worked = now();
-        let network = &mut self.network;
-        if refreshing && let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+        if refreshing && let Err(e) = self.panel_wait() {
             warn!("display: {e:?}");
         }
         self.state.panel_idle_at = Some(now().0 + self.panel_idle_ms());
@@ -1146,8 +1182,7 @@ impl Firmware {
         if cleaning {
             // The clean is over; the panel then shows white, which both memories
             // hold, and the frame goes into the new one.
-            let network = &mut self.network;
-            if let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+            if let Err(e) = self.panel_wait() {
                 failed = Some(e);
             }
             let before = now();

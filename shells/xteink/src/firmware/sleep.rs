@@ -74,8 +74,13 @@ impl Firmware {
             }
         }
         if !power::nap_until(until) {
-            self.delay
-                .delay_millis(until.saturating_sub(now().0) as u32);
+            // The wait at the slow clock, unless the radio is on (#452); the
+            // next loop starts at the full one.
+            let wait = until.saturating_sub(now().0);
+            if !self.network.radio_on() {
+                crate::cpu_clock::idle(wait);
+            }
+            self.delay.delay_millis(wait as u32);
         }
     }
 
