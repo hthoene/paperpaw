@@ -122,7 +122,8 @@ without being rebuilt, and the SDK must not be redone for it.
   ends when it closes. Holds put off only the sleep after
   `core.sleep-after`: the processor still naps, the power button still
   works, and below 10 % of charge (not charging) no hold counts. The
-  reader can let no plugin hold it (`core.awake-holds`, on by default);
+  reader could let no plugin hold it (`core.awake-holds`, on by default;
+  not offered in interface 7, which carries no wake holds, #459);
   `PluginUsage` counts each plugin's awake time and its last reason.
   `ScreenMode::awake_for` is one use of it.
 - **The X4's main loop goes on while the panel refreshes**, while a

@@ -121,6 +121,9 @@ notes (the question says so); a refusal is told in a notice.
 - The filter stays one row that steps through the filters; there are no chips for it on large
   screens (the kit has no chip widget).
 - The library is a list of windows of 96 books; interface 6 showed one list of the whole index.
+- Where the arrow keys stay on the page (`core.arrows-stay-on-page`, #459), an arrow key that would
+  leave the page of books goes round to its other end, as in Beta 3 (`BookList::on_page`); the page
+  keys still turn it. The kit's item lists (the shelves' names, the chooser) do not read the setting.
 - The setting `files.covers` (black and white or gray) has no effect: `Library::cover` and
   `ImageStyle` have no such flag, the host's drawer chooses.
 - The folder chooser serves the settings' editor only (`id`): the `reply` event and a dialog asked with

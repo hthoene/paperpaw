@@ -13,7 +13,6 @@ use alloc::vec::Vec;
 
 use paperpaw_platform::Instant;
 use paperpaw_sdk::Id;
-use paperpaw_sdk::builtin::settings as core_settings;
 use paperpaw_sdk::power::WakeHold;
 
 use crate::{Effects, Kernel};
@@ -28,18 +27,6 @@ pub(crate) const LOW_BATTERY_PERCENT: u8 = 10;
 /// that. An hour is generous; a walk that goes on after it sleeps and goes
 /// on after the wake.
 pub(crate) const WALK_AWAKE_MS: u64 = 60 * 60_000;
-
-/// Whether plugins may keep the device awake (ADR 0030): with the power
-/// settings, where the power plugin keeps them (`power.group`).
-pub(crate) static AWAKE_HOLDS: [paperpaw_sdk::SettingSpec; 1] =
-    [paperpaw_sdk::SettingSpec::switch(
-        core_settings::AWAKE_HOLDS.static_str(),
-        "core.setting.awake-holds",
-        true,
-        Id::new_static("power.group"),
-    )
-    .advanced()
-    .description("core.setting.awake-holds.help")];
 
 /// A hold in force.
 #[derive(Debug)]
@@ -103,10 +90,12 @@ impl Kernel {
             .is_some_and(|b| !b.charging && b.percent <= LOW_BATTERY_PERCENT)
     }
 
-    /// Whether holds count now: the reader lets plugins hold the device,
-    /// and the battery is not nearly empty.
+    /// Whether holds count now: the battery is not nearly empty. No switch
+    /// lets the reader turn them off (#459): Beta 4's plugins cannot hold the
+    /// device (`docs/abi/device.md`, wake holds are not carried for 1.0), so
+    /// `core.awake-holds` would do nothing; it comes back with the holds.
     fn holds_count(&self) -> bool {
-        !self.battery_low() && self.shared.settings.read(&core_settings::AWAKE_HOLDS)
+        !self.battery_low()
     }
 
     /// What ends when the device goes to sleep: Bluetooth, a firmware
