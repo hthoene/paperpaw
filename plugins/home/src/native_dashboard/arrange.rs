@@ -361,6 +361,11 @@ impl Dashboard {
         ui: &Ui,
         input: &Input<'_>,
     ) -> Result<Handled, Error> {
+        // The raw key before its action is the kernel's: taken here, no action
+        // would follow and the buttons would be dead in the dialog.
+        if leaves_to_kernel(input) {
+            return Ok(Handled::No);
+        }
         self.ensure_dialog(host)?;
         let Some(options) = self.options.as_mut() else {
             return Ok(Handled::No);
@@ -608,6 +613,12 @@ impl Dashboard {
     }
 }
 
+/// Whether the options' dialog leaves `input` to the kernel: the raw key,
+/// whose action the kernel makes only where it is not taken.
+const fn leaves_to_kernel(input: &Input<'_>) -> bool {
+    matches!(input, Input::Key { .. })
+}
+
 /// The corner of `rect` a finger sizes it by: `side` square, at most half the
 /// cell each way.
 fn corner_rect(rect: Rect, side: u16) -> Rect {
@@ -633,5 +644,20 @@ mod tests {
         assert_eq!(plain[0].0, Choice::Move);
         assert_eq!(plain[3].0, Choice::Cancel);
         assert_eq!(choices(true)[2].0, Choice::Settings);
+    }
+
+    #[test]
+    fn the_raw_key_is_left_to_the_kernel_so_its_action_reaches_the_dialog() {
+        let key = Input::Key {
+            now_ms: 0,
+            key: "right",
+            state: paperpaw_sdk::native::callbacks::KeyState::Press,
+        };
+        assert!(leaves_to_kernel(&key));
+        let action = Input::Action {
+            action: "core.right",
+            now_ms: 0,
+        };
+        assert!(!leaves_to_kernel(&action));
     }
 }
