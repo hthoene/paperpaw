@@ -170,7 +170,7 @@ while read -r n d lib core; do
     [[ "$d" == plugins/* && -f "tools/plugin-files7/src/bin/${d#plugins/}.rs" ]] && plugin_ids+=("${d#plugins/}")
 done <<< "$picked"
 
-if ((all && ${#pkg_names[@]} == 0)); then pkg_names=(paperpaw-sdk paperpaw-emulator); pkg_libs=(paperpaw-sdk); fi
+if ((all && ${#pkg_names[@]} == 0)); then pkg_names=(paperpaw-sdk paperpaw-emulator); pkg_libs=(paperpaw-sdk); pkg_core=1; fi
 
 # CI's wasm32/riscv32 build: the app with the standard feature set and the libraries it names.
 wasm_pkgs=(-p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics
@@ -230,19 +230,25 @@ jobs_n="${QUICK_CHECK_JOBS:-8}"
 main_pid=$$
 # Does a compile of a few lines through the wrapper end in time? (A hung sccache server answers
 # `--show-stats` and starts no compiler: its clients wait without end.)
-wrapper_answers() {
+wrapper_answers() { # [PORT]
     local d
     d="$(mktemp -d "$logs/probe.XXXXXX")" || return 1
+    [[ -z "${1:-}" ]] || export SCCACHE_SERVER_PORT="$1"
     printf 'pub fn probe() -> u64 { %s }\n' "$RANDOM$RANDOM" > "$d/probe.rs"
     timeout -k 2 "${QUICK_CHECK_PROBE_LIMIT:-20}" "$RUSTC_WRAPPER" rustc --crate-type lib --crate-name qc_probe \
         --edition 2021 --out-dir "$d" "$d/probe.rs" > "$d/log" 2>&1 < /dev/null
 }
-if [[ -n "${RUSTC_WRAPPER:-}" ]] && ! wrapper_answers; then
-    echo "quick-check: the compiler wrapper does not answer within ${QUICK_CHECK_PROBE_LIMIT:-20}s (a hung sccache server?); trying a server of the quick check's own"
-    export SCCACHE_SERVER_PORT="${QUICK_CHECK_SCCACHE_PORT:-4231}"
+# The quick check's own server is asked at the same time, so a hung one costs the probe's time once.
+if [[ -n "${RUSTC_WRAPPER:-}" ]]; then
+    wrapper_answers "${QUICK_CHECK_SCCACHE_PORT:-4231}" &
+    own_probe=$!
     if ! wrapper_answers; then
-        echo "quick-check: that one does not answer either: building with rustc alone"
-        export RUSTC_WRAPPER=""
+        echo "quick-check: the compiler wrapper does not answer within ${QUICK_CHECK_PROBE_LIMIT:-20}s (a hung sccache server?): a server of the quick check's own"
+        export SCCACHE_SERVER_PORT="${QUICK_CHECK_SCCACHE_PORT:-4231}"
+        if ! wait "$own_probe"; then
+            echo "quick-check: that one does not answer either: building with rustc alone"
+            export RUSTC_WRAPPER=""
+        fi
     fi
 fi
 # The crates once, up front; then the lanes build offline and hold the package cache's lock only for a moment.
