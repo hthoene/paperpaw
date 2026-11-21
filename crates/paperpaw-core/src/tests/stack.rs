@@ -18,7 +18,8 @@ const MANY: Id = Id::new_static("s.many");
 const OPEN_T: Id = Id::new_static("s.open-t");
 
 /// A screen that does what its params say: `name` (logged), `overlay`
-/// (the lower half, `top`: a strip at the top), `refuse` (to close), `hints` (`hidden`, `on-press`).
+/// (the lower half, `top`: a strip at the top), `refuse` (to close), `hints` (`hidden`, `on-press`),
+/// `grays` (best shown in grays).
 struct Configured {
     log: Log,
     params: Params,
@@ -67,6 +68,13 @@ impl crate::testing::Fake for Configured {
     fn on_gesture(&mut self, gesture: Gesture, _: &mut Turn<'_, '_>) -> Handled {
         self.note(&alloc::format!("gesture {:?}", gesture.kind));
         Handled::Yes
+    }
+
+    fn flags(&self) -> u32 {
+        match self.says("grays") {
+            Some(_) => crate::testing::GRAYS,
+            None => 0,
+        }
     }
 
     fn hints(&self) -> Option<HintVisibility> {
@@ -521,6 +529,36 @@ fn shown_menu_keeps_its_hints_after_reader_hint_timeout() {
     render(&mut kernel);
     assert!(kernel.hint_row().is_some());
     assert!(kernel.frame().data.iter().any(|byte| *byte != 0xff));
+}
+
+#[test]
+fn the_row_of_hints_over_a_page_in_grays_comes_and_goes_with_the_whole_frame() {
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(stack_plugin_manifest(), stack_plugin(log()))
+        .button_row(&["back", "confirm", "left", "right"])
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    kernel.open_screen(
+        Instant(1),
+        SCREEN,
+        named("reader").with("hints", "on-press").with("grays", "y"),
+    );
+    render(&mut kernel);
+    let screen = kernel.framebuffer.bounds();
+    // A press that changes nothing on the page brings the row: shown as a
+    // frame in grays, which a shell does not leave for the next page.
+    let effects = press(&mut kernel, 10, "confirm");
+    assert!(kernel.hint_row().is_some());
+    assert!(effects.grays());
+    assert_eq!(effects.refresh().map(|(area, _)| area), Some(screen));
+    render(&mut kernel);
+    // Its time over, it goes the same way, or it stays until the next
+    // page, which brings it again.
+    let effects = kernel.tick(Instant(60 + crate::HINTS_MS));
+    assert!(kernel.hint_row().is_none());
+    assert!(effects.grays());
+    assert_eq!(effects.refresh().map(|(area, _)| area), Some(screen));
 }
 
 #[test]

@@ -216,7 +216,7 @@ impl Kernel {
     /// Whether the screen on top is shown whole, best in grays, and
     /// whether its pictures may be. Whole means nothing is over it, or it
     /// covers all of the screen while what is below shows through.
-    fn top_shown(&self) -> (bool, bool, bool) {
+    pub(crate) fn top_shown(&self) -> (bool, bool, bool) {
         let bounds = self.framebuffer.bounds();
         self.stack.last().map_or((false, false, false), |top| {
             let whole = match top.screen.region(&self.shared.place(self.shared.now)) {
