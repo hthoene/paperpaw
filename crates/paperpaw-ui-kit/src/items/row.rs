@@ -79,8 +79,8 @@ pub(super) fn draw_row_as(
     if row.stepper {
         let (free, (minus, plus)) = draw_stepper(paint, (font, style), band, row, ink)?;
         cols = free;
-        let track = match row.track.as_deref().and_then(<[Track]>::first) {
-            Some(&track) => {
+        let track = match row.track.as_deref().map(|t| t[0]) {
+            Some(track) => {
                 // The track in the row under the buttons, and the note under it.
                 noted.height = noted.height.saturating_add(style.row);
                 Some(draw_track(paint, style, (rect, band), track, ink)?)

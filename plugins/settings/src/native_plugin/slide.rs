@@ -35,11 +35,7 @@ impl NativeSettings {
                 phase,
                 contact,
                 ..
-            } => {
-                let handled = Self::on_pointer(host, v, (contact, position), phase)?;
-                self.dragging = v.drag.as_ref().is_some_and(Drag::moved);
-                Ok(handled)
-            }
+            } => Self::on_pointer(host, (v, &mut self.drag), (contact, position), phase),
             Input::Gesture {
                 position,
                 kind: InputGestureKind::Tap,
@@ -57,30 +53,30 @@ impl NativeSettings {
 
     fn on_pointer(
         host: &Host<'_>,
-        v: &mut GroupView,
+        (v, held): (&mut GroupView, &mut Option<Drag>),
         (contact, at): (u32, Point),
         phase: PointerPhase,
     ) -> Result<Option<Handled>, Error> {
-        let held = v.drag.filter(|d| d.contact == contact);
-        match (phase, held) {
+        let on = held.filter(|d| d.contact == contact);
+        match (phase, on) {
             (PointerPhase::Down, _) if v.touch => {
-                v.drag = None;
+                *held = None;
                 if let Some((index, track)) = v.list.track_at(at) {
-                    v.drag = Self::begin(v, (contact, index), track, at.x);
+                    *held = Self::begin(v, (contact, index), track, at.x);
                 }
                 // A finger taken is the slider's alone, up to its lifting.
-                Ok(v.drag.is_some().then_some(Handled::Yes))
+                Ok(held.is_some().then_some(Handled::Yes))
             }
             (PointerPhase::Move, Some(mut drag)) => {
                 let moved = drag.follow(at.x);
-                v.drag = Some(drag);
+                *held = Some(drag);
                 if let Some(value) = moved {
                     Self::show(host, v, drag.row, value)?;
                 }
                 Ok(Some(Handled::Yes))
             }
             (PointerPhase::Up, Some(mut drag)) => {
-                v.drag = None;
+                *held = None;
                 if !drag.moved() {
                     // A tap on the track: the number there.
                     Self::set_by_tap(host, v, (drag.row, drag.track()), at.x)?;
@@ -91,7 +87,7 @@ impl NativeSettings {
                 Ok(Some(Handled::Yes))
             }
             (PointerPhase::Cancel, Some(drag)) => {
-                v.drag = None;
+                *held = None;
                 if drag.moved() {
                     CommandSender::new(host, &mut [0; 64]).end_preview()?;
                     v.rebuild_items(host)?;
