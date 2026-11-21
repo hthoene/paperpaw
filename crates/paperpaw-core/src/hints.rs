@@ -89,6 +89,7 @@ impl Kernel {
         }
         self.hint.until = Some(self.shared.now.add_millis(HINTS_MS));
         self.hint.shown.clear();
+        self.redraw_hint_place();
         // The row lies over the page's text, which a quicker waveform
         // would leave ghosts of at each press.
         self.output.request_refresh(RefreshMode::Partial);
@@ -105,11 +106,25 @@ impl Kernel {
             return;
         }
         self.hint.until = None;
-        let panel = self.framebuffer.bounds();
-        let height = self.hint.height.min(panel.height / 2);
-        self.invalidate(Rect::new(0, panel.height - height, panel.width, height));
+        self.redraw_hint_place();
         // The page's text is drawn there again: not quickly, or it ghosts.
         self.output.request_refresh(RefreshMode::Partial);
+    }
+
+    /// Draws the place of the row again as it comes or goes over a screen
+    /// that has it on a press. Over a page shown in grays that is all of
+    /// the screen: its frame in grays is the whole screen anyway, and a
+    /// shell showing grays leaves a small change over them (the time, the
+    /// battery) for the next page, which shows the row again (#448).
+    fn redraw_hint_place(&mut self) {
+        let panel = self.framebuffer.bounds();
+        let (whole, grays, _) = self.top_shown();
+        if whole && grays {
+            self.invalidate(panel);
+        } else {
+            let height = self.hint.height.min(panel.height / 2);
+            self.invalidate(Rect::new(0, panel.height - height, panel.width, height));
+        }
     }
 
     /// The height the row of hints takes: 0 where there is no row of
