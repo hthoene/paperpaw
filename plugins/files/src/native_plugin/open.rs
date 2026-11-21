@@ -152,13 +152,17 @@ impl NativeFiles {
                 scope: Scope::from_params(&kind, &value)?,
                 fixed: false,
             };
-            View::Books(self.read_browser(
+            let mut browser = self.read_browser(
                 host,
                 selection,
                 Reading::from(CatalogCursor::start(), Vec::new()),
                 0,
                 0,
-            )?)
+            )?;
+            // The focus starts on the first book, not on the filter row
+            // (as in Beta 3): one press of Select opens it.
+            browser.focus_first_book();
+            View::Books(browser)
         };
         self.screens.open(instance, view)
     }
