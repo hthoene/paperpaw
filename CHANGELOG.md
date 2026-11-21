@@ -4784,6 +4784,11 @@ change the plugin SDK.
 
 - **Back returns to the page left after a jump in a book, and a search hit shows its line** (#441). As in Beta 3, a jump from the table of contents, a search hit, a highlight in the list or a page number or percentage keeps the page left: *‹ Back* shows at the top of the page landed on, and the Back button (X4) returns there instead of closing the book. A search hit (or a highlight) opens the page with the whole line it is in, the hit marked; the page started after that line.
 
+- **Home editor: the buttons work in the item's options again** (#440). With the buttons of the X4 (no touch), the dialog that opens on an item in the home editor (Move, Change the size, Settings, Remove, Cancel) did not react to Left, Right, Select or Back, so an item could not be moved, sized or removed without a finger. The raw key is left to the kernel again, so that its action reaches the dialog.
+
+- **Library: the focus starts on the first book again** (#440). On the X4's buttons the Library opened with the focus on the *Show* row, so one press of Select changed the filter instead of opening a book. The focus now starts on the first book, as in Beta 3; one step back is the *Show* row (files plugin 1.0.9).
+- **"Library in numbers" shows its names again** (#440). On the X4 family the widget drew its four numbers without their names and at the bottom edge of its frame, partly cut off. The numbers now start from a size the font draws whole, so each shows above its name inside the frame (widgets plugin 1.0.12).
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
