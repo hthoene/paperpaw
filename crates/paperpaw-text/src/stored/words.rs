@@ -66,13 +66,6 @@ const NONE: Held = Held {
 #[cfg(all(not(target_os = "none"), any(test, feature = "kernel")))]
 std::thread_local! {
     /// Per thread, as fonts are.
-    // clippy 1.99 asks for `const` on aarch64-linux-android even where the
-    // initializer is a `const` block already (every `thread_local!` there, with
-    // a `Cell<u32>` as well); on the other targets it is silent.
-    #[allow(
-        clippy::missing_const_for_thread_local,
-        reason = "clippy misreads the macro's expansion on aarch64-linux-android"
-    )]
     static HELD: Slot = const { RefCell::new(NONE) };
 }
 
