@@ -177,7 +177,8 @@ pub trait Measure {
 
 /// `snippet` shown in `width`: where it does not fit up to the end of the match
 /// at characters `at`, it begins later (at a word, after `…`), so that the word
-/// found is in the row and not cut off with the context after it.
+/// found is in the row and not cut off with the context after it. Gives the
+/// text shown and where the match is in it, in bytes.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
@@ -186,7 +187,7 @@ pub fn with_hit<'s>(
     snippet: &'s str,
     at: (usize, usize),
     width: f32,
-) -> Result<Cow<'s, str>, Error> {
+) -> Result<(Cow<'s, str>, (usize, usize)), Error> {
     let byte = |chars: usize| {
         snippet
             .char_indices()
@@ -207,7 +208,7 @@ pub fn with_hit<'s>(
     }
     let before = snippet.get(..from).unwrap_or_default();
     if from == 0 || before.chars().all(|c| c == '…') {
-        return Ok(Cow::Borrowed(snippet));
+        return Ok((Cow::Borrowed(snippet), (start, end)));
     }
     // A match wider than the row: from its start, cut at the end.
     from = from.min(start);
@@ -216,7 +217,13 @@ pub fn with_hit<'s>(
         from += space;
     }
     let rest = snippet.get(from..).unwrap_or_default().trim_start();
-    Ok(Cow::Owned(concat(&["…", rest])?))
+    // The match moves with the start: the text before it goes, `…` comes.
+    let cut = snippet.len() - rest.len();
+    let found = (
+        start.saturating_sub(cut) + '…'.len_utf8(),
+        end.saturating_sub(cut) + '…'.len_utf8(),
+    );
+    Ok((Cow::Owned(concat(&["…", rest])?), found))
 }
 
 /// One hit, as its row shows it.
@@ -231,6 +238,8 @@ pub struct Hit {
     pub percent: u8,
     /// The text round it, cut to the row.
     pub snippet: String,
+    /// Where the match is in [`Hit::snippet`], in bytes (the row shows it bold).
+    pub found: (u16, u16),
 }
 
 /// The book as the scan reads it: blocks of text in sections.
@@ -441,17 +450,20 @@ impl Search {
                 offset: book.source_offset(block, end),
             };
             let shown = snippet(text, start, end)?;
-            let cut = with_hit(font, &shown, snippet_at(text, start, end), width)?;
+            let (cut, found) = with_hit(font, &shown, snippet_at(text, start, end), width)?;
             let row = match cut {
                 Cow::Borrowed(_) => shown,
                 Cow::Owned(cut) => cut,
             };
+            // A snippet is a few dozen letters: its bytes count in a `u16`.
+            let byte = |at: usize| u16::try_from(at).unwrap_or(u16::MAX);
             self.hits.try_reserve(1).map_err(|_| Error::NoMemory)?;
             self.hits.push(Hit {
                 start: start_at,
                 end: end_at,
                 percent: book.percent(start_at),
                 snippet: row,
+                found: (byte(found.0), byte(found.1)),
             });
         }
         Ok(())
