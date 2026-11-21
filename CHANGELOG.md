@@ -6,7 +6,7 @@ change the plugin SDK.
 
 ## [Unreleased]
 
-## [0.6.0-beta.4] - 2026-11-21
+## [0.6.0-beta.4] - 2026-11-22
 
 - Interface 7 SDK: `native::storage::DataStorage`, the plugin's data folder as a
   `Storage`. Reads and appends over 4 KiB are split; a longer write is staged in
@@ -1854,6 +1854,8 @@ change the plugin SDK.
 
 - **Math in EPUB books reads through a hook, and EPUB Plus is half its size** (#429). A plugin can now convert an element another format hands on (the new host stage `core.convert`, interface 7 draft 37, additions only). The built-in EPUB reader leaves MathML to such a plugin and writes the formula's own text (its `alttext`, else the text of its symbols) where there is none. EPUB: picture books and math (1.1.0) is that plugin now: it converts the formulas as before (fractions `a/b`, powers `x²`, roots, sums, matrices; a formula on its own line stands centered) and reads only the fixed-layout picture books, which the EPUB reader hands to it. It no longer carries a second EPUB reader: its file is about 180 KB smaller on the X4 (365 KB to 185 KB). Books read from the first page; the cache of EPUB books is made again once (a math book then has its formulas in the hook's form). The first page with a formula after the plugin starts may show the formula's own text until it is turned back to.
 
+- Longer battery life on the X4 and X3: the processor runs at full speed (160 MHz) only while the reader works (a page turn, opening a book, the card, the radio, USB) and waits at a slow clock in between, also while the screen refreshes: 20 MHz in Normal, 10 MHz in Saving and Offline (#452). A new power mode, *Performance* (*Leistung*), keeps the full speed all the time: the quickest answers, but the battery lasts shorter. Choose it in the quick panel or under Settings, Power; Auto never chooses it. The X4 Pro and X4 Classic keep their full speed as before.
+
 ### Changed
 
 - Interface-7 slot 6 `i18n.copy` returns `ERR_NOT_FOUND` for a missing translation key,
@@ -3672,6 +3674,15 @@ change the plugin SDK.
 
 - The web page of *Transfer* is kept gzip in the firmware and sent as it is, with `Content-Encoding: gzip`: about 7 KB less flash, and the browser gets 3 KB instead of 11 KB (#428).
 
+- **Library: find a book by its first letter again** (#447). The library menu has *Find* again, as in Beta 3: it lists the letters the titles start with, and a letter opens the library by title at its first book (files plugin 1.0.11).
+- **Library: favourites can be set again** (#447). Holding a book (with buttons: holding Select) offers *Add to favourites*, or *Remove from favourites* for one that is already a favourite, as in Beta 3. The favourites are on the shelves (files plugin 1.0.11).
+- **Library: deleting a book asks in the menu at the bottom** (#447). *Delete …* asks whether to delete the book in the same menu at the bottom as every other choice, with *Keep it* first, so a stray press keeps the book (files plugin 1.0.11).
+- **Add a widget: the kinds have their icons again** (#447). The list of kinds of widgets, the tools and *Add a page* / *Remove this page* show an icon at the start of each row, as in Beta 3 (home 1.0.18).
+
+- **Reader: the button hints show after a press, as in Beta 3** (#448). On the X4 the row *Back · Select · ‹ ›* shows over the bottom of the page for a few seconds after a button is pressed and then goes again; the page keeps the whole display. Picture home's advanced setting *Buttons row* (*Off*, *Automatic*: after a press, *On*) works again as well. For plugin authors: interface 7 draft 38 adds `ScreenDecl::hints` and `ScreenPolicy::hints` (`screen.spec.flags` and `command.screen_policy` bits 13-14; `docs/abi/ui.md` 1.2); plugins built for draft 37 run unchanged once built again.
+
+- **"Plugins may keep awake" is no longer offered** (#459). Plugins of Beta 4 cannot keep the device awake, so the switch in the power settings did nothing. Reading aloud, downloads and the library's indexing keep it awake as before.
+
 ### Fixed
 
 - `paperpaw-sqlite` never copies over a database: a storage that cannot move files is refused
@@ -4797,6 +4808,86 @@ change the plugin SDK.
 - **Picture home read the card while drawing** (#450). The page was laid out in the first draw after it opened or after a change, which asked the card (the list of installed plugins) in the middle of a frame. It is laid out when the screen is shown and after an input now, and the draw only draws (picture home 1.0.7).
 
 - **Reader: quicker controls and less covered text** (#448). Holding a page button goes to the next or previous chapter (the setting *Hold for next chapter*, now on at first; a short press turns the page as the button is let go). On the X4 the row of button hints shows again under the reader's menu, as in Beta 3. Choosing text shows its actions in a slim bar at the bottom. A tap on the status line can also show the pages left in the chapter beside the progress. The search list's header says what was searched for and how many hits there are, and each hit shows the word found in bold. After a jump, *‹ Back* names the page it returns to once the pages are counted. A tap on the chapter's name in the reader's menu opens the table of contents. The font panel keeps to the text: front light and light colour are in the quick panel. The first-time help of a book shows its tap zones with their names, and the list of bookmarks and highlights is grouped under the chapters.
+
+- Reader on the X4: the row of button hints that shows over the page after a press goes away again after a few seconds, as in Beta 3. Over a page in grays (smooth text) its going was left for the next page, which brought the row back with it, so it stayed for good (#448).
+
+- **X4 and X3 sleep between page turns without crashing** (#434, #451). The
+  processor could crash on waking from its light sleep (the X3 logged a false
+  "Stack overflow", the X4 restarted), most often on the first nap. It now
+  sleeps on its crystal, at the lower sleep voltages of Espressif's own SDK,
+  and sets its fast clock up again after each wake, as that SDK does. On the
+  X4 a cable plugged in wakes it at once, so the computer finds it ready; its
+  battery switch is never held in a sleep, which is what made other firmware
+  hang on plugging in.
+
+- **"Only this book" and the per-book settings of Beta 3 work again** (#454). The interface-7 reader never told the host which book it shows (`command.set_scope`), so the scoped settings (font, size, margins, ...) of a book were the global ones and *Only this book* wrote to every book. The reader (1.2.2) now names the book on the card when its screen comes on top, as Beta 3 did; the host reads and writes `.paperpaw/plugins/reader/books/<book key>/settings.ini`, the file Beta 3 kept, so a Beta-3 user's per-book settings apply as they are.
+- **Wi-Fi from the web flasher (or a `wifi.ini` written by hand) is joined again, and the file goes** (#454). The firmware writes `wifi.ini` at the top of the card; the interface-7 Wi-Fi plugin reads only the one in its data folder and has no access to the card's files, so the networks were never kept and the plaintext passwords stayed on the card. At a start, before any plugin hears of it, the host adds the file to `.paperpaw/plugins/wifi/wifi.ini` and removes it from the top of the card (one over 16 KiB is removed unread, as the plugin does; one that cannot be read or handed over stays for the next start).
+- **No firmware install begins on a battery near empty** (#454). Beta 3 refused an install below 20 % when the device was not charging; the interface-7 install path had lost that guard. The host now stops such an install before the device is touched, with reason 20 (*the host stopped it*); file checks still run. Update 1.0.10 says *The install was stopped. Charge to 20 % or plug in, then try again.* (*Die Installation wurde abgebrochen. Auf 20 % laden oder anstecken, dann noch einmal versuchen.*) for reason 20. Interface 7 unchanged (`docs/abi/device.md` 5.5 names the battery among reason 20's cases).
+
+- **The menu editor and *Buttons and gestures* save again** (#455). Their `command.set_menu` and `command.bind_key` reached the interface-7 host, which had no case for them and refused every one with `ERR_UNSUPPORTED`, so no menu edit and no key binding was kept (Beta 3 saved both). The host now takes them as `docs/abi/registry.md` 4.2 says, from any plugin: by owner decision 291 (Nov 21) they need no `uses.registry`, so the two plugins, which are plugin files on the card on the X4s, save there too. The kernel saves them in `[menus]`, `[menus-known]` and `[keymap.*]` of `paperpaw.ini` as in Beta 3, so a Beta-3 user's menus and bindings are read as they are. What protects the user is the host's: a batch is refused whole with `ERR_INVALID` for an unknown menu or item, a submenu cycle (also one made in two steps) or bad flags, and with `ERR_DENIED` when it would leave the global layer without an input to the main menu that the device has. Menu editor 1.0.11 and Buttons and gestures 1.0.11: when the host keeps a change, they now say so (*The change could not be saved.* / *Die Änderung konnte nicht gespeichert werden.*); a reset that cannot take back every binding says *Not every change could be taken back.* instead of stopping at the first. Interface 7 unchanged.
+
+- **Bluetooth on the X4 Pro pairs again** (#456). Since the move to interface 7 the device refused every Bluetooth command of the Bluetooth page, so nothing could be found, paired, forgotten or switched, and remotes did not reconnect. The page's search, pairing, keys, giving and forgetting now reach the radio again, and what the radio answers comes back to the page. The emulator's X4 Pro does the same.
+
+- **Update trial and safe mode run the built-in plugins** (#457). On the X4s an update's 30-second trial now starts Home, the reader, Wi-Fi, the update and the other plugins built into the firmware, so a crash in one of them during the trial rolls the update back (also for the update from Beta 3). Safe mode runs them too, except the one the crash was in: Wi-Fi and the update stay to fetch a fixed firmware without a computer. Code plugins from the card still wait for a normal start.
+
+- **Holding Power while the reader goes to sleep switches it off again** (#458).
+  Since the Power escape came, a press held on while the reader went to sleep
+  (to switch it off, or a sleeve pressing the button) reset the processor after
+  9.5 s instead, and the reader started again and stayed awake. Now the sleep
+  takes the escape and switches off the clean way, as in Beta 3.
+- **Downloads and servers keep the reader awake** (#458). Store and OPDS
+  downloads, the transfer server and a position pushed on sleep run through the
+  new network service, which "Sleep after" no longer waited for: a download was
+  cut by the sleep. Now a running request or a server on the network puts the
+  sleep off again, and going to sleep waits a while for a request under way.
+- **A card a computer left marked dirty stays marked** (#458). The reader
+  cleared that mark when it kept the free space, so the computer never offered
+  its check. PaperPaw sets no such mark itself and now leaves one it finds.
+- **Page counts stay right after a pack, a book or the layout changes** (#458).
+  The file of a book's page count did not change with the book's size and
+  time, the packs of letters installed or the layout's version, so
+  a count made before was used again and page totals and pages left were wrong.
+  And as in Beta 3, a count that promises pages past the book's end is thrown
+  away and counted again (once while the book is open).
+- **An update the newer X3's display cannot show goes back** (#458). On an X3
+  with the UC8279d display, an update on trial whose first screen refresh times
+  out now returns to the firmware before it, as Beta 3 did for that display.
+
+- **About: Licences and Plugins built in opened nothing** (#459). Both rows open their text in the reader again, as in Beta 3: the licences of PaperPaw and of the fonts, icons and patterns it bundles, and the list of the plugins built in with their versions. Where the page cannot be written to the card, About says so (about 1.0.5).
+- **About named no source for the weather** (#459). The weather plugin adds its line again: "Weather data by Open-Meteo.com, under CC BY 4.0", as the data's licence asks (weather 1.0.9).
+
+- **Stylesheets of one's own did nothing to EPUB books** (#459). A `styles.css` in a book's folder, and the one named like the book (`Alice.css` for `Alice.epub`), apply after the book's own styles again, as in Beta 3 and as the FB2, HTML and Markdown formats already did (EPUB 1.0.7). A book converts once more after the update.
+- **A link to a heading of another note opened the note at its top** (#459). `[[Note#Heading]]` in a notes vault opens that note at the heading again, as in Beta 3; *Back* returns to the note it was followed from (Notes vault 1.0.5, Reader 1.2.3). Notes convert once more after the update.
+
+- **"Arrow keys stay on the page" did nothing in the library** (#459). Where it is on, the arrow keys go round the page of books at its first and last book again, as in Beta 3 and as on the home screen; the page keys turn the page (Library 1.0.12).
+
+- **Offline mode only said "no network" in seven plugins** (#459). Where Offline mode holds back what the reader started, they ask once whether to go online for it again, as in Beta 3, and *Go online* does it again: Calibre (connecting), OPDS catalogs (a feed, *Sync*), Progress sync (*Sign in*, *Create account*), News (fetching), wallabag (*Fetch articles*), Browser (a page) and Joplin (*Send*). Background work stays quiet (calibre 1.0.14, opds 1.0.6, kosync 1.0.14, news 1.1.3, wallabag 1.0.10, browser 1.0.11, joplin 1.0.10).
+
+- **Now reading: the pages left in the chapter were gone** (#459). The widget shows "12 pages left in the chapter · about 9 min" and "Last page of the chapter" again, as in Beta 3; the setting for it works again (widgets 1.0.13).
+- **Picture home: the status bar set to show after a press never showed on touch screens** (#459). A tap where nothing is shows it, as in Beta 3 (picture home 1.0.8).
+
+- **Statistics counted UTC days** (#459). Reading between local midnight and the zone's offset (1–2 hours in Germany) went to the day before: the calendar, today's minutes, the streaks, *Books this year* and the reading goal's ring (which showed 0 minutes in those hours) were off. The days are local days again, as in Beta 3, in the zone chosen in the settings, else the device's (statistics 1.1.2).
+
+- **KOReader sync forgot what both sides had under Beta 3** (#459). The first exchange after the update started empty, so a highlight deleted on one side since the last Beta 3 exchange came back from the other. What Beta 3 kept for each book is carried over now (KOReader sync 1.0.9).
+- **Calibre could not update books it sent under Beta 3** (#459). Every update said "not replaced". Such a book is replaced now; one in which you marked something is kept and told as before (Calibre 1.0.13).
+- **News made a second book of every feed after the update** (#459). The book Beta 3 made is replaced by the new fetch now, instead of a "(2)" book beside it (News 1.1.2).
+
+- **Screen lock: a code that could not be saved said nothing** (#459). On the X4 with Wi-Fi off, the PIN was typed twice and then nothing happened. The lock now says the code could not be saved and to turn Wi-Fi on, and offers the kinds again; unlocking with an older code no longer fails when its renewal cannot be saved (lock 1.0.7).
+- **Settings: Reset all did nothing when many settings were changed** (#459). With more than 63 changed settings nothing was reset and nothing was said. Such a reset now says to reset page by page (settings 1.0.12).
+- **Setup stayed partly in English after choosing German** (#459). Next, Back, Skip and the last page follow the language chosen on the first page at once, as in Beta 3 (setup 1.0.5).
+- **Transfer: files over 64 MB failed without a reason** (#459). The page says such a file is too large, with the limit, before sending it (transfer 1.0.7).
+- **Plugin manager: "How it works" was missing for eleven plugins** (#459): Progress sync, wallabag, Readwise, Joplin, Wikipedia, File sync, Browser, Read later, RTF, Edge light and Picture frame show their text again.
+- **Store: Offline mode only said "No connection"** (#459). Where Offline mode holds the list back, the store offers to go online for it again, as in Beta 3, and a tap or Select goes online and loads it (store 1.0.16).
+
+- **Library: progress of the first scan and a hanging catalog** (#460). While the library is read for the first time it shows the books found so far again (as in Beta 3), not "Library is being prepared" until the end. When the catalog work stops making progress for 90 seconds, or a catalog that was asked for never starts, the library now says the card cannot be read instead of waiting without end. The time is checked only when the library asks; no timer wakes the device, and time asleep or under an open book does not count.
+
+- **"Go online" took effect only on the second try** (#461). A plugin that goes online and asks again at once reaches the network the first time: the host lifts Offline mode for what the same callback starts after an honoured *Go online* (Store, Wikipedia, Fonts browser, Translate, Weather, Statistics, Transfer and the seven plugins of #459, which no longer try once more). Translate, Weather and Statistics now declare Wi-Fi use, without which the host ignored their *Go online* (calibre 1.0.15, opds 1.0.7, kosync 1.0.15, news 1.1.4, wallabag 1.0.11, browser 1.0.12, joplin 1.0.11, translate 1.0.7, weather 1.0.10, stats 1.1.3).
+
+- **"Arrow keys stay on the page" did nothing in simple lists** (#462). Where it is on, the arrow keys go round the page at its first and last entry again in the lists plugins build with the interface kit (shelf names, choice lists and the like), as in Beta 3 and as in the library; the page keys turn the page.
+
+- **Book styles from plugins did nothing to EPUB books** (#463). A plugin's `styles.css` (a style pack from the store, a theme) applies after the book's own styles and before one's own beside the book again, as in Beta 3 (EPUB 1.0.8). The kernel serves the stylesheets it read at start; nothing more is read from the card. A book converts once more after such a plugin is added, changed or removed. For plugin authors: interface 7 draft 39 adds root 7 of `core.format` calls, the plugins' stylesheets as one file (SDK `storage::Root::PluginCss`, `docs/abi/document.md` section 3); plugins built for draft 38 run unchanged.
+
+- **paperpaw-dev: the pseudo-language has every text of the app again** (#4511). It now comes as one compiled catalog (`i18n/pseudo.ppcat`), as a language pack does: its split text catalogs had grown past what a data plugin's text catalogs may take together, so the last ones were left out.
 
 ## [0.6.0-beta.3] - 2026-11-05
 

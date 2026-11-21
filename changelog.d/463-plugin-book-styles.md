@@ -1,3 +1,0 @@
-### Fixed
-
-- **Book styles from plugins did nothing to EPUB books** (#463). A plugin's `styles.css` (a style pack from the store, a theme) applies after the book's own styles and before one's own beside the book again, as in Beta 3 (EPUB 1.0.8). The kernel serves the stylesheets it read at start; nothing more is read from the card. A book converts once more after such a plugin is added, changed or removed. For plugin authors: interface 7 draft 39 adds root 7 of `core.format` calls, the plugins' stylesheets as one file (SDK `storage::Root::PluginCss`, `docs/abi/document.md` section 3); plugins built for draft 38 run unchanged.
