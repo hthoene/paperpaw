@@ -149,6 +149,10 @@
     {
       "key": "uses.storage",
       "required": false
+    },
+    {
+      "key": "uses.wifi",
+      "required": false
     }
   ]
 }

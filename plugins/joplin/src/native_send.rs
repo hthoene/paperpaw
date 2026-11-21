@@ -200,6 +200,9 @@ pub enum Tell {
     },
     Nothing,
     NoNetwork,
+    /// Offline mode held back a sending the reader started (*Send*, the
+    /// action): the offer to go online, or `joplin.no-network`.
+    Offline,
     SetupNeeded,
     NoTime,
     Unreachable,
@@ -225,7 +228,7 @@ impl Tell {
             Self::Sent(_) => "joplin.sent",
             Self::SomeFailed { .. } => "joplin.some-failed",
             Self::Nothing => "joplin.nothing",
-            Self::NoNetwork => "joplin.no-network",
+            Self::NoNetwork | Self::Offline => "joplin.no-network",
             Self::SetupNeeded => "joplin.setup-needed",
             Self::NoTime => "joplin.no-time",
             Self::Unreachable => "joplin.unreachable",
@@ -323,6 +326,9 @@ impl Book {
 #[derive(Debug)]
 struct Run {
     quiet: bool,
+    /// Started by the reader (*Send*, the action): held back by Offline mode,
+    /// it may offer to go online.
+    asked: bool,
     account: Account,
     password: Secret,
     /// Signed in anew in this sending, after the session had ended.
@@ -517,6 +523,7 @@ impl Sender {
         }
         self.run = Some(Run {
             quiet,
+            asked: start == Start::Action,
             notebook: String::new(),
             pending: String::new(),
             account,
@@ -685,6 +692,11 @@ impl Sender {
             }
             // The run's time is over: no request is to follow outside it.
             Reason::WorkEnded => return Ok(self.end_run(wire, Tell::Unreachable, End::Again)),
+            // Held back by Offline mode: what the reader started may go
+            // online; an export or a sending by itself cannot be reached.
+            Reason::Offline if run.asked => {
+                return Ok(self.end_run(wire, Tell::Offline, End::Again));
+            }
             Reason::Ok => done.status,
             // No answer came (interface 6: status 0).
             _ => 0,

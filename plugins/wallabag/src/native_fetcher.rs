@@ -99,13 +99,29 @@ pub struct Finish {
     /// The articles fetched, archived and failed, where the fetch ran to its
     /// end (the text counts them).
     pub counts: Option<(u32, u32, u32)>,
+    /// The login was held back by Offline mode (`Reason::Offline`): where
+    /// the reader started the fetch, the plugin offers to go online.
+    pub offline: bool,
 }
 
 impl Finish {
     /// An end that is a message, with no counts.
     #[must_use]
     pub const fn said(key: &'static str) -> Self {
-        Self { key, counts: None }
+        Self {
+            key,
+            counts: None,
+            offline: false,
+        }
+    }
+
+    /// The end where Offline mode held the login back: it needs the network.
+    #[must_use]
+    pub const fn held_back() -> Self {
+        Self {
+            offline: true,
+            ..Self::said("wallabag.no-network")
+        }
     }
 }
 
@@ -396,9 +412,11 @@ impl Fetcher {
         let Some(token) = token else {
             let key = match done.reason() {
                 Reason::Ok => "wallabag.bad-login",
-                Reason::NoNetwork | Reason::Offline | Reason::Saving | Reason::NetworkOff => {
-                    "wallabag.no-network"
+                Reason::Offline => {
+                    self.end(files);
+                    return Ok(Some(Finish::held_back()));
                 }
+                Reason::NoNetwork | Reason::Saving | Reason::NetworkOff => "wallabag.no-network",
                 _ => "wallabag.unreachable",
             };
             return Ok(Some(self.finish_with(files, key)));
@@ -742,6 +760,7 @@ impl Fetcher {
                     "wallabag.done"
                 },
                 counts: Some((run.fetched, run.archived, run.failed)),
+                offline: false,
             },
             None => Finish::said("wallabag.unreadable"),
         }

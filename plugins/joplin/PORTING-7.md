@@ -43,8 +43,10 @@ only, no interface-6 code left. The plugin hears the reader's export: it subscri
 - A rule's *Send to Joplin* now runs at once as declared work (interface 6 deferred it for one hour when no
   reader was there).
 - Reasons a request ended without an answer (no network, DNS, TLS, timeout, offline mode, saving mode) are
-  all *Joplin cannot be reached* (interface 6's status 0); the notes wait. The set-up's offer to go
-  online in offline mode is not ported (the network service refuses and the notes wait).
+  all *Joplin cannot be reached* (interface 6's status 0); the notes wait. The offer to go online in
+  offline mode is restored (#459, the shared `paperpaw_ui_kit::online::Offer`): a sending the reader
+  started (*Send*, the action) asks once and on *Go online* sends again as the action; an export or a
+  sending by itself stays quiet.
 - A wrong password or address stops the automatic tries until the account changes (a setting changed, or a
   new password typed), as in interface 6.
 - `write_note` writes straight to the file: a power cut leaves a partial file that the next sending writes

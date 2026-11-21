@@ -12,7 +12,7 @@ use paperpaw_sdk::native::{
     callbacks::{DrawFrame, DrawPurpose, Input},
     commands::CommandSender,
     device::{Device, DeviceClass},
-    events::{Event, Incoming, kinds},
+    events::{Answered, Event, Incoming, kinds},
     formatting::Arg,
     net::{FileRoot, Header, HttpDone, Net, REPLY, REQUEST_INPUT, Request, RequestId},
     registrations,
@@ -21,7 +21,14 @@ use paperpaw_sdk::native::{
     ui::{Notify, Open, RequestId as AskId, Ui},
     work::{Moment, Work, WorkSpec},
 };
-use paperpaw_ui_kit::{Messages, Screens, files::Volume, mem, read_event, text, widget::Settings};
+use paperpaw_ui_kit::{
+    Messages, Screens,
+    files::Volume,
+    mem,
+    online::{Chosen, Offer},
+    read_event, text,
+    widget::Settings,
+};
 
 use crate::declarations::{FETCH_TOKEN, HTTP_TOKEN, OPEN_TOKEN, SCREEN, SETTING_TOKEN, WORK_TOKEN};
 
@@ -51,6 +58,12 @@ pub(crate) struct News {
     pub(crate) widgets: Widgets,
     /// The question of the screen that is open, and what it is for.
     pub(crate) asked: Option<(AskId, Ask)>,
+    /// Offline mode: the offer to go online, for the fetch to do again (the
+    /// feed to start at, and whether the ones after it too).
+    online: Offer<(usize, bool)>,
+    /// Whether the reader started the fetch under way (only that one is
+    /// offered to go online for; the background fetch keeps quiet).
+    by_reader: bool,
 }
 
 /// The handles of the services, opened when first needed.
@@ -345,7 +358,7 @@ impl News {
                     })
             }
             Event::ActionRun { .. } if token == OPEN_TOKEN => open_list(host),
-            Event::WorkDue(_) if token == WORK_TOKEN => self.start(host, 0, true),
+            Event::WorkDue(_) if token == WORK_TOKEN => self.fetch(host, 0, true, false),
             Event::HttpDone(done) if token == HTTP_TOKEN => {
                 let ended = self.ended(host, &done);
                 // The names of the feeds and their books may have changed.
@@ -381,7 +394,7 @@ impl News {
                 self.screens.close(instance);
                 Ok(())
             }
-            Event::Answered { answer, .. } => self.answered(host, answer),
+            Event::Answered { answer, .. } => self.answer(host, answer),
             _ => Ok(()),
         }
     }
@@ -416,8 +429,22 @@ impl News {
 }
 
 impl News {
-    /// Starts a fetch and says how it went.
+    /// The reader starts a fetch (on the screen): Offline mode may offer to go
+    /// online for it again.
     pub(crate) fn start(&mut self, host: &Host<'_>, from: usize, all: bool) -> Result<(), Error> {
+        self.online.reset();
+        self.fetch(host, from, all, true)
+    }
+
+    /// Starts a fetch, `by_reader` or in the background, and says how it went.
+    fn fetch(
+        &mut self,
+        host: &Host<'_>,
+        from: usize,
+        all: bool,
+        by_reader: bool,
+    ) -> Result<(), Error> {
+        self.by_reader = by_reader;
         let mut wire = HostWire::new(host, &mut self.handles);
         match self.fetcher.start(&mut wire, from, all)? {
             Started::Fetching => notice(host, "news.fetching"),
@@ -444,6 +471,7 @@ impl News {
             Ended::Unreadable => notice(host, "news.unreadable"),
             Ended::Memory => notice(host, "news.no-memory"),
             Ended::NoNetwork { .. } => notice(host, "news.no-network"),
+            Ended::Offline { from, all } => self.offline(host, (from, all)),
             Ended::Finished { done, failed } => {
                 let mut messages = messages.into_inner();
                 let count = i64::try_from(done).unwrap_or(i64::MAX);
@@ -465,6 +493,41 @@ impl News {
                 };
                 tell(host, &message)
             }
+        }
+    }
+}
+
+impl News {
+    /// Offline mode held the fetch back: the reader who started it is asked
+    /// (once) whether to go online for it; else it needs a network.
+    fn offline(&mut self, host: &Host<'_>, again: (usize, bool)) -> Result<(), Error> {
+        if self.by_reader && self.online.again() {
+            // Fetched again from *Go online* before the host went online
+            // (`paperpaw_ui_kit::online`): once more.
+            return self.fetch(host, again.0, again.1, true);
+        }
+        if !self.by_reader || !self.online.may_offer() {
+            return notice(host, "news.no-network");
+        }
+        let asked = match self.handles.ui(host) {
+            Ok(ui) => self.online.ask(host, ui, again),
+            Err(error) => Err(error),
+        };
+        match asked {
+            Ok(()) => Ok(()),
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            // Not asked: what it would have come to.
+            Err(_) => notice(host, "news.no-network"),
+        }
+    }
+
+    /// An answer: the offer's first (*Go online* fetches again), then the
+    /// screen's questions.
+    fn answer(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        match self.online.answered(host, answer)? {
+            Some(Chosen::Online((from, all))) => self.fetch(host, from, all, true),
+            Some(Chosen::NotNow(_)) => notice(host, "news.no-network"),
+            None => self.answered(host, answer),
         }
     }
 }

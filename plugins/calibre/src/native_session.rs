@@ -100,6 +100,9 @@ pub enum Step {
     Import(Coming),
     /// Remove the file of bytes that were taken and dropped.
     RemoveDropped,
+    /// Offline mode held the network back: offer to go online (once since
+    /// the reader started; on *Go online* the session starts again).
+    OfferOnline,
     /// The screen shows something else.
     Redraw,
 }
@@ -422,6 +425,32 @@ impl Session {
         self.end(Ending::NoNetwork {
             managed: self.managed,
         })
+    }
+
+    /// Offline mode held the network back (the end said `Offline`): ended as
+    /// without a network and, where `may_offer`, the reader is offered to go
+    /// online ([`Step::OfferOnline`]).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn offline(&mut self, may_offer: bool) -> Result<Vec<Step>, Error> {
+        let mut steps = self.no_network()?;
+        if may_offer {
+            push(&mut steps, Step::OfferOnline)?;
+        }
+        Ok(steps)
+    }
+
+    /// A broadcast held back by Offline mode: as [`Session::offline`] while
+    /// Calibre is being found, else nothing.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn find_offline(&mut self, may_offer: bool) -> Result<Vec<Step>, Error> {
+        if self.state != State::Finding {
+            return Ok(Vec::new());
+        }
+        self.offline(may_offer)
     }
 
     /// Calibre closed the connection: as it does after ejecting (said so

@@ -11,7 +11,7 @@ use paperpaw_ui_kit::{
     mem::{buffer, push},
 };
 
-use super::Opds;
+use super::{Again, Opds};
 use crate::native_catalogs as catalogs;
 use crate::native_files::DataFiles;
 use crate::native_sync::{Job, Report, Setup, Update};
@@ -51,8 +51,14 @@ impl Opds {
     }
 
     /// Starts a sync of `only` (a catalog of the list) or of every catalog
-    /// marked for it, unless one is going on.
-    fn sync_begin(&mut self, host: &Host<'_>, only: Option<usize>) -> Result<(), Error> {
+    /// marked for it, unless one is going on; `reader` where the reader
+    /// started it (Offline mode holding it back then offers to go online).
+    pub(super) fn sync_begin(
+        &mut self,
+        host: &Host<'_>,
+        only: Option<usize>,
+        reader: bool,
+    ) -> Result<(), Error> {
         if self.sync.running() {
             return Ok(());
         }
@@ -65,6 +71,7 @@ impl Opds {
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
         let folder = crate::native_files::DataFiles::new(host);
         let setup = Setup::new(&self.folder, &self.extensions, self.small, limit);
+        self.reader_sync = reader.then_some(only);
         let update = self
             .sync
             .start(host, &mut self.web, &folder, &setup, jobs)?;
@@ -79,12 +86,14 @@ impl Opds {
             self.sync.stop(host, &mut self.web, &files);
             return self.refresh(host);
         }
-        self.sync_begin(host, None)
+        self.online.reset();
+        self.sync_begin(host, None, true)
     }
 
     /// *Sync now* in a catalog's options.
     pub(super) fn sync_one(&mut self, host: &Host<'_>, index: usize) -> Result<(), Error> {
-        self.sync_begin(host, Some(index))
+        self.online.reset();
+        self.sync_begin(host, Some(index), true)
     }
 
     /// The action `opds.sync`. The reader's own run (a menu, a key) syncs at
@@ -94,10 +103,11 @@ impl Opds {
     pub(super) fn sync_action(&mut self, host: &Host<'_>, background: bool) -> Result<(), Error> {
         self.open(host)?;
         if !background {
-            return self.sync_begin(host, None);
+            self.online.reset();
+            return self.sync_begin(host, None, true);
         }
         let Some(work) = &self.work else {
-            return self.sync_begin(host, None);
+            return self.sync_begin(host, None, false);
         };
         let spec =
             WorkSpec::when_cheap(SYNC_WORK, crate::declarations::WORK_TOKEN)?.within_ms(WITHIN_MS);
@@ -117,7 +127,7 @@ impl Opds {
             return Ok(());
         }
         self.open(host)?;
-        self.sync_begin(host, None)
+        self.sync_begin(host, None, false)
     }
 
     /// The end of a request of the sync.
@@ -154,6 +164,15 @@ impl Opds {
             return Ok(());
         };
         if update == Update::Finished {
+            // Offline mode held back a sync the reader started: going online
+            // is offered instead of the notice (once; the work's never asks).
+            let held = self.sync.report().is_some_and(|r| r.offline > 0);
+            if let Some(only) = self.reader_sync.take()
+                && held
+                && self.offer_online(host, Again::Sync(only))?
+            {
+                return self.refresh(host);
+            }
             let mut say = Messages::new()?;
             if let Some(text) = self.sync_report_text(host, &mut say)? {
                 Self::notice(host, &text)?;

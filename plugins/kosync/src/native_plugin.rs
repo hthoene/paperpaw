@@ -13,7 +13,7 @@ use paperpaw_sdk::native::{
     device::{Device, WifiState},
     events::{AnswerOutcome, Answered, Event, Incoming, ReadingView},
     formatting::Arg,
-    net::{Header, HttpDone, Net, REPLY, REQUEST_INPUT, Request, RequestId},
+    net::{Header, HttpDone, Net, REPLY, REQUEST_INPUT, Reason, Request, RequestId},
     registrations,
     reply::Reply,
     secrets::Secrets,
@@ -24,6 +24,7 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
     mem::{SERVICE_BUFFER, buffer, push, wipe},
+    online,
     text::{concat, copy},
 };
 
@@ -106,6 +107,10 @@ pub struct NativeKosync {
     /// The text being typed on the screen, and which one.
     typing: Option<(AskId, Field)>,
     offers: Vec<Asked>,
+    /// Offline mode held *Sign in* (`false`) or *Create account* (`true`)
+    /// back: the offer to go online for it, once until the reader chooses it
+    /// again (as Beta 3's account screen did).
+    online: online::Offer<bool>,
     /// The server the account belongs to; another one signs out.
     server: Option<String>,
     push_work: PushWork,
@@ -690,6 +695,16 @@ impl NativeKosync {
                 }
                 Ok(())
             }
+            Purpose::Authorize | Purpose::Create if done.reason() == Reason::Offline => {
+                let create = pending.purpose == Purpose::Create;
+                if self.online.again() {
+                    // Sent again from *Go online* before the host went online
+                    // (`paperpaw_ui_kit::online`): once more.
+                    self.call_again(host, create)
+                } else {
+                    self.held_back(host, create)
+                }
+            }
             Purpose::Authorize => self.signed(host, false, status),
             Purpose::Create => self.signed(host, true, status),
         }
@@ -827,6 +842,18 @@ impl NativeKosync {
 
     /// An answer to a question the plugin asked.
     fn answered(&mut self, host: &Host<'_>, now_ms: u64, answer: Answered) -> Result<(), Error> {
+        let chosen = match self.online.answered(host, answer) {
+            Ok(chosen) => chosen,
+            Err(error) => {
+                self.needs_network(host)?;
+                return Err(error);
+            }
+        };
+        match chosen {
+            Some(online::Chosen::Online(create)) => return self.call_again(host, create),
+            Some(online::Chosen::NotNow(_)) => return self.needs_network(host),
+            None => {}
+        }
         if answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
@@ -930,6 +957,7 @@ impl NativeKosync {
             note: String::new(),
         };
         Self::build(host, &Self::server(host)?, &mut view)?;
+        self.online.reset();
         self.screens.open(instance, view)
     }
 
@@ -1052,7 +1080,11 @@ impl NativeKosync {
         match todo {
             Todo::Nothing => {}
             Todo::Ask(field) => self.ask(host, token, field)?,
-            Todo::Call { create } => self.call(host, token, create)?,
+            Todo::Call { create } => {
+                // Chosen anew: Offline mode may offer to go online again.
+                self.online.reset();
+                self.call(host, token, create)?;
+            }
             Todo::SignOut => {
                 self.sign_out(host)?;
                 if let Some(view) = self.screens.top(token) {
@@ -1207,6 +1239,43 @@ impl NativeKosync {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Offline mode held *Sign in* or *Create account* back: the first time
+    /// since the reader chose it, the offer to go online; else (or where the
+    /// question cannot be asked) the line says the network is needed.
+    fn held_back(&mut self, host: &Host<'_>, create: bool) -> Result<(), Error> {
+        if !self.online.may_offer() || self.screens.top(ACCOUNT).is_none() {
+            return self.needs_network(host);
+        }
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        match self.online.ask(host, ui, create) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                self.needs_network(host)?;
+                if error == Error::NoMemory {
+                    Err(error)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
+    /// After *Go online*: the server is asked again (the screen still says it
+    /// is connecting).
+    fn call_again(&mut self, host: &Host<'_>, create: bool) -> Result<(), Error> {
+        self.call(host, ACCOUNT, create)?;
+        self.change(host, ACCOUNT, |_| Ok(()))
+    }
+
+    /// Not sent: the account screen waits no longer and says the network is
+    /// needed.
+    fn needs_network(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.change(host, ACCOUNT, |view| {
+            view.account.needs_network();
+            Ok(())
+        })
     }
 
     /// The server's answer to *Sign in* or *Create account*.

@@ -58,6 +58,8 @@ struct World {
     fail_put: Vec<String>,
     /// The answer to the next request of this step is lost (a put is stored).
     lose: Option<Step>,
+    /// Offline mode holds every request back (`Reason::Offline`).
+    offline: bool,
     seen: Vec<Seen>,
     next: u32,
     answer: Option<Done>,
@@ -84,6 +86,7 @@ impl World {
             expire: 0,
             fail_put: Vec::new(),
             lose: None,
+            offline: false,
             seen: Vec::new(),
             next: 0,
             answer: None,
@@ -222,7 +225,11 @@ impl Wire for World {
             if lost {
                 self.lose = None;
             }
-            let reason = if lost { Reason::Timeout } else { Reason::Ok };
+            let reason = match (self.offline, lost) {
+                (true, _) => Reason::Offline,
+                (_, true) => Reason::Timeout,
+                _ => Reason::Ok,
+            };
             self.answer = Some(Done::new(id, call.step.token(), reason, status));
             Ok(id)
         })
@@ -392,6 +399,43 @@ fn notes_wait_without_a_connection_and_go_when_wifi_comes() {
         },
         "a sending by itself tells what went well"
     );
+    assert!(w.waiting().is_empty());
+}
+
+/// Held back by Offline mode (#459, as Beta 3): the sending the reader started
+/// (*Send*, the action) ends `Offline`, for the plugin to offer to go online,
+/// and goes when it starts again; an export or a sending by itself is not
+/// offered (cannot be reached, quiet by itself). The notes wait either way.
+#[test]
+fn offline_mode_holds_back_the_readers_sending_for_the_offer_to_go_online() {
+    let mut w = World::new(Service::WebDav);
+    w.notes("Notes/a.md", NOTES);
+    w.offline = true;
+    let mut s = Sender::new();
+    assert_eq!(
+        export(&mut w, &mut s, "Notes/a.md"),
+        ended(Tell::Unreachable)
+    );
+    let first = s.start(&mut w, Start::Retry).unwrap();
+    assert_eq!(
+        pump(&mut w, &mut s, first),
+        Outcome::Ended {
+            tell: Tell::Unreachable,
+            quiet: true,
+            apart: 0
+        }
+    );
+    let first = s.start(&mut w, Start::Action).unwrap();
+    assert_eq!(pump(&mut w, &mut s, first), ended(Tell::Offline));
+    assert_eq!(Tell::Offline.key(), "joplin.no-network");
+    assert_eq!(w.waiting(), ["Notes/a.md"]);
+    assert!(!s.busy() && !s.blocked());
+    // *Go online*: sent again, and it goes.
+    w.offline = false;
+    w.seen.clear();
+    let again = s.start(&mut w, Start::Action).unwrap();
+    assert_eq!(pump(&mut w, &mut s, again), ended(Tell::Sent(1)));
+    assert_eq!(w.seen[0].step, Step::Info);
     assert!(w.waiting().is_empty());
 }
 
