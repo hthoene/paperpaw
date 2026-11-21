@@ -4774,6 +4774,12 @@ change the plugin SDK.
 
 - **Bigger sliders and resize handles on touch screens** (#435, #436). In the quick panel the Front light and Light colour sliders (and every other slider in a panel) now have a row of their own across almost the whole width, under the label, so a finger hits and moves them easily; the − and + buttons sit tight together with the value at the right edge and the label keeps the rest of the line. Numbers on screens without touch use the same tight − value + row. When arranging the home screen, the corner that sizes a widget is a filled disc again, as in Beta 3, and its touch area is at least a fingertip.
 
+- **Screen lock could not be set by touch; the tick showed a "?"** (#442). In Settings, Screen lock, a tap on PIN, Pattern or Password did nothing on a touch screen (the list answered only the buttons), and the kind in use was marked with a "?" where Beta 3 ticked it. A tap chooses the kind again, and the kind in use is marked with a dot like in other choices.
+
+- **"Reset all" and other questions lost their words** (#442). Settings, Reset all asked only "Yes, reset / Cancel" under the word "Settings": the sentence saying what is reset was missing. A choice shows what its question says again (also the file's name or path where a menu is about a file).
+
+- **Set up PaperPaw showed a key instead of the keyboard layout** (#442). The keyboard step showed `keyboard.layout.auto`; it shows "Automatic (UI language)" again.
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
