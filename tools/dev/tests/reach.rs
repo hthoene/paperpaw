@@ -164,3 +164,28 @@ fn screens_are_reached_and_closed_with_buttons() {
     assert!(skips.message.contains("Row \"Three\""), "{}", skips.message);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// The ways in declared for screens the search does not come to lead to
+/// them, with what each needs of the network (the store's list and the
+/// fonts' catalog from the fixtures, the phone keyboard with the radio on),
+/// whatever `--network` says: `reach.way-lost` was reported for two of them
+/// on a run without `--network fixtures`.
+#[test]
+fn declared_ways_lead_where_they_say_without_the_fixtures_asked_for() {
+    let out = std::env::temp_dir().join(format!("paperpaw-dev-ways-{}", std::process::id()));
+    let context = Context::new(Target::default(), out);
+    assert!(!context.fixtures);
+    let variant = Variant::x4();
+    for screen in [
+        "store.letters",
+        "fonts-browser.font",
+        "keyboard.ask",
+        "transfer.phone",
+    ] {
+        let way = reach::ways::declared(screen, variant.profile).expect(screen);
+        let mut driver = reach::driver::Driver::anew(&context, &variant, way.start()).unwrap();
+        let seen = driver.go(&way.steps(), None).expect(screen);
+        assert_eq!(seen.top(), screen, "{screen}: {:?}", seen.stack);
+        assert!(driver.lost.is_none(), "{screen}: {:?}", driver.lost);
+    }
+}

@@ -279,6 +279,34 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
         "format-epub-plus",
         &paperpaw_plugin_format_epub_plus::NATIVE_ENTRY,
     ),
+    #[cfg(feature = "native-linked-store")]
+    ("browser", &paperpaw_plugin_browser::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("edge-light", &paperpaw_plugin_edge_light::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("file-sync", &paperpaw_plugin_file_sync::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("format-rtf", &paperpaw_plugin_format_rtf::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("joplin", &paperpaw_plugin_joplin::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("kosync", &paperpaw_plugin_kosync::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    (
+        "picture-frame",
+        &paperpaw_plugin_picture_frame::NATIVE_ENTRY,
+    ),
+    #[cfg(feature = "native-linked-store")]
+    (
+        "read-later-cloud",
+        &paperpaw_plugin_read_later_cloud::NATIVE_ENTRY,
+    ),
+    #[cfg(feature = "native-linked-store")]
+    ("readwise", &paperpaw_plugin_readwise::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("wallabag", &paperpaw_plugin_wallabag::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("wikipedia", &paperpaw_plugin_wikipedia::NATIVE_ENTRY),
     ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
@@ -290,27 +318,38 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
 pub const LINKED_STORE_PLUGINS: &[&str] = &[
     "anki",
     "battery",
+    "browser",
     "calendar",
     "calibre",
     "diagnostics",
+    "edge-light",
     "end-of-book",
+    "file-sync",
     "format-epub-plus",
+    "format-rtf",
     "gloss",
+    "joplin",
     "keys",
     "koreader",
+    "kosync",
     "launcher-simple",
     "menu-editor",
     "notes-overview",
+    "picture-frame",
     "pomodoro",
     "profiles",
     "puzzles",
+    "read-later-cloud",
     "reading-goal",
+    "readwise",
     "rules",
     "smart-home",
     "stats",
     "tasks",
     "translate",
+    "wallabag",
     "weather",
+    "wikipedia",
 ];
 
 /// Whether `id` is one of the `LINKED_STORE_PLUGINS` (never, without the feature).

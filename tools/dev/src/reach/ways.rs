@@ -41,6 +41,21 @@ pub struct Way {
     pub files: &'static [(&'static str, &'static [u8])],
     /// The steps from the home screen.
     pub steps: &'static [&'static str],
+    /// What it needs of the network.
+    pub network: Network,
+}
+
+/// What a way needs of the network (the default is none).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Network {
+    /// Nothing: the radio is off, no request is made.
+    None,
+    /// The radio on and joined (a screen offered only where there is a
+    /// network, as the phone keyboard).
+    Online,
+    /// The emulator's fixtures answering the requests (`--network
+    /// fixtures`, whatever the run asked): a store's list, a catalog.
+    Fixtures,
 }
 
 impl Way {
@@ -57,6 +72,8 @@ impl Way {
                 .iter()
                 .map(|(path, bytes)| (path.to_string(), bytes.to_vec()))
                 .collect(),
+            wifi_online: self.network == Network::Online,
+            fixtures: self.network == Network::Fixtures,
             ..Start::default()
         }
     }
@@ -113,6 +130,7 @@ pub const WAYS: &[Way] = &[
         needs: "a book open, and its menu's Contents",
         settings: &[PLAIN],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -129,6 +147,7 @@ pub const WAYS: &[Way] = &[
         needs: "a book open, and its menu's Notes",
         settings: &[PLAIN],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -145,6 +164,7 @@ pub const WAYS: &[Way] = &[
         needs: "a book open, and Skim through the book under its menu's More",
         settings: &[PLAIN],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -163,6 +183,7 @@ pub const WAYS: &[Way] = &[
         needs: "a book open, and a text typed into its search",
         settings: &[PLAIN],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -181,6 +202,7 @@ pub const WAYS: &[Way] = &[
         needs: "a book with a footnote, shown over the page (`core.footnotes`)",
         settings: &[PLAIN, ("core.footnotes", "core.footnotes.popup")],
         files: &[FOOTNOTE],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -200,6 +222,7 @@ pub const WAYS: &[Way] = &[
                 and Look up in the bar over it, which the reader does not describe as parts",
         settings: &[PLAIN],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -223,6 +246,7 @@ pub const WAYS: &[Way] = &[
         needs: "a text typed into the settings' search",
         settings: &[],
         files: &[],
+        network: Network::None,
         steps: &[
             "long:confirm",
             "to:Settings",
@@ -237,6 +261,7 @@ pub const WAYS: &[Way] = &[
         needs: "a theme installed (a data plugin), which Appearance then offers",
         settings: &[],
         files: THEME,
+        network: Network::None,
         steps: &[
             "long:confirm",
             "to:Settings",
@@ -257,6 +282,7 @@ pub const WAYS: &[Way] = &[
             ("core.ui-lines", "2"),
         ],
         files: &[],
+        network: Network::Fixtures,
         steps: &[
             "long:confirm",
             "to:Tools",
@@ -277,6 +303,7 @@ pub const WAYS: &[Way] = &[
                 not describe as a part",
         settings: &[],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -292,6 +319,7 @@ pub const WAYS: &[Way] = &[
                 book: back up to the row first)",
         settings: &[],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -307,6 +335,7 @@ pub const WAYS: &[Way] = &[
         needs: "the shelves' By author row opened (the names of a kind of shelf)",
         settings: &[],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -324,6 +353,7 @@ pub const WAYS: &[Way] = &[
         needs: "a name of the shelves' By author row opened (the books of one shelf)",
         settings: &[],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Start reading",
             "confirm",
@@ -343,6 +373,7 @@ pub const WAYS: &[Way] = &[
                 row, whose picker is home's own screen",
         settings: &[],
         files: &[],
+        network: Network::None,
         steps: &[
             "long:confirm",
             "to:Settings",
@@ -361,6 +392,7 @@ pub const WAYS: &[Way] = &[
         needs: "a font of the list of fonts to download (the fixtures' catalog has two)",
         settings: &[],
         files: &[],
+        network: Network::Fixtures,
         steps: &[
             "long:confirm",
             "to:Settings",
@@ -381,6 +413,7 @@ pub const WAYS: &[Way] = &[
                 To do), and a press on it",
         settings: &[],
         files: &[],
+        network: Network::None,
         steps: &[
             "to:Edit",
             "confirm",
@@ -394,6 +427,38 @@ pub const WAYS: &[Way] = &[
             "to:Done",
             "confirm",
             "to:Nothing to do",
+            "confirm",
+        ],
+    },
+    Way {
+        screen: "keyboard.ask",
+        needs: "a question the keyboard plugin asks (Reset to defaults in the controls)",
+        settings: &[],
+        files: &[],
+        network: Network::None,
+        steps: &[
+            "long:confirm",
+            "to:Settings",
+            "confirm",
+            "to:Controls",
+            "confirm",
+            "to:Reset to defaults",
+            "confirm",
+        ],
+    },
+    Way {
+        screen: "transfer.phone",
+        needs: "a network, and the keyboard's Phone key (the search of the settings)",
+        settings: &[],
+        files: &[],
+        network: Network::Online,
+        steps: &[
+            "long:confirm",
+            "to:Settings",
+            "confirm",
+            "to:Search",
+            "confirm",
+            "to:Phone",
             "confirm",
         ],
     },
