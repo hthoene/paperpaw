@@ -903,6 +903,7 @@ impl NativeReader {
         if turned {
             self.start_quiet(host);
         }
+        self.pictures_due(host);
     }
 
     /// Writes the place of every reading screen not saved.
@@ -1175,17 +1176,10 @@ impl NativeReader {
     }
 }
 
-impl Plugin for NativeReader {
-    fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batches in BATCHES {
-            for batch in batches {
-                registrations::submit(host, batch)?;
-            }
-        }
-        Ok(Self::default())
-    }
-
-    fn event(
+impl NativeReader {
+    /// [`Plugin::event`] before the step of the missing pictures is
+    /// declared.
+    fn event_of(
         &mut self,
         host: &Host<'_>,
         token: u32,
@@ -1258,10 +1252,7 @@ impl Plugin for NativeReader {
             }
             Event::Answered { answer, .. } => self.answered(host, &answer),
             // The quiet time has come, or the device sleeps or stops.
-            Event::WorkDue(due)
-                if token == WORK_DUE
-                    && matches!(due.key(), ahead::KEY | native_index::WORK_KEY) =>
-            {
+            Event::WorkDue(due) if token == WORK_DUE && ahead::quiet_key(due.key()) => {
                 self.quiet_step(host, due.key());
                 Ok(())
             }
@@ -1306,6 +1297,30 @@ impl Plugin for NativeReader {
             _ => Ok(()),
         }
     }
+}
+
+impl Plugin for NativeReader {
+    fn make(host: &Host<'_>) -> Result<Self, Error> {
+        for batches in BATCHES {
+            for batch in batches {
+                registrations::submit(host, batch)?;
+            }
+        }
+        Ok(Self::default())
+    }
+
+    fn event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        let result = self.event_of(host, token, incoming, reply);
+        // Pictures a callback left missing are asked for after it (#438).
+        self.pictures_due(host);
+        result
+    }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         if token == SAMPLE {
@@ -1342,7 +1357,9 @@ impl Plugin for NativeReader {
         else {
             return Err(Error::State);
         };
-        view.draw(host, (docs, self.ui.as_ref()), &mut frame)
+        let drawn = view.draw(host, (docs, self.ui.as_ref()), &mut frame);
+        self.pictures_due(host);
+        drawn
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
@@ -1430,6 +1447,7 @@ impl Plugin for NativeReader {
         if turned {
             self.start_quiet(host);
         }
+        self.pictures_due(host);
         if let Some(note) = note {
             self.ask_note(host, &note)?;
         }

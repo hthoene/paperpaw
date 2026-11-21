@@ -15,7 +15,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant as Clock};
 
 use paperpaw_core::sdk::MemoryStorage;
-use paperpaw_emulator::{device::Device, profiles};
+use paperpaw_emulator::{device::Device, headless::run_script, profiles};
 use paperpaw_platform::{ButtonState, InputEvent, Rect, RefreshMode, buttons};
 
 const BOOK: &str = "books/lighthouse.epub";
@@ -58,6 +58,16 @@ impl Frame {
         u32::from(self.region.width) * u32::from(self.region.height)
     }
 
+    /// Whether the panel after this frame shows in `rect` what `other` does.
+    fn same_in(&self, other: &Self, rect: Rect) -> bool {
+        (rect.y..rect.y + rect.height).all(|y| {
+            let at = |frame: &Self| (usize::from(y) * frame.stride + usize::from(rect.x)) * 3;
+            let width = usize::from(rect.width) * 3;
+            self.panel.get(at(self)..at(self) + width)
+                == other.panel.get(at(other)..at(other) + width)
+        })
+    }
+
     /// Whether every pixel of `rect` on the panel after this frame is the
     /// same: an empty box, no picture in it.
     fn blank(&self, rect: Rect) -> bool {
@@ -85,19 +95,28 @@ const LARGE: (&[u8], &str) = (
 /// A book of one long chapter: paragraphs of text with `picture` after every
 /// fifteenth (about every fifth page), so that the periodic full refresh
 /// comes between pictures.
-fn book((picture, kind): (&[u8], &str)) -> Vec<u8> {
+fn book(picture: (&[u8], &str)) -> Vec<u8> {
     // The first page has a picture too: an opened book shows it after its text.
     let mut body =
         String::from("<h1>The Lighthouse</h1><p><img src=\"fig\" alt=\"The lamp\"/></p>");
     for i in 0..120 {
-        body.push_str(&format!(
-            "<p>{i}. The keeper climbed the stairs every evening, one hundred and twelve \
-             steps, and lit the lamp before the last light of the day had left the water.</p>"
-        ));
+        body.push_str(&paragraph(i));
         if i % 15 == 14 {
             body.push_str("<p><img src=\"fig\" alt=\"The lamp\"/></p>");
         }
     }
+    epub(&body, picture)
+}
+
+fn paragraph(i: usize) -> String {
+    format!(
+        "<p>{i}. The keeper climbed the stairs every evening, one hundred and twelve \
+         steps, and lit the lamp before the last light of the day had left the water.</p>"
+    )
+}
+
+/// The book of `body`, with `picture` as its file `fig`.
+fn epub(body: &str, (picture, kind): (&[u8], &str)) -> Vec<u8> {
     let chapter = format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?><html xmlns=\"http://www.w3.org/1999/xhtml\">\
          <head><title>The Lighthouse</title></head><body>{body}</body></html>"
@@ -364,5 +383,112 @@ fn a_large_picture_refreshes_only_its_box() {
     assert!(
         page.blank(follow.region) && !follow.blank(follow.region),
         "opening: {opening:?}"
+    );
+}
+
+/// A book whose first picture comes after `before` paragraphs: on the second
+/// page in a large font, on the first in a small one.
+fn late_picture(before: usize) -> Vec<u8> {
+    let mut body = String::from("<h1>The Lighthouse</h1>");
+    for i in 0..before {
+        body.push_str(&paragraph(i));
+    }
+    body.push_str("<p><img src=\"fig\" alt=\"The lamp\"/></p>");
+    for i in before..before + 40 {
+        body.push_str(&paragraph(i));
+    }
+    epub(&body, SMALL)
+}
+
+/// Paragraphs before the picture of [`late_picture`].
+const BEFORE: usize = 2;
+const LARGE_FONT: &str = "20";
+const SMALL_FONT: &str = "8";
+
+/// An X4 started into [`late_picture`] in a font of `size`, its opening's
+/// frames waited for.
+fn late_reading(size: &str) -> (Device, Vec<Frame>) {
+    let files = MemoryStorage::new()
+        .with(BOOK, late_picture(BEFORE))
+        .with(".paperpaw/plugins/setup/done", "")
+        .with(
+            ".paperpaw/plugins/reader/state.ini",
+            format!("[reader]\nlast = {BOOK}\n"),
+        )
+        .with(
+            "paperpaw.ini",
+            format!("[help]\nshow = false\n[core]\nhyphenate = off\nfont-size = {size}\n"),
+        );
+    paperpaw_emulator::budget::override_limit(None);
+    let profile = profiles::find("xteink-x4").unwrap();
+    let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
+    let started = Clock::now();
+    device.start();
+    let first = *device.shown.last().expect("the start shows a frame");
+    let mut opening = vec![Frame::shown(&device, first, started)];
+    opening.extend(wait(&mut device, 10_000));
+    (device, opening)
+}
+
+/// The panel of `device` now, as a frame (for [`Frame::blank`]).
+fn panel(device: &Device) -> Frame {
+    Frame {
+        region: Rect::new(0, 0, 0, 0),
+        mode: RefreshMode::Partial,
+        took: Duration::ZERO,
+        panel: device.panel.rgb_bytes(),
+        stride: usize::from(device.panel.width()),
+    }
+}
+
+/// A reading setting changed while another screen covers the book (#438):
+/// the page is laid out again under it, and a picture that comes onto it
+/// then, never asked for yet, is drawn when the book is shown again (it
+/// stayed empty until the page was turned away and back).
+#[test]
+#[cfg_attr(
+    not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+    ignore = "needs the native reader (the desktop's `native-linked`, #243)"
+)]
+fn a_picture_that_comes_onto_the_page_under_another_screen_is_drawn_when_it_shows() {
+    // Where the picture is on the first page in the small font.
+    let (small, opening) = late_reading(SMALL_FONT);
+    let whole = whole();
+    let pair = opening
+        .windows(2)
+        .find(|pair| pair[0].area() * 2 >= whole && pair[1].area() < whole);
+    let Some([_, follow]) = pair else {
+        panic!("the small font has no picture on the first page: {opening:?}");
+    };
+    let picture = follow.region;
+    let drawn = panel(&small);
+    assert!(!drawn.blank(picture));
+    // In the large font it is on the second page: nothing is asked for.
+    let (mut device, opening) = late_reading(LARGE_FONT);
+    assert!(
+        !opening.iter().any(|frame| frame.area() * 2 < whole),
+        "the large font has a picture on the first page: {opening:?}"
+    );
+    run_script(&mut device, "run:core.settings,wait:2000").unwrap();
+    let mut changed = None;
+    device.call(|kernel, now| {
+        let effects = kernel
+            .set_setting(now, "core.font-size", SMALL_FONT)
+            .unwrap();
+        changed = Some(());
+        effects
+    });
+    assert!(changed.is_some());
+    run_script(&mut device, "wait:2000,back,wait:5000").unwrap();
+    let mut screen = None;
+    device.call(|kernel, _| {
+        screen = kernel.active_screen().map(ToString::to_string);
+        paperpaw_core::Effects::default()
+    });
+    assert_eq!(screen.as_deref(), Some("reader.screen"));
+    let shown = panel(&device);
+    assert!(
+        !shown.blank(picture) && shown.same_in(&drawn, picture),
+        "the picture that came onto the page under the settings is not drawn"
     );
 }

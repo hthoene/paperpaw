@@ -1,0 +1,3 @@
+### Fixed
+
+- **A picture that never showed until the page was turned away and back** (#438). A picture is decoded when a page first shows it. When the page was laid out again while another screen covered the book (a reading setting changed in Settings, for example), or laid out only while it was drawn, a picture that came onto it was never asked for, and its box stayed empty. A picture that could not be given for the moment (no memory, the card, the book busy) was not asked for again either. Such pictures are asked for when the book shows again or right after the draw, a few times at most, and only their boxes are refreshed.
