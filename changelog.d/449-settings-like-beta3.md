@@ -1,3 +1,0 @@
-### Changed
-
-- **Settings, setup and quick panel as in Beta 3** (#449). The quick panel's buttons are at least 60 px high again on touch screens. Changing a number with the buttons shows *Cancel / Keep / − / +* in the key bar. A long value in a settings row wraps to a line of its own instead of ending in "…". The setup assistant explains the Wi-Fi, set-up and add-more steps again, shows *Open ›*, rings the button the focus is on and says *Skip* in the key bar on its first page. On touch screens no row of a settings page shows the focus until a button is pressed. On devices with buttons the plugin manager says "Select: on or off".
