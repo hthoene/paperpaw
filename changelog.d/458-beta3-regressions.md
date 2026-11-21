@@ -14,8 +14,8 @@
   cleared that mark when it kept the free space, so the computer never offered
   its check. PaperPaw sets no such mark itself and now leaves one it finds.
 - **Page counts stay right after a pack, a book or the layout changes** (#458).
-  The file of a book's page count did not change with the book's size, the
-  packs of letters, fonts and hyphenation installed or the layout's version, so
+  The file of a book's page count did not change with the book's size and
+  time, the packs of letters installed or the layout's version, so
   a count made before was used again and page totals and pages left were wrong.
   And as in Beta 3, a count that promises pages past the book's end is thrown
   away and counted again (once while the book is open).

@@ -55,6 +55,8 @@ pub(crate) struct Preparing {
     pub(super) found: Handover,
     pub(super) whole_pages: bool,
     pub(super) conversion: u64,
+    /// What the count asked before the document was opened.
+    pub(super) asked: super::count::Asked,
 }
 
 /// `ERR_NO_MEMORY`, the status of a document that failed for want of memory

@@ -288,6 +288,8 @@ impl View {
             return Ok(Self::message("reader.no-book"));
         }
         let root = found.root();
+        // Before the document takes its room: the peak of the open is not met.
+        let asked = count::Asked::for_book(host, &found.path);
         let state = {
             let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
             let colour =
@@ -323,6 +325,7 @@ impl View {
             found,
             whole_pages,
             conversion,
+            asked,
         };
         match preparation {
             Preparation::Ready => Self::opened(host, (docs, library), book),
@@ -358,6 +361,7 @@ impl View {
             found,
             whole_pages,
             conversion,
+            asked,
         } = book;
         let root = found.root();
         // A refusal on the way gives the document back.
@@ -432,7 +436,7 @@ impl View {
             spoken: None,
             finished: false,
             counter: None,
-            count: count::Asked::default(),
+            count: asked,
             chapter: None,
             chapter_left: None,
             bookmarks: Vec::new(),
