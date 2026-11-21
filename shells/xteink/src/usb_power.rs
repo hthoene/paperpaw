@@ -28,6 +28,7 @@ pub trait Sense {
     fn cable(&self) -> bool;
     /// A cable is in right now: [`Sense::cable`] without the grace after
     /// starting (the USB drive asks, which has nothing to show without one).
+    #[cfg(feature = "usb-drive")]
     fn cable_now(&self) -> bool {
         self.cable()
     }
@@ -173,6 +174,7 @@ mod outer {
                     < START_MS
         }
 
+        #[cfg(feature = "usb-drive")]
         fn cable_now(&self) -> bool {
             self.charging() || self.looked().moving()
         }
