@@ -913,8 +913,12 @@ impl Dashboard {
         }
         match *input {
             Input::Action { action, .. } => self.action(host, ui, action),
-            Input::Gesture { position, kind, .. } => match touch_of(kind) {
-                Touch::Tap => self.tapped(host, ui, position, WidgetInputKind::Tap),
+            Input::Gesture {
+                now_ms,
+                position,
+                kind,
+            } => match touch_of(kind) {
+                Touch::Tap => self.tapped(host, ui, (position, now_ms), WidgetInputKind::Tap),
                 // A long press starts editing, as on interface 6; while editing
                 // it is taken and runs nothing.
                 Touch::Held => {
@@ -979,7 +983,7 @@ impl Dashboard {
         &mut self,
         host: &Host<'_>,
         ui: &Ui,
-        point: Point,
+        (point, now_ms): (Point, u64),
         kind: WidgetInputKind,
     ) -> Result<Handled, Error> {
         if !self.editing && self.bar_tap(host, ui, point)? {
@@ -1008,6 +1012,11 @@ impl Dashboard {
             })
         });
         let Some(target) = target else {
+            // Nothing there: a bar that shows after a press shows.
+            if self.bar_reveal(now_ms) {
+                redraw(host)?;
+                return Ok(Handled::Yes);
+            }
             return Ok(Handled::No);
         };
         let next = self.run(host, ui, Some(target), Some((point, kind)))?;

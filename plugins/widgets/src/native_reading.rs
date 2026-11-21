@@ -1,6 +1,6 @@
 //! "Now reading": the book being read, its cover, title and author, the page it
-//! is at, a bar of how far, the chapter and the time left to read it at one's
-//! speed.
+//! is at, a bar of how far, the chapter, the pages left in it and the time left
+//! to read it at one's speed.
 //!
 //! The book is the library's (the one opened last that is still on the card,
 //! see [`native_current`](crate::native_current)); the page, the chapter and the
@@ -42,13 +42,16 @@ enum Part {
     Pages,
     Left,
     Chapter,
+    /// The pages left in the chapter (#459: as in Beta 3).
+    ChapterLeft,
 }
 
 /// The parts in the order they give way: the time left in the book first, the
-/// heading and the author (known anyway) next, then the bar (the percentage
-/// says it too), the chapter, the page last.
-const DROPPED: [Part; 6] = [
+/// pages left in the chapter, the heading and the author (known anyway) next,
+/// then the bar (the percentage says it too), the chapter, the page last.
+const DROPPED: [Part; 7] = [
     Part::Left,
+    Part::ChapterLeft,
     Part::Caption,
     Part::Author,
     Part::Bar,
@@ -121,7 +124,11 @@ fn parts_height(m: &Metrics, parts: &[Part]) -> u16 {
         total = total.saturating_add(own);
     }
     let book = parts.iter().any(|p| matches!(p, Part::Pages | Part::Left));
-    if book && parts.contains(&Part::Chapter) {
+    if book
+        && parts
+            .iter()
+            .any(|p| matches!(p, Part::Chapter | Part::ChapterLeft))
+    {
         total = total.saturating_add(m.apart);
     }
     total
@@ -134,6 +141,69 @@ struct Texts {
     /// The page and percentage, the way that fits first.
     pages: String,
     left: Option<String>,
+    /// The pages left in the chapter, the way that fits first.
+    chapter_left: Option<String>,
+}
+
+/// "12 pages left in the chapter · about 9 min", the same without the time,
+/// "12 pages left", or "Last page of the chapter" ("End of chapter") - the
+/// longest that fits `width` - where the chapter's end is known (as Beta 3
+/// said it).
+fn chapter_left_text(
+    cx: &mut Cx<'_>,
+    position: &Position,
+    width: u16,
+) -> Result<Option<String>, Error> {
+    let Some(left) = position.chapter_left else {
+        return Ok(None);
+    };
+    let small = cx.style().small;
+    let fits = |cx: &Cx<'_>, text: &str| {
+        Ok::<_, Error>(cx.font.measure_text(small, text)? <= f32::from(width))
+    };
+    if left == 0 {
+        let last = cx.tr("widgets.reading.chapter-last")?;
+        if fits(cx, &last)? {
+            return Ok(Some(last));
+        }
+        return Ok(Some(cx.tr("widgets.reading.chapter-last-short")?));
+    }
+    let count = i64::from(left);
+    let long = cx.plural("widgets.reading.chapter-left", count, &[])?;
+    if let Some(seconds) = position.chapter_seconds() {
+        let minutes = i64::try_from(seconds.div_ceil(60).max(1)).unwrap_or(i64::MAX);
+        let time = cx.format(
+            "widgets.reading.chapter-minutes",
+            &[Arg::Int {
+                name: "minutes",
+                value: minutes,
+            }],
+        )?;
+        let timed = cx.format(
+            "widgets.reading.chapter-time",
+            &[
+                Arg::Text {
+                    name: "left",
+                    value: &long,
+                },
+                Arg::Text {
+                    name: "time",
+                    value: &time,
+                },
+            ],
+        )?;
+        if fits(cx, &timed)? {
+            return Ok(Some(timed));
+        }
+    }
+    if fits(cx, &long)? {
+        return Ok(Some(long));
+    }
+    Ok(Some(cx.plural(
+        "widgets.reading.chapter-short",
+        count,
+        &[],
+    )?))
 }
 
 /// "About 2 h 5 min left", "About 40 min left".
@@ -227,6 +297,11 @@ fn wanted(
         (Part::Pages, "pages", true),
         (Part::Left, "left", left),
         (Part::Chapter, "chapter", !position.chapter.is_empty()),
+        (
+            Part::ChapterLeft,
+            "chapter-left",
+            position.chapter_left.is_some(),
+        ),
     ] {
         if there && cx.settings.shows(name)? {
             mem::push(&mut parts, part)?;
@@ -390,11 +465,15 @@ fn draw_text(
         small_line(cx, out, (row_at(y), align), left, look.faint)?;
         y = y.saturating_add(m.step);
     }
+    if (has(Part::Chapter) || has(Part::ChapterLeft)) && (has(Part::Pages) || has(Part::Left)) {
+        y = y.saturating_add(m.apart);
+    }
     if has(Part::Chapter) {
-        if has(Part::Pages) || has(Part::Left) {
-            y = y.saturating_add(m.apart);
-        }
         small_line(cx, out, (row_at(y), align), chapter, look.ink)?;
+        y = y.saturating_add(m.step);
+    }
+    if let (true, Some(left)) = (has(Part::ChapterLeft), &scene.texts.chapter_left) {
+        small_line(cx, out, (row_at(y), align), left, look.faint)?;
     }
     Ok(())
 }
@@ -434,6 +513,11 @@ pub fn draw_with(
         author: copy(&book.author)?,
         pages: pages_text(cx, book, &position, rest.width)?,
         left,
+        chapter_left: if parts.contains(&Part::ChapterLeft) {
+            chapter_left_text(cx, &position, rest.width)?
+        } else {
+            None
+        },
     };
     let scene = Scene {
         book,
@@ -506,6 +590,13 @@ mod tests {
         assert_eq!(parts_height(&m, &[Part::Bar]), 14);
         assert_eq!(parts_height(&m, &[Part::Chapter]), 16);
         assert_eq!(parts_height(&m, &[Part::Pages, Part::Chapter]), 36);
+        // The pages left in the chapter are a row of their own, apart from
+        // the page as the chapter is (#459).
+        assert_eq!(parts_height(&m, &[Part::Pages, Part::ChapterLeft]), 36);
+        assert_eq!(
+            parts_height(&m, &[Part::Pages, Part::Chapter, Part::ChapterLeft]),
+            52
+        );
     }
 
     #[test]
@@ -517,6 +608,7 @@ mod tests {
             Part::Pages,
             Part::Left,
             Part::Chapter,
+            Part::ChapterLeft,
         ] {
             assert!(DROPPED.contains(&part), "{part:?}");
         }

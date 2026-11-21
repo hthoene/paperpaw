@@ -145,6 +145,9 @@ the host are ignored cases in `tests/acceptance_pending.rs`.
   capital sigma differs from `str::to_lowercase`; a picture that is on the card and cannot be decoded
   is the format plugin's (`image_error` words the decoder's error without asking for room): the sweep
   leaves such a file out.
+- A link to another note of the vault is its file (`file:/<path>`, kind 3), with the heading's anchor
+  (`#` and its `slug`, the heading's `id`) where the link names one, so the reader opens it at that
+  heading as Beta 3 did (#459; `MD_VERSION` 5 converts notes again).
 - `native_format::markdown_provider()` is the shared `FormatProvider` of format-epub over
   `MarkdownDocument`; the call's storage is `VaultIo`: the note is root 3 (`path ""`), the
   conversion root 6, and every other path is the card (root 1, read only, `core.files` through

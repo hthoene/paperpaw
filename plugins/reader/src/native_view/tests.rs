@@ -10,6 +10,7 @@ fn the_handover_gives_the_place_params_and_nothing_else() {
         section: Some("3".into()),
         offset: Some("40".into()),
         page: Some("7".into()),
+        anchor: None,
     };
     assert_eq!(found.get("section"), Some("3"));
     assert_eq!(found.get("offset"), Some("40"));

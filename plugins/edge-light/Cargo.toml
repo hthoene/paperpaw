@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-edge-light"
 description = "PaperPaw Edge light: swipe along the screen edge to set the front light, and a home screen widget"
-version = "1.0.1"
+version = "1.0.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

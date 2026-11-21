@@ -475,15 +475,37 @@ fn file_path(book: &str, href: &str) -> Result<Option<String>, Error> {
     Ok(Some(path))
 }
 
+/// A file link's path and the anchor of the heading it leads to, after its
+/// last `#` (a notes vault's link to a heading of another note,
+/// `Note.md#part`, #459). A `#` with a `.` or `/` after it is the file's name.
+fn file_and_anchor(href: &str) -> (&str, Option<&str>) {
+    match href.rsplit_once('#') {
+        Some((file, anchor)) if !anchor.is_empty() && !anchor.contains(['.', '/']) => {
+            (file, Some(anchor))
+        }
+        _ => (href, None),
+    }
+}
+
 /// Opens the file a link names in the reading app the host chooses for it
-/// (`core.reader`, a `path` hand-over); a file no app opens is left alone.
+/// (`core.reader`, a `path` hand-over, with the heading's `reader.anchor`
+/// where the link names one); a file no app opens is left alone.
 fn open_file(host: &Host<'_>, ui: &Ui, book: &str, href: &str) -> Result<(), Error> {
-    let Some(path) = file_path(book, href)? else {
+    let (file, anchor) = file_and_anchor(href);
+    let Some(path) = file_path(book, file)? else {
         return Ok(());
     };
-    let params = [Param::new("path", &path)?];
+    let params = [
+        Param::new("path", &path)?,
+        Param::new(crate::ANCHOR, anchor.unwrap_or_default())?,
+    ];
+    let params = if anchor.is_some() {
+        &params[..]
+    } else {
+        &params[..1]
+    };
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-    let handover = ui.handover(host, &params, &mut input, &mut out)?;
+    let handover = ui.handover(host, params, &mut input, &mut out)?;
     let mut scratch = [0; 256];
     match CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
     {
@@ -525,7 +547,7 @@ fn push_number(to: &mut String, mut n: u64) {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, reason = "fixtures must fail the test")]
-    use super::file_path;
+    use super::{file_and_anchor, file_path};
 
     #[test]
     fn a_file_link_is_read_from_the_top_or_beside_the_book() {
@@ -535,6 +557,21 @@ mod tests {
         assert_eq!(file_path("a.md", "b.md").unwrap().as_deref(), Some("b.md"));
         for none in ["", "/", "../x.md", "/v/../x.md"] {
             assert_eq!(at(none), None, "{none}");
+        }
+    }
+
+    #[test]
+    fn a_file_link_leads_to_the_heading_its_anchor_names() {
+        assert_eq!(
+            file_and_anchor("/v/Sub/Deep.md#part-2"),
+            ("/v/Sub/Deep.md", Some("part-2"))
+        );
+        assert_eq!(file_and_anchor("/v/Other.md"), ("/v/Other.md", None));
+        // A `#` of the file's name, and an empty anchor, are no heading.
+        for whole in ["/v/a#b.md", "/v/#x/a.md", "/v/a.md#"] {
+            let (file, anchor) = file_and_anchor(whole);
+            assert_eq!(anchor, None, "{whole}");
+            assert!(whole.starts_with(file), "{whole}");
         }
     }
 }
