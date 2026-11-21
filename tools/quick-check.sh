@@ -73,8 +73,10 @@
 #    (a test of one tree read the goldens of another through CARGO_MANIFEST_DIR), so the copy keeps its path,
 #    and a file is rewritten, with the time of now, only where its content differs (rsync --checksum).
 #    A run holds its set with flock for as long as it lives; a second run at the same time takes the next set
-#    (QUICK_CHECK_SETS, 3) and waits only if all are busy. A set over QUICK_CHECK_SET_GB (30) loses its
-#    largest build directory after the run. fmt, generated and python run in the checkout itself (they need
+#    (QUICK_CHECK_SETS, 2) and waits only if all are busy. After the run the whole folder is cut to
+#    QUICK_CHECK_CACHE_GB (40): what the sets no longer use goes (the per-worktree S3 directories of the
+#    script before the sets, sets over QUICK_CHECK_SETS), then the largest build directories of the sets no
+#    run holds. fmt, generated and python run in the checkout itself (they need
 #    Git and build nothing);
 #  - rustc goes through sccache (tools/sccache-wrap.sh, as the other agents use it; RUSTC_WRAPPER of the
 #    environment wins) with incremental builds off: another set's build of the same crate is a hit. A server
@@ -282,7 +284,7 @@ take_set() { # N: 0 if set N is now held by this script
     kill "$holder" 2> /dev/null
     return 1
 }
-sets_n="${QUICK_CHECK_SETS:-3}" t_wait=$SECONDS
+sets_n="${QUICK_CHECK_SETS:-2}" t_wait=$SECONDS
 while [[ -z "$set_dir" ]]; do
     for ((n = 1; n <= sets_n; n++)); do take_set "$n" && break; done
     [[ -n "$set_dir" ]] && break
@@ -547,17 +549,30 @@ lane_tests=$!
 )
 wait "$lane_s3" "$lane_pkg" "$lane_py" "$lane_frames" "$lane_doc" "$lane_wasm" "$lane_tests"
 cd "$root" || exit 2
-# Disk: a set over its size loses its largest build directory (moved aside at once, deleted after the run),
-# and the per-worktree S3 directories of the script before the sets go when a day old.
-trim_sets() {
-    local max_kb=$((${QUICK_CHECK_SET_GB:-30} * 1024 * 1024)) total largest gone=()
-    total="$(timeout 30 du -sk "$set_dir" 2> /dev/null | cut -f1)"
-    if [[ -n "$total" ]] && ((total > max_kb)); then
-        largest="$(timeout 30 du -sk "$set_dir"/lane* "$set_dir/s3" 2> /dev/null | sort -n | tail -n 1 | cut -f2)"
-        [[ -n "$largest" ]] && mv "$largest" "$qc_home/trash.$main_pid.$(basename "$largest")" \
-            && echo "  NOTE: the build set was $((total / 1024 / 1024)) GiB (QUICK_CHECK_SET_GB ${QUICK_CHECK_SET_GB:-30}): removed $(basename "$largest")"
-    fi
-    while IFS= read -r -d '' d; do gone+=("$d"); done < <(find "$qc_home" -maxdepth 1 \( -name 'trash.*' -o -name 's3-*' -mtime +0 \) -print0)
+# Disk: the whole folder down to QUICK_CHECK_CACHE_GB. What is cut is moved aside at once (a set no run holds
+# only under its lock) and deleted in the background.
+trim_cache() {
+    local cap_kb=$((${QUICK_CHECK_CACHE_GB:-40} * 1024 * 1024)) total=0 d n kb gone=() cut=()
+    for d in "$qc_home"/s3-* "$qc_home"/set*; do
+        [[ -d "$d" ]] || continue
+        if [[ "$d" == "$qc_home"/set* ]]; then
+            n="${d##*/set}"
+            [[ "$n" =~ ^[0-9]+$ ]] && ((n <= sets_n)) && continue
+            flock -n "$d/lock" mv "$d" "$qc_home/trash.$main_pid.${d##*/}" 2> /dev/null && cut+=("${d##*/}")
+        elif [[ -z "$(find "$d" -maxdepth 0 -mmin -30)" ]]; then # not in use by a run of the script before the sets
+            mv "$d" "$qc_home/trash.$main_pid.${d##*/}" && cut+=("${d##*/}")
+        fi
+    done
+    while read -r kb d; do total=$((total + kb)); done < <(timeout 60 du -sk "$qc_home"/set* 2> /dev/null)
+    while ((total > cap_kb)) && read -r kb d; do
+        [[ "$d" == "$qc_home"/set*/@(lane*|s3) ]] || continue
+        n="${d#"$qc_home"/}"
+        if [[ "${d%/*}" == "$set_dir" ]]; then mv "$d" "$qc_home/trash.$main_pid.${n/\//-}" || continue
+        else flock -n "${d%/*}/lock" mv "$d" "$qc_home/trash.$main_pid.${n/\//-}" 2> /dev/null || continue; fi
+        total=$((total - kb)) && cut+=("$n")
+    done < <(timeout 60 du -sk "$qc_home"/set*/* 2> /dev/null | sort -rn)
+    ((${#cut[@]})) && echo "  NOTE: $qc_home cut to ${QUICK_CHECK_CACHE_GB:-40} GiB (QUICK_CHECK_CACHE_GB, now $((total / 1024 / 1024)) GiB): removed ${cut[*]}"
+    while IFS= read -r -d '' d; do gone+=("$d"); done < <(find "$qc_home" -maxdepth 1 -name 'trash.*' -print0)
     ((${#gone[@]})) && setsid rm -rf "${gone[@]}" > /dev/null 2>&1 < /dev/null &
 }
 
@@ -580,6 +595,6 @@ if [[ -n "$raised" ]]; then
     echo "        callee are no trait object; a real vtable or fn-pointer call is a finding), not just the CI count:"
     sed 's/^/        /' <<< "$raised"
 fi
-trim_sets
+trim_cache
 ((failed)) && { echo "quick-check: FAILED"; exit 1; }
 echo "quick-check: passed"
