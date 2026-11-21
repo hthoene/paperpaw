@@ -17,6 +17,9 @@ pub const PARAM_TEXT: &str = "text";
 pub const PARAM_PAGE: &str = "page";
 /// Hand-over parameter: the action a tap on the two lines runs.
 pub const PARAM_ACTION: &str = "action";
+/// Hand-over parameter: the action a tap on the second line runs instead
+/// (the reader's chapter: its contents, #448).
+pub const PARAM_TEXT_ACTION: &str = "text-action";
 /// Icons in a bar are this much larger than body text.
 pub const ICON_SCALE: f32 = 1.6;
 
@@ -40,6 +43,8 @@ pub struct Handed {
     pub page: String,
     /// [`PARAM_ACTION`].
     pub action: String,
+    /// [`PARAM_TEXT_ACTION`].
+    pub text_action: String,
 }
 
 impl Handed {
@@ -56,6 +61,7 @@ impl Handed {
             PARAM_TEXT => &mut self.text,
             PARAM_PAGE => &mut self.page,
             PARAM_ACTION => &mut self.action,
+            PARAM_TEXT_ACTION => &mut self.text_action,
             model::PARAM_DEPTH => {
                 self.depth = Some(copy(value)?);
                 return Ok(());
@@ -267,6 +273,8 @@ pub struct Layout {
     pub region: Rect,
     /// The title and the second line (no height without them).
     pub info: Rect,
+    /// The second line, within [`Layout::info`].
+    pub text: Rect,
     /// Where each entry is drawn (as wide as its icon or label).
     pub cells: Vec<Rect>,
     /// Taps count this far to the sides of a cell: halfway to the next one.
@@ -284,6 +292,8 @@ pub enum Hit {
     Entry(usize),
     /// The title and the second line.
     Info,
+    /// The second line.
+    Text,
     /// The bar, but nothing in it.
     Inside,
 }
@@ -312,7 +322,9 @@ impl Layout {
         {
             return Hit::Entry(index);
         }
-        if self.info.contains(at) {
+        if self.text.contains(at) {
+            Hit::Text
+        } else if self.info.contains(at) {
             Hit::Info
         } else {
             Hit::Inside
@@ -365,6 +377,14 @@ pub fn layout(widths: &[f32], info: bool, m: &Metrics) -> Result<Layout, Error> 
         0
     };
     let info = Rect::new(0, gap, m.width, info_height);
+    // The second line: below the title, to the bottom of the two lines.
+    let title = px(m.line).min(info_height);
+    let text = Rect::new(
+        0,
+        info.y.saturating_add(title),
+        m.width,
+        info_height.saturating_sub(title),
+    );
     let room = f32::from(m.width.saturating_sub(m.margin.saturating_mul(2)));
     let least_gap = f32::from(gap) * 2.0;
     let count = widths.len().max(1);
@@ -413,6 +433,7 @@ pub fn layout(widths: &[f32], info: bool, m: &Metrics) -> Result<Layout, Error> 
     Ok(Layout {
         region: Rect::new(0, 0, m.width, height.min(m.height)),
         info,
+        text,
         cells,
         half: px(between / 2.0),
         rtl: m.rtl,

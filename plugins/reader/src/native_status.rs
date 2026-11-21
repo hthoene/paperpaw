@@ -42,6 +42,9 @@ pub use room::Room;
 pub const ITEMS_LINES: [&str; 2] = ["core.status-line.items", "reader.status-line.items"];
 pub const PROGRESS_LINE: &str = "reader.status-line.progress";
 pub const EMPTY_LINE: &str = "reader.status-line.empty";
+/// The line of the rest of the chapter (#448): the clock, and the pages left in
+/// the chapter beside the progress.
+pub const CHAPTER_LINE: &str = "reader.status-line.chapter";
 
 /// The reader's own items.
 pub mod items {
@@ -50,7 +53,16 @@ pub mod items {
     pub const CHAPTER: &str = "reader.status.chapter";
     pub const PAGE: &str = "reader.status.page";
     pub const PROGRESS: &str = "reader.status.progress";
+    /// The pages left in the chapter, once counted.
+    pub const CHAPTER_LEFT: &str = "reader.status.chapter-left";
 }
+
+/// What [`CHAPTER_LINE`] shows in its parts.
+const CHAPTER_PARTS: [&str; 3] = [
+    "core.status.clock",
+    "",
+    "reader.status.chapter-left, reader.status.progress",
+];
 
 /// The settings (the ids the declarations give them).
 pub const SIZE: &str = "reader.status.size";
@@ -161,6 +173,8 @@ pub struct Facts<'a> {
     pub ppm: Option<u32>,
     /// The page and the pages of the book, once counted.
     pub page: Option<(u32, u32)>,
+    /// The pages left in the chapter after the page, once counted.
+    pub chapter_left: Option<u32>,
     /// Where chapters begin, in thousandths of the book.
     pub marks: &'a [u16],
 }
@@ -178,6 +192,7 @@ pub struct Texts {
     chapter: String,
     page: String,
     progress: String,
+    chapter_left: String,
 }
 
 impl Texts {
@@ -223,22 +238,30 @@ impl Texts {
                 .filter(|c| !c.is_empty())
                 .unwrap_or(facts.title),
         )?;
+        let chapter_left = match facts.chapter_left {
+            Some(left) => {
+                say.format(host, "reader.chapter-rest", &[Arg::Count(i64::from(left))])?
+            }
+            None => String::new(),
+        };
         Ok(Self {
             title: text::copy(facts.title)?,
             chapter,
             page,
             progress,
+            chapter_left,
         })
     }
 
     /// The items with their texts, as the line's layout takes them.
     #[must_use]
-    pub fn own(&self) -> [(&str, &str); 4] {
+    pub fn own(&self) -> [(&str, &str); 5] {
         [
             (items::TITLE, &self.title),
             (items::CHAPTER, &self.chapter),
             (items::PAGE, &self.page),
             (items::PROGRESS, &self.progress),
+            (items::CHAPTER_LEFT, &self.chapter_left),
         ]
     }
 }
@@ -327,6 +350,8 @@ impl Place<'_> {
 /// Which line a strip shows.
 enum Line<'l> {
     Items,
+    /// [`CHAPTER_LINE`]: a line of items the reader sets.
+    Chapter,
     Progress,
     Empty,
     /// A line of another plugin, composed whole.
@@ -338,6 +363,7 @@ fn kind(id: &str) -> Option<Line<'_>> {
         "" => None,
         id if ITEMS_LINES.contains(&id) => Some(Line::Items),
         PROGRESS_LINE => Some(Line::Progress),
+        CHAPTER_LINE => Some(Line::Chapter),
         EMPTY_LINE => Some(Line::Empty),
         other => Some(Line::Other(other)),
     }
@@ -367,9 +393,16 @@ pub fn paint(
     if strips.iter().all(Option::is_none) {
         return Ok(());
     }
-    let texts = Texts::new(host, facts)?;
     let font = Font::acquire_role(host, FontRole::Status)?;
     let drawn = shown(&font).and_then(|shown| {
+        // The pages left in the chapter are said only where a line shows
+        // them: a page turn asks the host no more than before (#448).
+        let left = (0..2).any(|at| strips[at].is_some() && shows_left(&shown.config, state, at));
+        let facts = &Facts {
+            chapter_left: facts.chapter_left.filter(|_| left),
+            ..*facts
+        };
+        let texts = Texts::new(host, facts)?;
         paint_each(
             host,
             ui,
@@ -381,6 +414,23 @@ pub fn paint(
     });
     let released = font.release();
     drawn.and(released)
+}
+
+/// Whether the line showing at place `at` (0: the top) shows the pages left
+/// in the chapter: the line of the rest of the chapter, or a line of items
+/// that lists them.
+fn shows_left(config: &Config, state: &State, at: usize) -> bool {
+    let showing = state.showing(at == 0, &config.lines[at]);
+    match kind(showing) {
+        Some(Line::Chapter) => true,
+        Some(Line::Items) => {
+            let parts = &config.parts[at];
+            [&parts.left, &parts.center, &parts.right]
+                .iter()
+                .any(|list| choice::rotation(list).any(|id| id == items::CHAPTER_LEFT))
+        }
+        _ => false,
+    }
 }
 
 /// What a paint of the lines reads from the settings: the lists of the lines
@@ -454,8 +504,19 @@ fn paint_one(
         line: kind_other(showing)?,
         ..Lists::default()
     };
+    let chapter;
     let lists = match kind(showing) {
         Some(Line::Items) => Some(parts),
+        Some(Line::Chapter) => {
+            let [left, center, right] = CHAPTER_PARTS.map(text::copy);
+            chapter = Lists {
+                left: left?,
+                center: center?,
+                right: right?,
+                line: String::new(),
+            };
+            Some(&chapter)
+        }
         Some(Line::Other(_)) => Some(&wholly),
         _ => None,
     };

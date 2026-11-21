@@ -97,7 +97,7 @@ fn the_decoded_batches_are_the_pinned_ones() {
     assert_eq!(native.keys.len(), 12);
     assert!(native.groups.is_empty() && native.widget_places.is_empty());
     assert_eq!(native.status_places.len(), 2);
-    // The reading app, and the four items and the two lines of the reader,
+    // The reading app, and the five items and the three lines of the reader,
     // declared for its lists.
     assert_eq!(
         native.others,
@@ -107,6 +107,8 @@ fn the_decoded_batches_are_the_pinned_ones() {
             "StatusItem",
             "StatusItem",
             "StatusItem",
+            "StatusItem",
+            "StatusLine",
             "StatusLine",
             "StatusLine"
         ]

@@ -16,6 +16,7 @@
 //!   file.
 use crate::{
     native_annotations::{self as model, Headings, Kind, Note},
+    native_chapter::{self, Chapter},
     native_notes,
     native_toc::Place,
     native_view::{Handover, read_handover},
@@ -27,6 +28,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
+        document::{DocId, Documents},
         files::{self, Files},
         formatting::Arg,
         library::{AnnotationCursor, AnnotationKind, BookRef, Library},
@@ -58,8 +60,9 @@ const LIBRARY_FOLDER: &str = "core.library-folder";
 pub struct AnnotationsView {
     /// The book's path.
     path: String,
-    /// Where each note leads, in the order of the rows (the export row follows).
-    places: Vec<Place>,
+    /// Where each row leads, in the order of the rows (a chapter's heading
+    /// nowhere; the export row follows).
+    places: Vec<Option<Place>>,
     list: ItemList,
     /// More notes than [`MAX_ROWS`]: the first are shown.
     more: bool,
@@ -120,7 +123,7 @@ impl AnnotationsView {
         host: &Host<'_>,
         ui: &Ui,
         library: Option<&Library>,
-        handover: Option<HandoverId>,
+        (handover, reading): (Option<HandoverId>, Reading<'_>),
     ) -> Result<Self, Error> {
         let found = match handover {
             Some(handover) => read_handover(host, ui, handover).unwrap_or_default(),
@@ -134,7 +137,8 @@ impl AnnotationsView {
         };
         let mut view = Self::none("reader.error");
         view.path = found.path;
-        match view.read(host, library) {
+        let toc = reading.and_then(|(docs, screen)| Some((docs, screen.doc_of(&view.path)?)));
+        match view.read(host, library, toc) {
             Ok(()) => Ok(view),
             Err(Error::NoMemory) => Err(Error::NoMemory),
             Err(_) => {
@@ -147,14 +151,19 @@ impl AnnotationsView {
     }
 
     /// Reads the notes into rows, again where they changed under the read.
-    fn read(&mut self, host: &Host<'_>, library: &Library) -> Result<(), Error> {
+    fn read(
+        &mut self,
+        host: &Host<'_>,
+        library: &Library,
+        toc: Option<(&Documents, DocId)>,
+    ) -> Result<(), Error> {
         let mut messages = Messages::new()?;
         let bookmark = messages.copy(host, "reader.bookmark")?;
         let highlight = messages.copy(host, "reader.highlight")?;
         let mut tries = 0;
         let mut items = loop {
             self.places.clear();
-            match self.read_pages(host, library, &mut messages, (&bookmark, &highlight)) {
+            match self.read_pages(host, (library, toc), &mut messages, (&bookmark, &highlight)) {
                 Ok(items) => break items,
                 Err(Error::State) if tries < TRIES => tries += 1,
                 Err(error) => return Err(error),
@@ -174,11 +183,12 @@ impl AnnotationsView {
     }
 
     /// One pass over the pages of notes: a row for each (at most
-    /// [`MAX_ROWS`]), the places filled in.
+    /// [`MAX_ROWS`]), under a heading of its chapter where the book's contents
+    /// (`toc`) say it (#448), the places filled in.
     fn read_pages(
         &mut self,
         host: &Host<'_>,
-        library: &Library,
+        (library, toc): (&Library, Option<(&Documents, DocId)>),
         messages: &mut Messages,
         (bookmark, highlight): (&str, &str),
     ) -> Result<Vec<Item>, Error> {
@@ -186,14 +196,23 @@ impl AnnotationsView {
         let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
         let mut items = Vec::new();
         let mut cursor = AnnotationCursor::start();
+        let (mut notes, mut chapter) = (0, None);
         self.more = false;
         loop {
             let page = library.annotations(host, book, cursor, &mut input, &mut out)?;
             for row in page.rows() {
                 let row = row?;
-                if self.places.len() >= MAX_ROWS {
+                if notes >= MAX_ROWS {
                     self.more = true;
                     break;
+                }
+                notes += 1;
+                let at = (row.start_section(), row.start_offset());
+                if let Some(heading) = chapter_heading(host, toc, &mut chapter, at)? {
+                    items.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                    self.places.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                    items.push(Item::heading(&heading)?);
+                    self.places.push(None);
                 }
                 let note = Note::new(
                     kind_of(row.kind()),
@@ -214,8 +233,7 @@ impl AnnotationsView {
                 items.try_reserve(1).map_err(|_| Error::NoMemory)?;
                 self.places.try_reserve(1).map_err(|_| Error::NoMemory)?;
                 items.push(note_row(&title, &line)?);
-                self.places
-                    .push(Place::new(row.start_section(), row.start_offset()));
+                self.places.push(Some(Place::new(at.0, at.1)));
             }
             match page.end().next() {
                 Some(next) if !self.more => cursor = next,
@@ -238,7 +256,8 @@ impl AnnotationsView {
         let step = self.list.input(host, input)?;
         let outcome = match step {
             ItemStep::Chosen(index) => match self.places.get(index) {
-                Some(place) => Outcome::Go(*place),
+                Some(Some(place)) => Outcome::Go(*place),
+                Some(None) => Outcome::Handled,
                 None => {
                     if index == self.places.len() && !self.places.is_empty() {
                         self.run_export(host, library);
@@ -601,6 +620,44 @@ impl<'a, 'p> Markdown<'a, 'p> {
         }
         Ok(())
     }
+}
+
+/// The book the reading screen has open, to group the notes by its chapters:
+/// the documents and the screen.
+pub type Reading<'a> = Option<(&'a Documents, &'a crate::native_view::View)>;
+
+/// The heading to put before the note at `at`: the title of its chapter
+/// where it is another than the one of the note before (`chapter`, kept);
+/// none without the book's contents (`toc`) or a title. The contents are asked
+/// only where the note is past the chapter kept: notes come in reading order.
+///
+/// # Errors
+/// `NoMemory`; contents the host cannot give are no heading.
+fn chapter_heading(
+    host: &Host<'_>,
+    toc: Option<(&Documents, DocId)>,
+    chapter: &mut Option<Chapter>,
+    at: (u32, u32),
+) -> Result<Option<String>, Error> {
+    let Some((docs, id)) = toc else {
+        return Ok(None);
+    };
+    if chapter.as_ref().is_some_and(|c| c.covers(at)) {
+        return Ok(None);
+    }
+    let found = match native_chapter::find(host, docs, id, at) {
+        Ok(found) => found,
+        Err(Error::NoMemory) => return Err(Error::NoMemory),
+        Err(_) => return Ok(None),
+    };
+    let before = chapter.as_ref().map(Chapter::title);
+    let heading = match found.title() {
+        "" => None,
+        title if before == Some(title) => None,
+        title => Some(text::copy(title)?),
+    };
+    *chapter = Some(found);
+    Ok(heading)
 }
 
 /// A bookmark or highlight as a row: its text shown whole, wrapped as in

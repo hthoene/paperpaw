@@ -137,6 +137,10 @@ impl Kernel {
                 self.hint.shown = hints;
                 self.invalidate(row);
             }
+        } else {
+            // No row now (a reading page hides it): the next row is drawn
+            // whole, even with the labels of the last one (#448).
+            self.hint.shown.clear();
         }
         // Areas drawn after the frame before them (`command.redraw_area`).
         // The follow-up's frame stays marked until it is drawn, also while

@@ -329,10 +329,10 @@ impl SearchView {
         };
         while self.places.len() < search.hits().len() {
             let index = self.places.len();
-            let Some(start) = search
+            let Some((start, found)) = search
                 .hits()
                 .get(index)
-                .map(|hit| ((hit.start, hit.end.offset), hit.percent))
+                .map(|hit| (((hit.start, hit.end.offset), hit.percent), hit.found))
             else {
                 break;
             };
@@ -340,7 +340,7 @@ impl SearchView {
                 break;
             };
             let value = text::format(format_args!("{} %", start.1))?;
-            let row = Item::row(&snippet, &value)?;
+            let row = Item::row_marked(&snippet, &value, found)?;
             drop(snippet);
             self.places.try_reserve(1).map_err(|_| Error::NoMemory)?;
             self.list.push(row)?;
@@ -377,7 +377,7 @@ impl SearchView {
     /// Allocation, font and drawing errors.
     pub fn draw(&mut self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
         let mut messages = Messages::new()?;
-        let title = messages.copy(host, "reader.search")?;
+        let title = self.title(host, &mut messages)?;
         let note = match (self.message, &self.search, self.failed) {
             (Some(key), ..) => return self.empty(host, frame, &title, &messages.copy(host, key)?),
             (_, _, Some(_)) => messages.copy(host, "reader.search.failed")?,
@@ -389,6 +389,45 @@ impl SearchView {
         }
         self.list
             .draw_with(host, frame, &title, true, Footer::Note(&note))
+    }
+
+    /// The header: the text looked for, quoted, and the hits found so far
+    /// (#448: after coming back from a hit one still sees what was looked
+    /// for); *Search* before there is a text.
+    fn title(&self, host: &Host<'_>, messages: &mut Messages) -> Result<String, Error> {
+        if self.query.is_empty() {
+            return messages.copy(host, "reader.search");
+        }
+        let quoted = messages.format(
+            host,
+            "reader.quoted",
+            &[Arg::Text {
+                name: "text",
+                value: &self.query,
+            }],
+        )?;
+        let found = self.places.len();
+        if found == 0 {
+            return Ok(quoted);
+        }
+        let more = self
+            .search
+            .as_ref()
+            .is_some_and(|search| matches!(search.note(), Note::MoreHits(_)));
+        let hits = if more {
+            messages.format(
+                host,
+                "reader.search.more-hits",
+                &[Arg::Int {
+                    name: "count",
+                    value: i64::try_from(MAX_HITS).unwrap_or(i64::MAX),
+                }],
+            )?
+        } else {
+            let count = i64::try_from(found).unwrap_or(i64::MAX);
+            messages.format(host, "reader.search.hits", &[Arg::Count(count)])?
+        };
+        text::concat(&[&quoted, " · ", &hits])
     }
 
     /// What a list with no hits says.

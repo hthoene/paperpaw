@@ -168,6 +168,8 @@ struct Open {
     class_asked: bool,
     /// The chapter of the page on show (its start, the next start, its title).
     chapter: Option<Chapter>,
+    /// The pages left in the chapter, as last reported, and for which place.
+    chapter_left: Option<((u32, u32), u32)>,
     /// The starts of the book's bookmarks, for the ribbon (`ribbon.rs`).
     bookmarks: Vec<(u32, u32)>,
     /// Those of other conversions, shown where the page has their text.
@@ -431,6 +433,7 @@ impl View {
             class: None,
             class_asked: false,
             chapter: None,
+            chapter_left: None,
             bookmarks: Vec::new(),
             foreign_bookmarks: Vec::new(),
             status: native_status::State::default(),
@@ -710,6 +713,7 @@ impl View {
         open.marking.jumped(Locator::new(open.at.0, open.at.1))?;
         open.marking.reset();
         open.marking.landed(Locator::new(place.0, place.1));
+        open.name_way_back(host);
         open.trail.clear();
         open.at = place;
         open.page = None;
@@ -820,6 +824,15 @@ impl View {
         match &self.body {
             Body::Open(open) => Some(open.id),
             Body::Message(_) | Body::Preparing(_) => None,
+        }
+    }
+
+    /// The open document of the book at `path`, if this screen shows it.
+    #[must_use]
+    pub fn doc_of(&self, path: &str) -> Option<DocId> {
+        match &self.body {
+            Body::Open(open) if open.path == path => Some(open.id),
+            _ => None,
         }
     }
 
@@ -961,7 +974,7 @@ impl View {
                 return Ok(Handled::Yes);
             }
             Outcome::Jump { section, offset } => {
-                open.jump((section, offset));
+                open.jump(host, (section, offset));
                 true
             }
             Outcome::Turn { forward: true } => open.forward(host, docs)?,
@@ -1178,6 +1191,7 @@ impl Open {
         if let Some(chapter) = &self.chapter {
             report = report.chapter(chapter.title());
         }
+        self.chapter_left = left.map(|left| (at, left));
         if let Some(left) = left {
             report = report.chapter_left(left);
         }
@@ -1284,7 +1298,7 @@ impl Open {
         .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
         match self.marking.follow_target(host, &ctx, href)? {
             Outcome::Jump { section, offset } => {
-                self.jump((section, offset));
+                self.jump(host, (section, offset));
                 Ok(true)
             }
             _ => Ok(false),
@@ -1303,12 +1317,26 @@ impl Open {
     }
 
     /// Goes to the page that starts at `to` (a followed link, or the way back).
-    fn jump(&mut self, to: (u32, u32)) {
+    fn jump(&mut self, host: &Host<'_>, to: (u32, u32)) {
         self.at = to;
         self.page = None;
         self.trail.clear();
         self.marking.reset();
         self.marking.landed(Locator::new(to.0, to.1));
+        self.name_way_back(host);
+    }
+
+    /// The *Back* button names the page it leads to, once the pages are
+    /// counted (#448): found as the jump is made, not at each draw.
+    fn name_way_back(&mut self, host: &Host<'_>) {
+        let page = self.marking.returns_to().and_then(|to| {
+            let counter = self.counter.as_ref()?;
+            counter.page_at(
+                &paperpaw_sdk::native::storage::DataStorage::new(host),
+                (to.section, to.offset),
+            )
+        });
+        self.marking.set_back_page(page.map(|(page, _)| page));
     }
 
     /// A forward turn by hand: the page after the one on show is laid out

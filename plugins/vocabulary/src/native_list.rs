@@ -106,6 +106,7 @@ impl<'s> WordRows<'s> {
             whole: false,
             small: false,
             plain: false,
+            bold: None,
         }))
     }
 
@@ -167,6 +168,7 @@ impl<'s> WordRows<'s> {
                 whole: false,
                 small: false,
                 plain: false,
+                bold: None,
             });
         }
         Ok(rows)

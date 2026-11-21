@@ -450,9 +450,12 @@ impl Overlay {
             messages.copy(host, "help.no-more")?,
         ];
         let labels = [buttons[0].as_str(), buttons[1].as_str()];
-        // A hint's box the dialog covers (the largest text leaves no room beside
-        // it) is not drawn: its text goes into the dialog, which says it.
+        // A hint's box the dialog covers goes to a part of its zone the dialog
+        // leaves free; where there is none (the largest text leaves no room
+        // beside it) it is not drawn: its text goes into the dialog, which says it.
         let mut moved: Vec<usize> = Vec::new();
+        let mut lifted: Vec<usize> = Vec::new();
+        let mut placed: Option<u16> = None;
         let dialog = loop {
             let mut texts: Vec<&str> = Vec::new();
             for line in &self.lines {
@@ -464,13 +467,27 @@ impl Overlay {
                 texts.push(&zones[at].text);
             }
             let mut dialog = Dialog::new(&font, &style, (width, height), &title, &texts, &labels)?;
-            let top = layout::dialog_top(&zones, dialog.panel(), height, style.margin);
+            // Placed anew only as it grows: the texts moved out of its way
+            // stay clear of it.
+            let top = match placed {
+                Some(top) => top,
+                None => layout::dialog_top(&zones, dialog.panel(), height, style.margin),
+            };
+            placed = Some(top);
             dialog.place(top)?;
             match layout::covered_by(&zones, dialog.panel()) {
+                Some(at)
+                    if !lifted.contains(&at)
+                        && layout::lift(&mut zones[at], dialog.panel(), style.gap) =>
+                {
+                    lifted.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                    lifted.push(at);
+                }
                 Some(at) => {
                     moved.try_reserve(1).map_err(|_| Error::NoMemory)?;
                     moved.push(at);
                     zones[at].label = Rect::new(0, 0, 0, 0);
+                    placed = None;
                 }
                 None => break dialog,
             }

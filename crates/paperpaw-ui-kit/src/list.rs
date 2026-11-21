@@ -372,29 +372,69 @@ pub fn columns(
     value: &str,
     ink: Color,
 ) -> Result<(), Error> {
+    laid_columns(paint, font, style, rect, (title, None), value, ink)
+}
+
+/// [`columns`] with the bytes `bold` of the title drawn bold where the title
+/// shows them (the word found in a search hit's snippet).
+pub(crate) fn marked_columns(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    (title, bold): (&str, (u16, u16)),
+    value: &str,
+    ink: Color,
+) -> Result<(), Error> {
+    laid_columns(paint, font, style, rect, (title, Some(bold)), value, ink)
+}
+
+fn laid_columns(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    (title, bold): (&str, Option<(u16, u16)>),
+    value: &str,
+    ink: Color,
+) -> Result<(), Error> {
     let margin = f32::from(style.margin);
     let room = (f32::from(rect.width) - 2.0 * margin).max(0.0);
     let room = (room - margin).max(0.0);
-    let title_width = font.measure_text(style.text, title)?.min(room * 0.6);
+    // A bold run is a few pixels wider: the title keeps room for them.
+    let extra = bold.map_or(0.0, |_| paint::bold_extra(style.text) as f32);
+    let title_width = (font.measure_text(style.text, title)? + extra).min(room * 0.6);
     let value = text::fit(font, style.text, value, room - title_width + 1.0)?;
     let value_width = font.measure_text(style.text, &value)?;
     let title_room = (room - value_width).max(0.0);
-    let title = text::fit(font, style.text, title, title_room + 1.0)?;
+    let shown = text::fit(font, style.text, title, title_room - extra + 1.0)?;
     let title_area = Rect::new(rect.x, rect.y, (margin + title_room) as u16, rect.height);
     // Laid out left to right, mirrored in the row where the interface runs
     // right to left: the title at the right and the value at the left.
-    text::label_in(
-        paint,
-        font,
-        style.rtl,
-        rect,
-        &title,
-        style.text,
-        f32::from(rect.x) + margin,
-        title_area,
-        ink,
-        Some(rect),
-    )?;
+    let x = f32::from(rect.x) + margin;
+    match bold.and_then(|bold| text::shown_span(title, &shown, bold)) {
+        Some(span) => text::marked_label_in(
+            paint,
+            font,
+            (style.rtl, rect),
+            (&shown, span),
+            style.text,
+            (x, title_area),
+            ink,
+        )?,
+        None => text::label_in(
+            paint,
+            font,
+            style.rtl,
+            rect,
+            &shown,
+            style.text,
+            x,
+            title_area,
+            ink,
+            Some(rect),
+        )?,
+    }
     text::label_in(
         paint,
         font,
