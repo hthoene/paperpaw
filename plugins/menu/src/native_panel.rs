@@ -20,6 +20,8 @@ use paperpaw_ui_kit::{
 pub const PER_ROW: usize = 3;
 /// Most options shown as segments; more open a list.
 pub const MAX_SEGMENTS: usize = 4;
+/// Least height of a button on a touch screen (a list row is 61 px).
+pub const TOUCH_BUTTON: u16 = 60;
 /// Percent of the screen the panel may cover at the bottom.
 pub const SHARE_BOTTOM: u32 = 80;
 /// Percent of it the quick panel may cover, hanging from the top: below it,

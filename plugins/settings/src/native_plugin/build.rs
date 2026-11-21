@@ -220,7 +220,9 @@ impl GroupView {
                 let entry = entries.get(*at).ok_or(Error::State)?;
                 let editing = editing.filter(|e| e.0 == index).map(|e| e.1);
                 let value = value_text(messages, host, entry, editing)?;
-                let mut item = Item::noted(&entry.setting.title, &value, &entry.detail.help)?;
+                // A long value goes to a line of its own, as in Beta 3.
+                let mut item = Item::noted(&entry.setting.title, &value, &entry.detail.help)?
+                    .with_wrapped_value();
                 // A switch is drawn as one, with its state told as the item's.
                 if let (Kind::Bool, Some(Val::Bool(on)), Item::Row(row)) =
                     (entry.setting.kind, &entry.setting.value, &mut item)

@@ -85,6 +85,9 @@ pub struct RowItem {
     /// Text the page reads out, not a row to choose: passed by the focus and
     /// not chosen by a tap, but in the full ink, not faint like `disabled`.
     pub plain: bool,
+    /// A value too long for the line of its title is wrapped to a line of
+    /// its own under it, at the right (as in Beta 3), not cut with "…".
+    pub wrap_value: bool,
 }
 
 /// Room above the rows of the first page that the owner fills with something it
@@ -143,7 +146,18 @@ impl Item {
             whole: false,
             small: false,
             plain: false,
+            wrap_value: false,
         }))
+    }
+
+    /// This item with a value too long for its title's line wrapped under it,
+    /// not cut.
+    #[must_use]
+    pub fn with_wrapped_value(mut self) -> Self {
+        if let Self::Row(row) = &mut self {
+            row.wrap_value = true;
+        }
+        self
     }
 
     /// This item with the icon named `name` at the start of its row; as it was
@@ -1069,12 +1083,37 @@ fn title_lines(
             most,
         )?;
     }
+    // The value on a line of its own takes one more.
+    let below = if value_below(font, style, width, row)? {
+        crate::geometry::line_px(font, style.text)?
+    } else {
+        0
+    };
     if lines.len() < 2 {
-        return Ok((Vec::new(), style.row));
+        return Ok((Vec::new(), style.row.saturating_add(below)));
     }
     let line = crate::geometry::line_px(font, style.text)?;
     let block = line.saturating_mul(lines.len() as u16);
-    Ok((lines, style.row.max(block.saturating_add(style.gap))))
+    let band = style.row.max(block.saturating_add(style.gap));
+    Ok((lines, band.saturating_add(below)))
+}
+
+/// Whether the value of a row that asks for it is too long for the line of
+/// its title, and goes to a line of its own.
+fn value_below(font: &Font<'_>, style: &Style, width: u16, row: &RowItem) -> Result<bool, Error> {
+    if !row.wrap_value || row.stepper || row.on.is_some() || row.value.is_empty() {
+        return Ok(false);
+    }
+    let lead = if row.icon.is_some() {
+        icon_room(style)
+    } else if row.zone.is_some() {
+        zone_room(style)
+    } else {
+        0
+    };
+    let room = (f32::from(width.saturating_sub(lead)) - 3.0 * f32::from(style.margin)).max(1.0);
+    let title = font.measure_text(style.text, &row.title)?.min(room * 0.6);
+    Ok(font.measure_text(style.text, &row.value)? > room - title)
 }
 
 /// Whether a row is text a page reads out (or small print), not a row to choose.
@@ -1305,6 +1344,7 @@ fn draw_title(
     row: &RowItem,
     lines: &[String],
     ink: paperpaw_sdk::Color,
+    value: &str,
 ) -> Result<(), Error> {
     // Text a page reads out takes the room of both margins, no more.
     let alone = row.whole && page_text(row) && row.value.is_empty();
@@ -1328,7 +1368,7 @@ fn draw_title(
         }
     };
     if lines.is_empty() {
-        return line_of(paint, cols, &row.title, shown_value(row));
+        return line_of(paint, cols, &row.title, value);
     }
     let line = crate::geometry::line_px(font, style.text)?;
     let block = line.saturating_mul(lines.len() as u16);
@@ -1336,7 +1376,7 @@ fn draw_title(
     for (index, text) in lines.iter().enumerate() {
         let at = top.saturating_add(line.saturating_mul(index as u16));
         let rect = Rect::new(cols.x, at, cols.width, line);
-        let value = if index == 0 { shown_value(row) } else { "" };
+        let value = if index == 0 { value } else { "" };
         line_of(paint, rect, text, value)?;
     }
     Ok(())
