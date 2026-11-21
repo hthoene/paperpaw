@@ -172,10 +172,9 @@ fn the_settings_open_from_the_menu_and_the_quick_panel() {
     boox.pointer(PointerPhase::Up, x, top + i32::from(height) / 2, later(16));
     boox.advance(later(2_000));
     shows(&boox, "menu.");
-    // Settings is the last tile. The quick panel has one row less than with
-    // the interface-6 Power plugin (its Power mode row; the native one has no
-    // entry until the central wiring lists it, #228), so the tile is higher.
-    tap(&mut boox, at(734, 453));
+    // Settings is the last tile (x 887..973, y 545..581 of 1264x1680): the
+    // panel lists the native Power plugin's Power mode row again, as Beta 3's.
+    tap(&mut boox, at(736, 335));
     shows(&boox, "settings.");
 }
 
