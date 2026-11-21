@@ -344,6 +344,40 @@ impl Loader {
     }
 }
 
+/// The loader of a start that runs no code of the card (an update on trial,
+/// safe mode): the kernel asks it for no plugin, and it wires the host
+/// services the linked plugins are admitted against, as [`Loader`] does. No
+/// image is placed, so the room for code plugins is left as the last start
+/// with them kept it.
+pub struct LinkedOnly(Loader);
+
+impl LinkedOnly {
+    pub fn new(loader: Loader) -> Self {
+        Self(loader)
+    }
+
+    /// The device's table of handles, for the linked plugins.
+    #[cfg(feature = "native-on")]
+    pub fn device_table(&self) -> DeviceTable {
+        self.0.device_table()
+    }
+}
+
+impl CodeLoader for LinkedOnly {
+    #[cfg(feature = "ppn5")]
+    fn prepare(&mut self, storage: &alloc::rc::Rc<dyn Storage>) {
+        self.0.prepare(storage);
+    }
+
+    #[cfg(feature = "ppn5")]
+    fn hyphenation_sink(
+        &mut self,
+        storage: &alloc::rc::Rc<dyn Storage>,
+    ) -> Option<paperpaw_core::native_host::HyphenTables> {
+        self.0.hyphenation_sink(storage)
+    }
+}
+
 /// The device-wide table of handles the plugins' owners share, with `core.ui`
 /// wired at once (before the first plugin loads, so that a host call made while
 /// one loads or declares finds it). `None` (and a warning) where the table or

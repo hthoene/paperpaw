@@ -43,9 +43,6 @@ struct BuilderParts {
     /// A shell without a code loader that serves `text.hyphenate`
     /// ([`KernelBuilder::hyphenation_sink`]).
     hyphenation: Option<crate::hyphen_feed::MakeSink>,
-    /// What the firmware takes, told once an update on trial is kept
-    /// ([`KernelBuilder::native_after_trial`]).
-    after_trial: Option<Native>,
     safe_mode: Option<paperpaw_sdk::native::SafeMode>,
     /// Plugins the shell put into folders, to install before plugins load.
     staged: Vec<(Id, String)>,
@@ -394,6 +391,7 @@ impl KernelBuilder {
             native,
             loader,
             safe_mode: None,
+            on_trial: false,
         });
         self
     }
@@ -432,9 +430,17 @@ impl KernelBuilder {
     /// that the store asks for the builds that fit) only once
     /// [`Kernel::trial_kept`] says the update is kept (#164). Until then
     /// code plugins are not offered nor installed, as without
-    /// [`KernelBuilder::code_plugins`].
-    pub fn native_after_trial(mut self, native: Native) -> Self {
-        self.0.after_trial = Some(native);
+    /// [`KernelBuilder::code_plugins`]. The plugins built into the program
+    /// are part of the firmware and run on its trial: `loader` is asked for
+    /// no plugin, only to wire what they are admitted against
+    /// ([`CodeLoader::prepare`], [`CodeLoader::hyphenation_sink`]).
+    pub fn native_after_trial(mut self, native: Native, loader: Box<dyn CodeLoader>) -> Self {
+        self.0.code = Some(crate::code_plugin::CodePlugins {
+            native,
+            loader,
+            safe_mode: None,
+            on_trial: true,
+        });
         self
     }
 
@@ -698,6 +704,7 @@ impl BuilderParts {
         // without code plugins.
         if let Some(code) = &self.code
             && self.safe_mode.is_none()
+            && !code.on_trial
         {
             let storage = kernel.shared.storage.clone();
             // What the loader itself reads, as the shell's restart check has it.
@@ -1160,7 +1167,6 @@ impl Kernel {
             code: None,
             built_in_ids: None,
             hyphenation: None,
-            after_trial: None,
             safe_mode: None,
             staged: Vec::new(),
             button_row: &[],
