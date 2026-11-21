@@ -670,7 +670,7 @@ const CASES: &[Case] = &[
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
         // The grays of the page under it follow once calm (3 s).
-        script: "run:core.quick-panel,wait:300,down:300:318,move:330:320,move:360:322,wait:100,wait:31000",
+        script: "run:core.quick-panel,wait:300,down:300:352,move:330:354,move:360:356,wait:100,wait:31000",
         colour: 0,
         fixtures: false,
     },
@@ -679,7 +679,7 @@ const CASES: &[Case] = &[
         profile: "boox-go-7",
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
-        script: "run:core.quick-panel,wait:300,down:1000:435,move:950:437,move:800:439,up:800:439,wait:300",
+        script: "run:core.quick-panel,wait:300,down:1000:480,move:950:482,move:800:484,up:800:484,wait:300",
         colour: 0,
         fixtures: false,
     },

@@ -104,7 +104,8 @@ struct Laid {
     wide: bool,
     /// What it was laid out for, checked when it is shown again.
     kept: Kept,
-    /// How wide and high the corner of an item is that a finger sizes it by.
+    /// How wide and high the corner of an item is that a finger sizes it by:
+    /// a fingertip at least.
     handle: u16,
     /// The status line above the grid (`home.status-bar`), made and placed.
     status: Option<(Made, Rect)>,
@@ -451,7 +452,7 @@ impl Dashboard {
             slot,
             wide,
             kept: Kept::of(host, &self.listing, display, &shown),
-            handle: (metrics.row / 2).max(16),
+            handle: metrics.row.max(44),
             status,
             ring_room: look.first().map_or(0, |look| ring_room(&look.style)),
             look: RefCell::new(look),

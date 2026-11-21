@@ -190,6 +190,29 @@ fn after_label(inner: Rect, g: &Geometry) -> Rect {
     )
 }
 
+/// The `−` and the `+` at the two ends of `rest`.
+fn step_buttons(rest: Rect) -> (Rect, Rect) {
+    let side = rest.height.min(rest.width / 3);
+    let minus = Rect::new(rest.x, rest.y, side, rest.height);
+    let plus = Rect::new(
+        rest.x.saturating_add(rest.width.saturating_sub(side)),
+        rest.y,
+        side,
+        rest.height,
+    );
+    (minus, plus)
+}
+
+/// How many rows of the panel a line takes: a slider's track has a row of
+/// its own.
+fn rows_of(line: &Line) -> u16 {
+    if matches!(line, Line::Slider(_)) {
+        2
+    } else {
+        1
+    }
+}
+
 /// The width of the labels: as wide as the longest needs, at most half the
 /// row. Numbers and choices carry labels; switches do not. Labels are set in
 /// the text font: `text` measures with it (buttons and segments are measured
@@ -378,35 +401,21 @@ pub fn place(line: &Line, area: Rect, g: &Geometry) -> Result<Placed, Error> {
             label = Some(*row);
             controls.try_reserve_exact(2).map_err(|_| Error::NoMemory)?;
             // [−] value [+] after the label; the value is drawn between.
-            let side = rest.height.min(rest.width / 3);
-            let minus = Rect::new(rest.x, rest.y, side, rest.height);
-            let plus = Rect::new(
-                rest.x.saturating_add(rest.width.saturating_sub(side)),
-                rest.y,
-                side,
-                rest.height,
-            );
+            let (minus, plus) = step_buttons(rest);
             controls.push((Control::Step(*row, -1), minus));
             controls.push((Control::Step(*row, 1), plus));
         }
         Line::Slider(row) => {
             label = Some(*row);
             controls.try_reserve_exact(2).map_err(|_| Error::NoMemory)?;
-            // [−] track value [+]: the value has the room of a button.
-            let side = rest.height.min(rest.width / 5);
-            let minus = Rect::new(rest.x, rest.y, side, rest.height);
-            let plus = Rect::new(
-                rest.x.saturating_add(rest.width.saturating_sub(side)),
-                rest.y,
-                side,
-                rest.height,
-            );
-            let from = minus.x.saturating_add(minus.width).saturating_add(g.gap);
-            let to = plus.x.saturating_sub(side).saturating_sub(g.gap);
-            let width = to.saturating_sub(from);
+            // Two rows: the label with `−` value `+` above, and below them
+            // the track across the whole width, as a finger needs it.
+            let head = Rect::new(area.x, area.y, area.width, g.row);
+            let (minus, plus) = step_buttons(after_label(inset(head, g), g));
             controls.push((Control::Step(*row, -1), minus));
             controls.push((Control::Step(*row, 1), plus));
-            track = Some(Rect::new(from, rest.y, width, rest.height));
+            let low = Rect::new(area.x, area.y.saturating_add(g.row), area.width, g.row);
+            track = Some(inset(low, g));
         }
         Line::Segments(row, count) => {
             label = Some(*row);
@@ -448,12 +457,28 @@ pub fn layout(lines: &[Line], g: &Geometry) -> Result<Layout, Error> {
     let room = (u32::from(g.height) * share / 100) as u16;
     let room = room.saturating_sub(g.border.saturating_add(2 * gap));
     // Too many rows: pages, with a bar to turn them.
-    let paged = lines.len() as u32 * u32::from(g.row) > u32::from(room);
+    let total: u32 = lines.iter().map(|l| u32::from(rows_of(l))).sum();
+    let paged = total * u32::from(g.row) > u32::from(room);
     let bar = if paged { g.pager } else { 0 };
     let room = room.saturating_sub(bar);
-    // Each row's page and where on it, rows filling a page in turn.
-    let per_page = usize::from((room / g.row.max(1)).max(1));
-    let tallest = lines.len().min(per_page) as u16 * g.row;
+    // Each line's page and the row it starts at, lines filling a page in turn.
+    let per_page = (room / g.row.max(1)).max(1);
+    let mut places = Vec::new();
+    places
+        .try_reserve_exact(lines.len())
+        .map_err(|_| Error::NoMemory)?;
+    let (mut page, mut used, mut tallest) = (0, 0u16, 0u16);
+    for line in lines {
+        let rows = rows_of(line);
+        if used > 0 && used.saturating_add(rows) > per_page {
+            page += 1;
+            used = 0;
+        }
+        places.push((page, used, rows));
+        used = used.saturating_add(rows);
+        tallest = tallest.max(used);
+    }
+    let tallest = tallest.saturating_mul(g.row);
     let height = g
         .border
         .saturating_add(2 * gap)
@@ -473,17 +498,18 @@ pub fn layout(lines: &[Line], g: &Geometry) -> Result<Layout, Error> {
     } else {
         region.y.saturating_add(g.border)
     };
-    let mut rows = Vec::new();
-    rows.try_reserve_exact(lines.len())
+    let mut rows_out = Vec::new();
+    rows_out
+        .try_reserve_exact(lines.len())
         .map_err(|_| Error::NoMemory)?;
-    for (index, line) in lines.iter().enumerate() {
-        let (page, at) = (index / per_page, (index % per_page) as u16);
+    for (line, (page, at, rows)) in lines.iter().zip(places) {
         let y = inner_top
             .saturating_add(gap)
             .saturating_add(at.saturating_mul(g.row));
-        let mut row = place(line, Rect::new(0, y, g.width, g.row), g)?;
+        let area = Rect::new(0, y, g.width, rows.saturating_mul(g.row));
+        let mut row = place(line, area, g)?;
         row.page = page;
-        rows.push(row);
+        rows_out.push(row);
     }
     let pager = paged.then(|| {
         let bottom = if g.top { g.border } else { 0 };
@@ -495,7 +521,7 @@ pub fn layout(lines: &[Line], g: &Geometry) -> Result<Layout, Error> {
         Rect::new(0, y, g.width, bar)
     });
     Ok(Layout {
-        rows,
+        rows: rows_out,
         region,
         pager,
     })
