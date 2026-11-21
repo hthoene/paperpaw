@@ -7,6 +7,7 @@ use paperpaw_sdk::native::snapshot::capture_snapshot;
 use paperpaw_sdk::native::{
     Error, Host,
     library::{Existing, Import, Library},
+    settings::{self, SettingValue},
 };
 use paperpaw_sdk::web::try_clean_name;
 use paperpaw_ui_kit::{
@@ -24,6 +25,8 @@ use crate::native_plugin::DataVolume;
 
 /// The folder of the news, below the library's.
 pub const FOLDER: &str = "News";
+/// The setting that names the library's folder on the card.
+const LIBRARY_FOLDER: &str = "core.library-folder";
 /// The longest name made of a feed's name.
 const NAME_MAX: usize = 60;
 
@@ -63,28 +66,75 @@ pub fn book_file(feed: &Feed) -> Result<String, Error> {
     ))
 }
 
-impl HostShelf<'_, '_> {
-    fn import(&mut self, page: &str, file: &str) -> Result<String, Error> {
+/// The library calls a page's import makes, so that the choice of its name
+/// is tested without a host.
+pub(crate) trait Shelving {
+    /// Imports `page` as `file` in [`FOLDER`]; the book's path.
+    fn import(&mut self, page: &str, file: &str, existing: Existing) -> Result<String, Error>;
+    /// Deletes the book `file` in [`FOLDER`] with what is kept for it, unless
+    /// the reader marked something in it.
+    fn delete(&mut self, file: &str) -> Result<(), Error>;
+}
+
+/// Puts `page` in as the book `file`, replacing the book of the last fetch.
+///
+/// A book at that name the library does not know as this plugin's import is
+/// either Beta 3's (it wrote `News/<name> (<mark>).html` itself, so the
+/// library has no importer for it, #459) or one moved there: it is the page
+/// of an earlier fetch, so it is deleted and the page takes its name. Where
+/// it stays (the reader marked something in it), the new one takes a free
+/// name beside it.
+///
+/// # Errors
+/// The library's refusals.
+pub(crate) fn place(shelf: &mut impl Shelving, page: &str, file: &str) -> Result<String, Error> {
+    match shelf.import(page, file, Existing::Replace) {
+        Err(Error::Denied) => {}
+        placed => return placed,
+    }
+    if shelf.delete(file).is_ok() {
+        match shelf.import(page, file, Existing::Replace) {
+            Err(Error::Denied) => {}
+            placed => return placed,
+        }
+    }
+    shelf.import(page, file, Existing::FreeName)
+}
+
+impl Shelving for HostShelf<'_, '_> {
+    fn import(&mut self, page: &str, file: &str, existing: Existing) -> Result<String, Error> {
         let host = self.host;
+        let library = self.opened(host)?;
+        let (mut input, mut out) = (buffer(2048)?, buffer(4096)?);
+        let import = Import::new(page, file).folder(FOLDER).existing(existing);
+        text::copy(library.import(host, &import, &mut input, &mut out)?)
+    }
+
+    fn delete(&mut self, file: &str) -> Result<(), Error> {
+        let host = self.host;
+        // The book's path on the card: below the library's folder.
+        let mut scratch = [0; 256];
+        let path = match settings::read_setting(host, LIBRARY_FOLDER, &mut scratch)? {
+            SettingValue::Text(folder) if !folder.trim_matches('/').is_empty() => {
+                text::format(format_args!("{}/{FOLDER}/{file}", folder.trim_matches('/')))?
+            }
+            _ => text::format(format_args!("{FOLDER}/{file}"))?,
+        };
+        let path = path.as_str();
+        let library = self.opened(host)?;
+        let (mut input, mut out) = (buffer(4096)?, buffer(4096)?);
+        let report = library.delete(host, &[path], false, &mut input, &mut out)?;
+        report.rows().next().ok_or(Error::Invalid)?.status()
+    }
+}
+
+impl HostShelf<'_, '_> {
+    /// The library, opened when first needed.
+    fn opened(&mut self, host: &Host<'_>) -> Result<&Library, Error> {
         if self.library.is_none() {
             *self.library = Some(Library::open(host)?);
         }
-        let library = self.library.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(2048)?, buffer(4096)?);
-        // The book of the last fetch is replaced; one that is not the plugin's
-        // any more (moved, or a file of the reader's own at that name) stays,
-        // and the new one takes a free name.
-        let mut existing = Existing::Replace;
-        loop {
-            let import = Import::new(page, file).folder(FOLDER).existing(existing);
-            match library.import(host, &import, &mut input, &mut out) {
-                Ok(path) => return text::copy(path),
-                Err(Error::Denied) if existing == Existing::Replace => {
-                    existing = Existing::FreeName;
-                }
-                Err(error) => return Err(error),
-            }
-        }
+        self.library.as_ref().ok_or(Error::State)
     }
 
     /// Keeps the path of the book and the headlines of the feed. A card that
@@ -135,7 +185,96 @@ impl Shelf for HostShelf<'_, '_> {
         converted: &Converted,
     ) -> Result<(), Failure> {
         let file = book_file(feed)?;
-        let path = self.import(page, &file)?;
+        let path = place(self, page, &file)?;
         self.keep(feed, &path, converted)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Existing, Shelving, place};
+    use alloc::string::{String, ToString};
+    use alloc::vec::Vec;
+    use paperpaw_sdk::native::Error;
+
+    /// A library with one book at the name, imported by Beta 3 (no
+    /// importer), or marked by the reader (it cannot be deleted).
+    struct Library {
+        importer_known: bool,
+        marked: bool,
+        calls: Vec<String>,
+    }
+
+    impl Shelving for Library {
+        fn import(&mut self, _: &str, file: &str, existing: Existing) -> Result<String, Error> {
+            self.calls.push(alloc::format!("import {existing:?}"));
+            match existing {
+                Existing::Replace if !self.importer_known => Err(Error::Denied),
+                Existing::FreeName => Ok(alloc::format!(
+                    "News/{} (2).html",
+                    file.trim_end_matches(".html")
+                )),
+                _ => Ok(alloc::format!("News/{file}")),
+            }
+        }
+        fn delete(&mut self, file: &str) -> Result<(), Error> {
+            self.calls.push(alloc::format!("delete {file}"));
+            if self.marked {
+                return Err(Error::State);
+            }
+            // Gone: the name is free, the next import takes it.
+            self.importer_known = true;
+            Ok(())
+        }
+    }
+
+    fn library(importer_known: bool, marked: bool) -> Library {
+        Library {
+            importer_known,
+            marked,
+            calls: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_book_of_the_last_fetch_is_replaced() {
+        let mut ours = library(true, false);
+        assert_eq!(
+            place(&mut ours, "page", "Feed (3fa9c2).html").unwrap(),
+            "News/Feed (3fa9c2).html"
+        );
+        assert_eq!(ours.calls, ["import Replace"]);
+    }
+
+    #[test]
+    fn beta_3s_book_of_a_feed_is_replaced_not_doubled() {
+        // #459: Beta 3 wrote the book itself; the first fetch made a second
+        // "(2)" book beside it for every feed.
+        let mut beta3 = library(false, false);
+        assert_eq!(
+            place(&mut beta3, "page", "Feed (3fa9c2).html").unwrap(),
+            "News/Feed (3fa9c2).html"
+        );
+        assert_eq!(
+            beta3.calls,
+            [
+                "import Replace",
+                "delete Feed (3fa9c2).html",
+                "import Replace"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_book_the_reader_marked_stays_and_the_page_takes_a_free_name() {
+        let mut marked = library(false, true);
+        assert_eq!(
+            place(&mut marked, "page", "Feed (3fa9c2).html").unwrap(),
+            "News/Feed (3fa9c2) (2).html"
+        );
+        assert_eq!(
+            marked.calls.last().map(ToString::to_string).as_deref(),
+            Some("import FreeName")
+        );
     }
 }

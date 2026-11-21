@@ -83,8 +83,10 @@ made the frame 2,368 bytes, over the packer's limit of 2,048).
   *Fetch the news* (next slice).
 - Slice 5 (`src/native_shelf.rs`, `src/native_books.rs`, `src/native_screen.rs`): the shelf is the
   library (`Library::import`, SDK #668): the page goes in as `Name (mark).html` in the folder `News` with
-  *replace*; a book that is not the plugin's any more (moved, or a file of the reader's own at that name)
-  stays and the new one takes a free name. The library says where the book went, and the plugin keeps
+  *replace*; a book at that name the library does not know as the plugin's (Beta 3's book of the feed,
+  or one moved there) is deleted, unless the reader marked something in it, and the page takes its name;
+  where it stays, the new one takes a free name (#459: before, every feed got a second book "(2)" after
+  the update from Beta 3). The library says where the book went, and the plugin keeps
   that path next to the feed's mark in `books.txt` (`mark<TAB>path`, at most 300) and the newest headlines
   in `headlines.txt` (as interface 6). The list of feeds is the screen `news.list` (one at a time):
   *Fetch the news*, the feeds, *Add a feed*, and what feeds are when there is none; a tap opens the
@@ -96,8 +98,8 @@ made the frame 2,368 bytes, over the packer's limit of 2,048).
   by the path the library gave (`books.txt`), not by looking for a file name: a book the reader moved is
   opened where it is kept only while `books.txt` knows it, else the feed is fetched again; the books of
   version 1 (by name alone) are not retired. After an update from Beta 3 `books.txt` is empty, so a tap
-  fetches the feed once, and the library may refuse to replace the book interface 6 made (it was not
-  imported by this plugin): the new one then takes a free name beside it (not measured on a real card).
+  fetches the feed once, and the book interface 6 made is replaced as above (not measured on a real
+  card).
 - Not measured: the heap peak of the screen on the X4 with many feeds, the time of `books.txt` and
   `headlines.txt` reads on each opened feed, the library import of a 64 KiB page.
 - The headlines widget (`src/native_widgets.rs`, `declarations::widgets`): the group `news.widget.headlines`

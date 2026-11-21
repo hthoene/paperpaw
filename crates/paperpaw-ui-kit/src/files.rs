@@ -55,6 +55,12 @@ impl Volume for OnHost<'_, '_> {
     }
 }
 
+/// The host's storage calls on `root` as a [`Volume`], for code written
+/// over any volume (and tested on one in memory).
+pub fn volume<'a, 'h>(host: &'a Host<'h>, root: Root) -> impl Volume + use<'a, 'h> {
+    OnHost { host, root }
+}
+
 /// A file of at most `max` bytes: `None` where there is none.
 ///
 /// # Errors
