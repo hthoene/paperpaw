@@ -257,6 +257,54 @@ pub fn zone_offset(host: &Host<'_>, unix: i64) -> Result<i32, Error> {
     }
 }
 
+/// The time zone local days are counted in, read once: the zone chosen in
+/// the settings, else the system's offset of one snapshot (0 while the device
+/// knows no time). For turning many moments into local days without asking
+/// the host for each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalZone {
+    chosen: Option<TimeZone>,
+    /// The system's offset in seconds, where no zone is chosen.
+    system: i32,
+}
+
+impl LocalZone {
+    /// The zone as the settings and `snapshot` say it now.
+    ///
+    /// # Errors
+    /// The host's refusal.
+    pub fn read(host: &Host<'_>, snapshot: &Snapshot) -> Result<Self, Error> {
+        Ok(Self {
+            chosen: chosen_zone(host)?,
+            system: system_offset(snapshot),
+        })
+    }
+
+    /// A zone always `offset` seconds ahead of UTC.
+    #[must_use]
+    pub const fn fixed(offset: i32) -> Self {
+        Self {
+            chosen: None,
+            system: offset,
+        }
+    }
+
+    /// The seconds the zone is ahead of UTC at `unix`.
+    #[must_use]
+    pub fn offset_at(&self, unix: i64) -> i32 {
+        self.chosen.map_or(self.system, |zone| zone.offset_at(unix))
+    }
+
+    /// The local day of `unix`, in days since 1970-01-01.
+    #[must_use]
+    pub fn day_of(&self, unix: i64) -> i32 {
+        let day = unix
+            .saturating_add(i64::from(self.offset_at(unix)))
+            .div_euclid(86_400);
+        i32::try_from(day).unwrap_or(if day < 0 { i32::MIN } else { i32::MAX })
+    }
+}
+
 /// The local date and time of `snapshot`, in the chosen zone (else the
 /// system's), if the device knows the time.
 ///
@@ -278,13 +326,11 @@ fn offset_or_system(host: &Host<'_>, unix: i64, snapshot: &Snapshot) -> Result<i
     ))
 }
 
-/// The seconds the zone chosen in the settings (a POSIX rule, else one from
-/// the list) is ahead of UTC at `unix`; `None` where none is chosen
-/// ("automatic", empty or unknown), as Beta 3 then used the system's zone.
-fn chosen_offset(host: &Host<'_>, unix: i64) -> Result<Option<i32>, Error> {
-    let rule = text_of(host, ZONE_RULE, |rule| {
-        TimeZone::parse(rule.trim()).map(|zone| zone.offset_at(unix))
-    })?;
+/// The zone chosen in the settings (a POSIX rule, else one from the list);
+/// `None` where none is chosen ("automatic", empty or unknown), as Beta 3
+/// then used the system's zone.
+fn chosen_zone(host: &Host<'_>) -> Result<Option<TimeZone>, Error> {
+    let rule = text_of(host, ZONE_RULE, |rule| TimeZone::parse(rule.trim()))?;
     if rule.is_some() {
         return Ok(rule);
     }
@@ -293,8 +339,13 @@ fn chosen_offset(host: &Host<'_>, unix: i64) -> Result<Option<i32>, Error> {
             .iter()
             .find(|(name, _)| *name == id)
             .and_then(|(_, rule)| TimeZone::parse(rule))
-            .map(|zone| zone.offset_at(unix))
     })
+}
+
+/// The seconds the zone chosen in the settings is ahead of UTC at `unix`;
+/// `None` where none is chosen.
+fn chosen_offset(host: &Host<'_>, unix: i64) -> Result<Option<i32>, Error> {
+    Ok(chosen_zone(host)?.map(|zone| zone.offset_at(unix)))
 }
 
 /// The system's offset in `snapshot`, in seconds; 0 where it gives none.
@@ -363,7 +414,8 @@ fn for_display<S>(kept: Option<((u16, u16), S)>, display: (u16, u16)) -> Option<
 
 #[cfg(test)]
 mod tests {
-    use super::{chosen_or_system, for_display};
+    use super::{LocalZone, chosen_or_system, for_display};
+    use paperpaw_sdk::time::TimeZone;
 
     #[test]
     fn a_kept_look_is_for_the_display_it_was_made_for() {
@@ -390,5 +442,30 @@ mod tests {
         assert_eq!(chosen_or_system(Some(3_600), Some(120)), 3_600);
         assert_eq!(chosen_or_system(Some(0), Some(120)), 0);
         assert_eq!(chosen_or_system(None, None), 0);
+    }
+
+    #[test]
+    fn a_local_day_starts_at_local_midnight() {
+        // 2025-10-14 23:30 UTC is already the 15th one hour east, and still
+        // the 14th one hour west.
+        let unix = 1_760_484_600;
+        assert_eq!(LocalZone::fixed(0).day_of(unix), 20_375);
+        assert_eq!(LocalZone::fixed(3_600).day_of(unix), 20_376);
+        assert_eq!(LocalZone::fixed(-3_600).day_of(unix), 20_375);
+        // Before 1970 the day counts down, not towards 0.
+        assert_eq!(LocalZone::fixed(0).day_of(-1), -1);
+    }
+
+    #[test]
+    fn a_chosen_zone_follows_its_summer_time() {
+        let zone = LocalZone {
+            chosen: TimeZone::parse("CET-1CEST,M3.5.0,M10.5.0/3"),
+            system: 0,
+        };
+        // Past 22:00 UTC: midnight has passed in summer (+2), not in winter (+1).
+        assert_eq!(zone.offset_at(1_751_408_200), 7_200);
+        assert_eq!(zone.day_of(1_751_408_200), 20_271);
+        assert_eq!(zone.offset_at(1_736_548_200), 3_600);
+        assert_eq!(zone.day_of(1_736_548_200), 20_098);
     }
 }

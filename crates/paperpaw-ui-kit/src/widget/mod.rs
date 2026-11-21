@@ -12,6 +12,6 @@ pub mod settings;
 pub mod shape;
 pub mod text;
 
-pub use cx::{Cx, Kept};
+pub use cx::{Cx, Kept, LocalZone};
 pub use look::{Align, Frame, Look, Padding, Shadow, Shape, TextSize};
 pub use settings::{Key, Settings};

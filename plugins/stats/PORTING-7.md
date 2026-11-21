@@ -72,9 +72,9 @@ The X4 file (`stats`) packs at 486,328 B (format 5, interface 7.1, version 1.0.8
   `Messages`) and shown by the shell in an `ItemList` (kit). Tests in `screens_tests.rs`
   cover both languages, local days, ordering and refusals of the heap.
 - Local days come from a `day_of: impl Fn(u32) -> i32` the caller gives (as `store::days`
-  takes it), so summer time and the zone plug in. Reading the zone the user chose
-  (`core.time-zone`, `core.time-zone-rule`) is the shell's and not built yet. The system
-  zone is not in the snapshot (draft 25 adds `utc_offset_minutes`, per Port A).
+  takes it), so summer time and the zone plug in. The shell gives `day_in(zone)` with the kit's
+  `LocalZone` (the zone chosen in `core.time-zone-rule` / `core.time-zone`, else the snapshot's
+  `utc_offset_minutes`), read once per screen, widget or event (#459).
 - A book's last open (Unix seconds, `i64`) is cut to a `u32` for its day, as in interface 6;
   a time past 2106 wraps.
 - **For the shell:** the host's `Messages::format` with `Arg::Count` must choose the same
@@ -134,15 +134,12 @@ The X4 file (`stats`) packs at 486,328 B (format 5, interface 7.1, version 1.0.8
   the document service is not in the SDK yet): authors and language are *N/A* as for a book KOReader
   knows no file of; a book without a title is named by its file. Books KOReader already knows
   keep their names (`merge` takes names from the other side).
-- Days are UTC days until the system time zone comes with the snapshot (draft 25); interface 6 used
-  the device's zone. The seconds read are unaffected; a stay near local midnight may fall on the
-  neighbouring day until then.
-- `core.read-today` is a stage the asker pulls (above), not an event. Its day is the **UTC day**
-  until draft 25 brings the system time zone, so near local midnight it can differ from the
-  user's calendar day by up to the zone's offset: the stage may answer yesterday's (or
-  tomorrow's) day for a few hours. **reading-goal must tolerate that mismatch**: it compares the
-  day in the reply with its own day and shows no figure (or zero) for a day that is not its today,
-  never a neighbouring day's seconds as today's.
+- Days are local days, as in interface 6 (#459: until then they were UTC days, and a stay near local
+  midnight fell on the neighbouring day).
+- `core.read-today` is a stage the asker pulls (above), not an event. Its day is the local day,
+  the same one reading-goal counts (#459). reading-goal still compares the day in the reply with
+  its own and shows no figure for a day that is not its today (the zone may change between the
+  two).
 - `make` submits the icon and the stage; the host refuses them (`ERR_UNSUPPORTED`) until it admits
   them (`tests/declarations.rs` pins that these are the only declarations that wait). The stage is
   the only one the plugin tolerates being refused; the rest of `make` fails as for every plugin
@@ -165,7 +162,7 @@ The X4 file (`stats`) packs at 486,328 B (format 5, interface 7.1, version 1.0.8
   below them the last 10 days read as bars, when there is room for 2 rows (`native_chart.rs`:
   the layout is plain numbers and tested, the painter measures with the font). The bar chart is
   shared with the overview. A book that is not in `books.ini` shows `stats.no-books`.
-- Days are UTC days until draft 25 (as in the recorder). Dates and plural forms come from the
+- Days are local days (as in the recorder). Dates and plural forms come from the
   catalog through `Messages` (the host's `Arg::Count` must pick the catalog's plural form; checked
   for the rows in `screens_tests.rs` with the catalog's own `plural()`).
 - Sweeps refuse each allocation of both builders (`native_screens/tests.rs`). Pixel goldens of
@@ -230,7 +227,7 @@ The X4 file (`stats`) packs at 486,328 B (format 5, interface 7.1, version 1.0.8
   date and time); the month's name is one line (smaller, then shortened), never two; the streak note
   is drawn at the right end of the header where there is room (the kit's header has no note);
   the focus ring of the chosen day is a drawn frame, not a semantic focus; no pixel goldens (see
-  slice 2); days are UTC days until draft 25.
+  slice 2); days are local days.
 
 ## Ported: the widgets, first part (*Read today*, *Reading per day*, the daily goal) and the ring
 
@@ -255,8 +252,7 @@ The X4 file (`stats`) packs at 486,328 B (format 5, interface 7.1, version 1.0.8
   event `setting_changed` is subscribed for it.
 - `native/metadata*.json` name the service `core.registry` (the kit's widget settings ask the registry
   whether the reader chose a value for the widget).
-- **Differences from interface 6, on purpose:** the days are UTC days until the system time zone comes with
-  the snapshot (draft 25), as in the rest of the plugin; the shades are solid grays (the canvas has no
+- **Differences from interface 6, on purpose:** the shades are solid grays (the canvas has no
   dithered fill: the snapshot does not say how many grays the panel has, so a panel with few grays shows
   a gray where interface 6 dithered it); rounded ends are the kit's `Paint::Focus` rounded rectangles;
   the wrapped notes and captions are the kit's (`Wrapped`, `layout::caption`). The widgets read all the
@@ -387,8 +383,7 @@ The X4 file (`stats`) packs at 486,328 B (format 5, interface 7.1, version 1.0.8
   that changed, not at each draw. The cache is not unit-tested (it needs the host's `Cx`). A book marked read in the
   library, with no reading recorded, changes neither file: it counts when the day or a file changes (interface 6 had the
   same stamp).
-- **Differences from interface 6, on purpose:** the year and the day of the year are UTC (as everywhere in this port until
-  draft 25); the height reserves the line of the last book where its part is shown, even in a year with no book finished
+- **Differences from interface 6, on purpose:** the height reserves the line of the last book where its part is shown, even in a year with no book finished
   (the height cannot wait for the books: it is asked without the cache; interface 6 had no such line then); ring and bar are
   the kit's rounded rectangles and the ring a run of short segments (as for *Daily goal*, which supplies `arc`, `disc` and
   `point_at`); two books finished at the same moment: the smaller id is the last (interface 6: the first of the id-sorted
