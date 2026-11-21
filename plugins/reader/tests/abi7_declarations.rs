@@ -73,8 +73,8 @@ fn the_decoded_batches_are_the_pinned_ones() {
     assert_eq!(native.screens.len(), 6);
     // The instance policy, decoded: one for each set of parameters (flags 0),
     // the note and the skim bar overlays (bit 2): the page shows above them.
-    // The reading page has its button-hint row hidden (bit 8, 256) and no
-    // status bar of the host (bits 11-12 = 2, 4096).
+    // The reading page has its button-hint row only on a press (bits 13-14 =
+    // 2, 16384) and no status bar of the host (bits 11-12 = 2, 4096).
     let flags: Vec<u32> = batches(|d| declarations::screens(d).unwrap())
         .iter()
         .flat_map(|batch| {
@@ -88,7 +88,7 @@ fn the_decoded_batches_are_the_pinned_ones() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    assert_eq!(flags, [256 | 4096, 0, 0, 4, 4, 0]);
+    assert_eq!(flags, [16384 | 4096, 0, 0, 4, 4, 0]);
     assert_eq!(native.slots.len(), 6);
     assert_eq!(native.actions.len(), 35);
     assert_eq!(native.menu_entries.len(), 34);
@@ -366,22 +366,25 @@ fn the_sample_widget_previews_the_reading_settings() {
     pinned_lines("sample-widget", &widgets);
 }
 
-/// Interface 6 showed the row of button hints of the reading screen only on a
-/// press (`HintVisibility::OnPress`), and Beta 3's page of the book never had
-/// the row. A native screen can declare its row hidden (bit 8): the reading
-/// page does (`hints_hidden`), the other screens of the reader show it as on
-/// any screen.
+/// Beta 3 showed the row of button hints of the reading page only for a few
+/// seconds after a press (`HintVisibility::OnPress`). The reading page declares
+/// so (`hints`, bits 13-14 = 2) and hides no row (bit 8); the other screens of
+/// the reader show it as on any screen.
 #[test]
-fn only_the_reading_page_hides_its_row_of_hints() {
-    let mut hidden = Vec::new();
+fn only_the_reading_page_shows_its_row_of_hints_on_a_press() {
+    let (mut on_press, mut hidden) = (Vec::new(), Vec::new());
     for batch in batches(|d| declarations::screens(d).unwrap()) {
         for record in records_decode(&batch).unwrap().iter() {
-            if let Record::ScreenSpec(s) = record
-                && s.flags & 256 != 0
-            {
-                hidden.push(s.name.to_string());
+            if let Record::ScreenSpec(s) = record {
+                if (s.flags >> 13) & 3 == 2 {
+                    on_press.push(s.name.to_string());
+                }
+                if s.flags & 256 != 0 {
+                    hidden.push(s.name.to_string());
+                }
             }
         }
     }
-    assert_eq!(hidden, ["screen"]);
+    assert_eq!(on_press, ["screen"]);
+    assert!(hidden.is_empty(), "{hidden:?}");
 }

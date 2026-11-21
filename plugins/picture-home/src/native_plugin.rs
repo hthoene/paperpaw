@@ -162,6 +162,7 @@ impl Plugin for NativePictureHome {
                     // draw finds the page ready and asks the card for nothing.
                     dashboard.ensure(host, ui)?;
                     dashboard.sync_hint(host);
+                    dashboard.sync_hint_row(host, instance);
                     // Without the picture the page is
                     // plain, and nothing else fails for it.
                     dashboard.want_picture(host, &mut self.cookie).ok();

@@ -65,6 +65,38 @@ impl Plan {
 }
 
 impl Dashboard {
+    /// Tells the host when its row of button hints shows with the page, as the
+    /// setting *Buttons row* says (always, after a press, never; Beta 3's
+    /// `set_screen_hints`), where that changed since it was told. For a
+    /// callback that may send commands; a refusal leaves the row as it was.
+    pub fn sync_hint_row(&mut self, host: &Host<'_>, instance: Instance) {
+        use paperpaw_sdk::native::declare::HintRow;
+        use paperpaw_sdk::native::settings::{self, SettingValue};
+        let mut scratch = [0; 64];
+        let wanted = match settings::read_setting(host, crate::native_source::HINTS, &mut scratch) {
+            Ok(SettingValue::Text(value)) => Visible::of(value),
+            // Not set: its default, always.
+            Ok(_) => Visible::On,
+            Err(_) => return,
+        };
+        if self.hint_row.unwrap_or(Visible::On) == wanted {
+            return;
+        }
+        let hints = match wanted {
+            Visible::Off => HintRow::Hidden,
+            Visible::Auto => HintRow::OnPress,
+            Visible::On => HintRow::Shown,
+        };
+        let policy = paperpaw_sdk::native::ui::ScreenPolicy::new().hints(hints);
+        let mut scratch = [0; 64];
+        if CommandSender::new(host, &mut scratch)
+            .screen_policy(Some(instance), policy)
+            .is_ok()
+        {
+            self.hint_row = Some(wanted);
+        }
+    }
+
     /// Whether the bar is drawn now.
     pub(super) fn bar_shown(&self, plan: &Plan) -> bool {
         match plan.visible {

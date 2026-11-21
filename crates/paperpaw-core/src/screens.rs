@@ -59,8 +59,10 @@ pub(crate) const POLICY_EDGES: u32 = 1 << 5;
 pub(crate) const POLICY_GRAYS: u32 = crate::native_host::declarations::SCREEN_GRAYS;
 /// `status_bar` (11-12): 0 keeps what the screen declared.
 pub(crate) const POLICY_STATUS_BAR: u32 = crate::native_host::declarations::SCREEN_STATUS_BAR;
+/// `hints` (13-14): 0 keeps what the screen declared.
+pub(crate) const POLICY_HINTS: u32 = crate::native_host::declarations::SCREEN_HINTS;
 pub(crate) const POLICY_BITS: u32 =
-    POLICY_GUARDS | POLICY_SECRET | POLICY_EDGES | POLICY_GRAYS | POLICY_STATUS_BAR;
+    POLICY_GUARDS | POLICY_SECRET | POLICY_EDGES | POLICY_GRAYS | POLICY_STATUS_BAR | POLICY_HINTS;
 
 impl ActiveScreen {
     /// Whether it guards the device: what a native plugin set at run time,
@@ -97,6 +99,15 @@ impl ActiveScreen {
             0 => self.screen.status_bar(),
             set => set,
         }
+    }
+
+    /// When it shows the row of hints: what a native plugin set at run time
+    /// where it set it (`hints` 0 there keeps the declared), else the
+    /// screen's own answer.
+    pub(crate) fn hints(&self) -> Option<HintVisibility> {
+        self.policy
+            .and_then(crate::native_host::declarations::hint_visibility)
+            .or_else(|| self.screen.hints())
     }
 
     /// Whether it holds the edge swipes.
