@@ -307,3 +307,21 @@ fn codes_stored_by_interface_6_still_open() {
     let kept = native::kept_value("pin", "v2.0123456789abcdef", "1234").unwrap();
     assert_eq!(kept, RANDOM);
 }
+
+#[test]
+fn a_code_that_cannot_be_kept_is_said_and_the_kinds_are_offered_again() {
+    use crate::native_flow::{Effect, Effects, Flow, Step};
+    // #459: on the X4 with Wi-Fi off the secrets refuse; the PIN was typed
+    // twice, then nothing happened. What was to follow the keeping goes.
+    let mut flow = Flow::new(false, None, false);
+    let mut fx = Effects::default();
+    flow.choose_kind("pin", &mut fx);
+    assert_eq!(flow.step(), Step::New);
+    fx.push(Effect::SetKind("lock.kind.pin"));
+    fx.push(Effect::Notify("lock.done"));
+    fx.push(Effect::Back);
+    flow.not_kept(&mut fx);
+    assert_eq!(flow.step(), Step::Choose);
+    let effects: Vec<&Effect> = fx.iter().collect();
+    assert_eq!(effects, [&Effect::Notify("lock.not-kept"), &Effect::Redraw]);
+}

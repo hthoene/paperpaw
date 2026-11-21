@@ -1349,6 +1349,9 @@ impl NativeSettings {
             Ok(keys)
         })();
         let keys = reader.finish(found)?;
+        if !model::reset_fits(&keys) {
+            return Self::notify(host, "settings.reset-too-many");
+        }
         let mut scratch = buffer(512)?;
         let mut commands = CommandSender::new(host, &mut scratch);
         for key in &keys {

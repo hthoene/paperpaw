@@ -197,8 +197,10 @@ same screen waits (`settings-covered-by-foreign-screen`).
   interface-6 chooser showed, are not used by the native plugin (the native chooser shows the preset
   titles only). **Difference from interface 6:** those texts are not shown; restore them in the
   native chooser or drop the keys at activation.
-- A reset of all (`reset_plan`) submits one command per key in a single callback; the host caps the
-  commands of a callback at 8 (open ruling #422), so the caller must split the plan then.
+- A reset (`reset_plan`) submits one command per key in a single callback; the host takes at most 64
+  commands and 4,096 bytes of keys a callback (`docs/abi/commands.md`). A plan over that is not staged
+  (it would be refused whole): the page says `settings.reset-too-many` and the reader resets page by
+  page (#459; interface 6 had no such cap).
 - While the removal is held, a build without `native-linked` has no Settings page: merge right after
   native activation.
 

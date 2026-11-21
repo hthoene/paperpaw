@@ -409,7 +409,7 @@ const READING_OPTIONS: &[Opt] = &[
     Opt::Part("bar", "widgets.books.part.bar", true),
     Opt::Part("left", "widgets.books.part.left", true),
     Opt::Part("chapter", "widgets.books.part.chapter", true),
-    // Shown again when the reading position carries the chapter's end (Kernel).
+    // Where the reading position carries the chapter's end (#459).
     Opt::Part("chapter-left", "widgets.books.part.chapter-left", true),
 ];
 
