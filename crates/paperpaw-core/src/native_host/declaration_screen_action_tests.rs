@@ -78,7 +78,7 @@ fn committed_raw_construction_refuses_duplicates_and_store_refuses_invalid_flags
         }
     }
     // An unknown bit, and `status_bar` 3 (bits 11-12, #123).
-    for flags in [1 << 13, 3 << 11] {
+    for flags in [1 << 15, 3 << 11] {
         let source = source(&[Record::ScreenSpec(ScreenSpec {
             name: "panel",
             title: "Panel",
@@ -130,6 +130,35 @@ fn a_screen_may_be_declared_with_its_hints_hidden() {
         let mut allocations = Allocations::default();
         assert!(
             pending(&source, false, &mut allocations).is_ok(),
+            "{flags:#x}"
+        );
+    }
+}
+
+#[test]
+fn a_screen_may_declare_when_its_hints_show_but_not_against_bit_8() {
+    // Bits 13-14 `hints` (draft 38): 1 always, 2 on a press, 3 never, beside
+    // the other policy bits.
+    let declared = |flags| {
+        let source = source(&[Record::ScreenSpec(ScreenSpec {
+            name: "page",
+            title: "Page",
+            token: 1,
+            flags,
+        })]);
+        pending(&source, false, &mut Allocations::default()).map(|_| ())
+    };
+    for flags in [1 << 13, 2 << 13, 3 << 13, (2 << 13) | (2 << 11) | (1 << 5)] {
+        assert!(declared(flags).is_ok(), "{flags:#x}");
+    }
+    // Bit 8 `hints_hidden` beside 3 says the same, beside 1 or 2 the opposite.
+    assert!(declared((3 << 13) | (1 << 8)).is_ok());
+    for flags in [(1 << 13) | (1 << 8), (2 << 13) | (1 << 8)] {
+        assert!(
+            matches!(
+                declared(flags),
+                Err(paperpaw_native::host_glue::ERR_INVALID)
+            ),
             "{flags:#x}"
         );
     }

@@ -465,7 +465,11 @@ impl NativeKeys {
             Some("") => KeyBinding::None,
             Some(id) => KeyBinding::Action(id),
         };
-        commands.bind_key(layer, &input, binding)?;
+        // The host kept the binding as it was: the reader is told.
+        if commands.bind_key(layer, &input, binding).is_err() {
+            let text = messages.copy(host, "keys.not-saved")?;
+            return commands.notify(Notify::new(&text)?);
+        }
         commands.back()
     }
 
@@ -545,14 +549,22 @@ impl NativeKeys {
         let mut scratch = buffer(SERVICE_BUFFER)?;
         let mut commands = CommandSender::new(host, &mut scratch);
         let key = match &changes {
-            Ok(_) => "keys.reset.done",
+            // Every change is tried; one the host keeps is told of at the end.
+            Ok((_, changes)) => {
+                let mut kept = false;
+                for (layer, input) in changes {
+                    kept |= commands
+                        .bind_key(layer, input, KeyBinding::Default)
+                        .is_err();
+                }
+                if kept {
+                    "keys.reset.partly"
+                } else {
+                    "keys.reset.done"
+                }
+            }
             Err(_) => "keys.reset.unreadable",
         };
-        if let Ok((_, changes)) = &changes {
-            for (layer, input) in changes {
-                commands.bind_key(layer, input, KeyBinding::Default)?;
-            }
-        }
         let text = messages.copy(host, key)?;
         commands.notify(Notify::new(&text)?)?;
         commands.queue_redraw(RedrawMode::Partial)

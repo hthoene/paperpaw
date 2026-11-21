@@ -2457,8 +2457,9 @@ version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-plugin-about"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
+ "miniz_oxide",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]
@@ -2490,7 +2491,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2590,7 +2591,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.17"
+version = "1.0.18"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2622,7 +2623,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-news"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2703,7 +2704,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

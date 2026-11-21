@@ -35,6 +35,8 @@ pub(crate) use ui::Redraw;
 mod items;
 #[path = "commands_redraw.rs"]
 mod redraw;
+#[path = "commands_registry.rs"]
+mod registry;
 pub(crate) use items::ItemAdmit;
 #[cfg_attr(
     not(test),
@@ -508,7 +510,9 @@ impl<'a> CommandStage<'a> {
             self.validate_setting(key, value, bytes)?;
         }
         self.validate_speech_room(batch)?;
-        self.validate_plugin_requests(batch)
+        self.validate_plugin_requests(batch)?;
+        self.validate_menu_cycles(batch)?;
+        self.validate_menu_input(batch)
     }
 
     /// A batch refused whole, whatever else it holds, the stage as it was.
@@ -987,3 +991,7 @@ mod tests {
 #[cfg(test)]
 #[path = "commands_enable_tests.rs"]
 mod enable_tests;
+
+#[cfg(test)]
+#[path = "commands_registry_tests.rs"]
+mod registry_tests;

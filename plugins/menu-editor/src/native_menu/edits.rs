@@ -16,19 +16,19 @@ impl MenuGraph {
     /// Append an entry without making a submenu cycle or losing access.
     ///
     /// # Errors
-    /// Returns Invalid for a duplicate, Denied for a cycle, or the host error.
+    /// Returns Invalid for a duplicate, Locked for a cycle, or the host error.
     pub fn add(
         &self,
         commands: &mut CommandSender<'_, '_>,
         menu: &str,
         entry: &str,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Refused> {
         let mut entries = self.entry_refs(menu, 1)?;
         if entries.contains(&entry) {
-            return Err(Error::Invalid);
+            return Err(Error::Invalid.into());
         }
         if self.makes_circle(menu, entry)? {
-            return Err(Error::Denied);
+            return Err(Refused::Locked);
         }
         entries.push(entry);
         self.replace(commands, menu, &entries)
@@ -37,17 +37,17 @@ impl MenuGraph {
     /// Remove one row; the returned focus remains beside it.
     ///
     /// # Errors
-    /// Returns Invalid for a stale index, Denied for loss of access,
+    /// Returns Invalid for a stale index, Locked for loss of access,
     /// or an allocation, encoding or host error. No local state is changed.
     pub fn remove(
         &self,
         commands: &mut CommandSender<'_, '_>,
         menu: &str,
         index: usize,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, Refused> {
         let mut entries = self.entry_refs(menu, 0)?;
         if index >= entries.len() {
-            return Err(Error::Invalid);
+            return Err(Error::Invalid.into());
         }
         entries.remove(index);
         self.replace(commands, menu, &entries)?;
@@ -57,14 +57,15 @@ impl MenuGraph {
     /// Move a dragged row, preserving the order of every other entry.
     ///
     /// # Errors
-    /// Returns Invalid for stale indices or an allocation, encoding or host error.
+    /// Returns Invalid for stale indices, Locked for loss of access, or an
+    /// allocation, encoding or host error.
     pub fn move_entry(
         &self,
         commands: &mut CommandSender<'_, '_>,
         menu: &str,
         from: usize,
         to: usize,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Refused> {
         let mut entries = self.entry_refs(menu, 0)?;
         reorder(&mut entries, from, to)?;
         self.replace(commands, menu, &entries)

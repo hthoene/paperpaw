@@ -1092,6 +1092,9 @@ jobs:
         # plugins/wikipedia/src/stages.rs from the copy of about.lines@1.def (a test holds
         # the copy to the owner's file); no --plugin: the stage is About's.
         run: python3 tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs --check
+      - name: Weather's about.lines codec is its copy of the owner's schema
+        # #459: the Open-Meteo line in About, as wikipedia's above.
+        run: python3 tools/stage-codec.py plugins/weather/stages/subscribed plugins/weather/src/stages.rs --check
       - name: Joplin's copy of the reader's export stage codec is the schema's
         run: python3 tools/stage-codec.py plugins/joplin/stages plugins/joplin/src/stages.rs --check
       - name: The plugin store's rules are the site's

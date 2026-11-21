@@ -1,5 +1,6 @@
-//! What a book held in the list offers: open, finished, information, the
-//! archive and delete (asked about first), as a choice the host shows.
+//! What a book held in the list offers: open, finished, a favourite,
+//! information, the archive and delete (asked about first), as a choice the
+//! host shows.
 use super::*;
 use crate::{
     native_list::Row as ListRow,
@@ -37,7 +38,7 @@ impl NativeFiles {
         let reference = BookRef::catalog(book.key, view.window.generation)?;
         let library = self.library.as_ref().ok_or(Error::State)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let (path, finished, title, format) =
+        let (path, finished, favourite, title, format) =
             match library.book(host, reference, &mut input, &mut out) {
                 Ok(book) => {
                     let (title, cut) = native_shelves::short(book.title(), MOST_TITLE);
@@ -49,6 +50,7 @@ impl NativeFiles {
                     (
                         copy(book.path())?,
                         book.finished(),
+                        book.favourite(),
                         title,
                         copy(book.format())?,
                     )
@@ -70,6 +72,7 @@ impl NativeFiles {
         let readers = self.readers_for(host, &format)?.len() > 1;
         let actions = native_sheet::actions(Facts {
             finished,
+            favourite,
             can_archive: native_sheet::can_archive(&archive, &path),
             can_delete,
             readers,
@@ -100,6 +103,8 @@ impl NativeFiles {
             Action::Info => self.open_info(host, path),
             Action::Finish => self.finish(host, path, true),
             Action::Unfinish => self.finish(host, path, false),
+            Action::Favourite => self.favour(host, path, true),
+            Action::Unfavourite => self.favour(host, path, false),
             Action::Archive => self.archive(host, path),
             Action::Delete => self.ask_delete(host, path),
         }
@@ -111,6 +116,27 @@ impl NativeFiles {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         match library.set_finished(host, BookRef::path(path)?, finished, &mut input, &mut out) {
             Ok(()) => {}
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            // The book is gone or the library refuses: the list shows how it is.
+            Err(_) => {}
+        }
+        self.reread(host)
+    }
+
+    /// Puts the book at `path` among the favourites or takes it out, and
+    /// says so; the list is read again (a list of the favourites changes).
+    fn favour(&mut self, host: &Host<'_>, path: &str, favourite: bool) -> Result<(), Error> {
+        let library = self.library.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        match library.set_favourite(host, BookRef::path(path)?, favourite, &mut input, &mut out) {
+            Ok(()) => self.notify(
+                host,
+                if favourite {
+                    "files.favourite-added"
+                } else {
+                    "files.favourite-removed"
+                },
+            )?,
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             // The book is gone or the library refuses: the list shows how it is.
             Err(_) => {}
@@ -175,17 +201,19 @@ impl NativeFiles {
         result
     }
 
-    /// Asks whether to delete the book at `path`; the answer starts on the
-    /// safe side.
+    /// Asks whether to delete the book at `path`, as the menu at the bottom
+    /// every choice is (the book's name, the question, then the answers):
+    /// *Keep it* first, so the focus starts on the safe side, *Delete* second
+    /// (`DELETE`).
     fn ask_delete(&mut self, host: &Host<'_>, path: &str) -> Result<(), Error> {
         let mut say = Messages::new()?;
-        let title = say.copy(host, "files.delete.question")?;
-        let labels = paperpaw_ui_kit::text::concat(&[
-            &say.copy(host, "files.delete.yes")?,
-            "\n",
+        let text = say.copy(host, "files.delete.question")?;
+        let choices = paperpaw_ui_kit::text::concat(&[
             &say.copy(host, "files.delete.keep")?,
+            "\n",
+            &say.copy(host, "files.delete.yes")?,
         ])?;
-        let question = Question::confirm(&title, "")?.confirm_labels(&labels)?;
+        let question = Question::choice(native_sheet::file_name(path), &text, &choices)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let request = self
             .ui

@@ -626,7 +626,7 @@ unknown values read as 1.
 | 16, 17 | card error, card full | `ERR_IO`, `ERR_NO_SPACE` |
 | 18 | content changed since checked or asked | `ERR_STATE` |
 | 19 | not on this device | `ERR_UNSUPPORTED` |
-| 20 | the host stopped it (shutdown, card swap) | `ERR_CANCELLED` |
+| 20 | the host stopped it (shutdown, card swap; a firmware install on a battery below 20 % not charging) | `ERR_CANCELLED` |
 | 21 | an installed firmware waits for its restart | `ERR_STATE` |
 
 ## 6. Sizes and memory

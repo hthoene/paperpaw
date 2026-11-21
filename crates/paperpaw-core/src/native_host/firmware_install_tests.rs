@@ -384,6 +384,25 @@ fn a_firmware_request_while_an_image_waits_ends_with_reason_21() {
 }
 
 #[test]
+fn no_install_begins_on_a_battery_near_empty_and_a_check_still_runs() {
+    // Beta 3's guard (#454): below 20 % and not charging the host stops an
+    // install before the device is touched, with reason 20.
+    let mut fw = fake();
+    let mut machine = FirmwareInstall::new();
+    machine.set_battery_low(true);
+    let outcome = machine.start(install(OWNER, 1, 0), &mut fw).unwrap();
+    assert_eq!((outcome.request, outcome.reason), (1, 20));
+    assert!(fw.log.is_empty(), "{:?}", fw.log);
+    // A file check writes nothing: it runs.
+    machine.reserve_check(OWNER).unwrap();
+    assert_eq!(machine.start(check_job(OWNER, 2), &mut fw), None);
+    assert!(matches!(run(&mut machine, &mut fw), Event::Ended(o) if o.reason == 0));
+    // Charged (or plugged in), the install runs as ever.
+    machine.set_battery_low(false);
+    assert_eq!(installed(&mut machine, &mut fw, OWNER).reason, 0);
+}
+
+#[test]
 fn flag_bits_other_than_0_and_1_are_invalid() {
     assert_eq!(
         Job::install(OWNER, 1, "u.ppu", None, 4).err(),

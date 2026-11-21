@@ -202,7 +202,7 @@ fn a_feature_the_host_does_not_advertise_is_unsupported() {
 }
 
 #[test]
-fn install_and_bluetooth_commands_stay_unsupported() {
+fn install_commands_stay_unsupported_without_the_install_host() {
     let kernel = kernel();
     let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
@@ -217,8 +217,6 @@ fn install_and_bluetooth_commands_stay_unsupported() {
         ERR_UNSUPPORTED
     );
     assert_eq!(dev_len(&stage), 0);
-    let scan = WireCommand::BtScan { lasting_ms: 1 };
-    assert_eq!(submit(&mut stage, &[scan]), ERR_UNSUPPORTED);
 }
 
 #[test]

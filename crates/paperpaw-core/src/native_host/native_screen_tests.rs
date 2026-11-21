@@ -535,6 +535,20 @@ fn a_screen_declared_hints_hidden_says_so_and_another_leaves_it_to_its_plugin() 
 }
 
 #[test]
+fn a_screen_declared_hints_on_press_has_the_row_only_after_a_press() {
+    use paperpaw_sdk::HintVisibility::{Hidden, OnPress, Shown};
+    for (flags, hints) in [
+        ((2 << 13) | (2 << 11), OnPress),
+        (1 << 13, Shown),
+        (3 << 13, Hidden),
+        ((3 << 13) | (1 << 8), Hidden),
+    ] {
+        let (screen, _) = screen();
+        assert_eq!(screen.with_flags(flags).hints(), Some(hints), "{flags:#x}");
+    }
+}
+
+#[test]
 fn a_screen_declared_to_dim_what_is_below_says_so_and_another_does_not() {
     let (screen, _) = screen();
     assert!(!screen.dims_below());

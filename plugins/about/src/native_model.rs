@@ -57,6 +57,8 @@ pub(crate) struct Texts {
     pub licences_help: String,
     /// The heading above the lines other plugins added.
     pub credits: String,
+    /// What PaperPaw is and how it is licensed, before the licences.
+    pub intro: String,
 }
 
 /// The rows, in the order the page has always had.
@@ -111,6 +113,28 @@ pub(crate) fn rows(texts: &Texts, facts: &Facts) -> Result<Vec<(Kind, Item)>, Er
         }
     }
     Ok(rows)
+}
+
+/// The start of the licences' page, before the licences themselves (as
+/// Beta 3 wrote it): PaperPaw and its version, the introduction, the source
+/// and the lines other plugins added, a paragraph each.
+pub(crate) fn licences_start(texts: &Texts, facts: &Facts) -> Result<String, Error> {
+    let mut text = concat(&[
+        "# PaperPaw ",
+        &texts.version,
+        "\n\n",
+        &texts.intro,
+        "\n\n",
+        crate::SOURCE,
+        "\n\n",
+    ])?;
+    for (_, line) in &facts.lines {
+        text.try_reserve(line.len() + 2)
+            .map_err(|_| Error::NoMemory)?;
+        text.push_str(line);
+        text.push_str("\n\n");
+    }
+    Ok(text)
 }
 
 /// "12 ›": how many plugins are built in, and that the row opens them.
@@ -171,11 +195,24 @@ mod tests {
             licences: "Licences".to_string(),
             licences_help: "help".to_string(),
             credits: "Credits".to_string(),
+            intro: "A free e-reader.".to_string(),
         }
     }
 
     fn kinds(rows: &[(Kind, Item)]) -> Vec<Kind> {
         rows.iter().map(|(kind, _)| *kind).collect()
+    }
+
+    #[test]
+    fn the_licences_page_starts_with_paperpaw_and_the_lines_of_others() {
+        let facts = Facts {
+            lines: [("weather".to_string(), "Data: CC BY 4.0".to_string())].into(),
+            ..Facts::default()
+        };
+        assert_eq!(
+            licences_start(&texts(), &facts).unwrap(),
+            "# PaperPaw 0.6.0\n\nA free e-reader.\n\nhttps://github.com/hthoene/paperpaw\n\nData: CC BY 4.0\n\n"
+        );
     }
 
     #[test]

@@ -1990,8 +1990,9 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-about"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
+ "miniz_oxide 0.9.1",
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
@@ -2082,7 +2083,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-calibre"
-version = "1.0.12"
+version = "1.0.13"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2169,7 +2170,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2368,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.17"
+version = "1.0.18"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
@@ -2412,7 +2413,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-keys"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2424,7 +2425,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-koreader"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-sdk",
@@ -2509,7 +2510,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-menu-editor"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2522,7 +2523,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-news"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2593,7 +2594,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-picture-home"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
@@ -2800,7 +2801,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-stats"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2880,7 +2881,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2926,7 +2927,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-weather"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",

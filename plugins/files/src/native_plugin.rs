@@ -6,8 +6,8 @@
 use crate::{
     declarations::{
         BROWSER_TOKEN, BY_AUTHOR_TOKEN, BY_SERIES_TOKEN, BY_TAG_TOKEN, CHOOSE_TOKEN, EVENTS_TOKEN,
-        FAVOURITES_TOKEN, INFO_TOKEN, NAMES_TOKEN, SEARCH_TOKEN, SHELF_TOKEN, SHELVES_OPEN_TOKEN,
-        SHELVES_TOKEN, SORT, VIEW, VIEW_COVERS,
+        FAVOURITES_TOKEN, FIND_TOKEN, INFO_TOKEN, NAMES_TOKEN, SEARCH_TOKEN, SHELF_TOKEN,
+        SHELVES_OPEN_TOKEN, SHELVES_TOKEN, SORT, VIEW, VIEW_COVERS,
     },
     native_covers::{Covers, MOST, MOST_SMALL},
     native_draw::Said,
@@ -82,6 +82,9 @@ mod sources;
 use find::LETTER;
 use plan::{Plan, Reading, Then, cursors, step_back, step_on};
 use sources::{NameReplies, Replies, Speaker};
+
+/// The answer of the delete question that deletes (its second line).
+const DELETE: u32 = 1;
 
 /// What a question that was asked is for.
 #[derive(Debug)]
@@ -250,6 +253,7 @@ impl Plugin for NativeFiles {
             }
             Event::ActionRun { .. } if token == BY_TAG_TOKEN => self.open_names(host, Shelf::Tags),
             Event::ActionRun { .. } if token == SEARCH_TOKEN => self.ask_search(host),
+            Event::ActionRun { .. } if token == FIND_TOKEN => self.open_names(host, Shelf::Letters),
             Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ScreenOpened {
                 instance, handover, ..

@@ -202,9 +202,12 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
                 }
             })
             .map_err(|error| status(error.into()))?;
-        // An answer goes to the plugin that asked, with no registration
-        // (`ui.md` 3.2): the SDK takes addressed events by their tag.
-        if tag == super::registrations::EVENT_ANSWERED_TAG {
+        // An answer goes to the plugin that asked, and 98 to the Bluetooth
+        // manager, with no registration (`ui.md` 3.2, `device.md` 4): the SDK
+        // takes addressed events by their tag.
+        if tag == super::registrations::EVENT_ANSWERED_TAG
+            || super::bluetooth_events::addressed(tag)
+        {
             token.get_or_insert(0);
         }
         let token = token.ok_or(host_glue::ERR_UNSUPPORTED)?;

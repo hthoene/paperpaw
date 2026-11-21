@@ -32,7 +32,7 @@ fn period(cx: &Cx<'_>) -> Result<usize, Error> {
 
 /// The days shown, oldest first (none where the device does not know the time).
 fn shown(cx: &mut Cx<'_>) -> Result<Vec<Shown>, Error> {
-    let Some((today, days)) = days(cx)? else {
+    let Some((_, today, days)) = days(cx)? else {
         return Ok(Vec::new());
     };
     let range = match period(cx)? {

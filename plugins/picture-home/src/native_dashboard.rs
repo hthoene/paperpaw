@@ -172,6 +172,9 @@ pub struct Dashboard {
     editing: bool,
     /// Whether *Back* is named *Done* in the row of button hints.
     hinted: bool,
+    /// When the host was told the row of hints shows; `None`: not told, as
+    /// declared (always).
+    hint_row: Option<crate::native_picture::Visible>,
     /// The page (the setting that keeps it) to show first.
     first: Option<usize>,
     /// The options of an item, asked as the bottom menu.

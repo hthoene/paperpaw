@@ -2,7 +2,7 @@
 //! (`stats.goal`), and below them the week or the goal: "7 min to your daily
 //! goal", "Daily goal reached, 3 days in a row".
 use crate::files::DataFolder;
-use crate::native_screens::utc_day;
+use crate::native_screens::day_in;
 use crate::native_widgets::{
     caption_room, captioned, days, goal, mm, note_lines, pick_caption, shade, text_size, weekday_of,
 };
@@ -32,7 +32,7 @@ struct Numbers {
 
 /// The numbers, if the device knows the time.
 fn numbers(cx: &mut Cx<'_>, goal: Option<u64>) -> Result<Option<Numbers>, Error> {
-    let Some((today, days)) = days(cx)? else {
+    let Some((zone, today, days)) = days(cx)? else {
         return Ok(None);
     };
     let weekday = weekday_of(today);
@@ -43,7 +43,7 @@ fn numbers(cx: &mut Cx<'_>, goal: Option<u64>) -> Result<Option<Numbers>, Error>
     });
     let pages = if cx.settings.shows("pages")? {
         let storage = DataStorage::new(cx.host);
-        distinct_pages(&DataFolder(&storage), today, utc_day)?
+        distinct_pages(&DataFolder(&storage), today, day_in(zone))?
     } else {
         0
     };

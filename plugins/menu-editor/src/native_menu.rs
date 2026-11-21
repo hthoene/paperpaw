@@ -11,6 +11,22 @@ use paperpaw_sdk::native::{
 
 const PROTECTED: [&str; 2] = ["core.settings", "menu-editor.open"];
 
+/// Why an edit was not made; the menus are as they were either way.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Refused {
+    /// The editor's own rule: Settings or this editor would become
+    /// unreachable, or a menu would hold itself. Nothing was sent.
+    Locked,
+    /// The view is stale, memory ran out, or the host refused the change.
+    Failed(Error),
+}
+
+impl From<Error> for Refused {
+    fn from(error: Error) -> Self {
+        Self::Failed(error)
+    }
+}
+
 /// One menu's current and declared ordering, copied out of borrowed pages.
 #[derive(Debug)]
 pub struct Menu {
@@ -224,17 +240,17 @@ impl MenuGraph {
     /// No local state changes before the host accepts the command.
     ///
     /// # Errors
-    /// Returns Denied on loss of access, otherwise validation or host errors.
+    /// Returns Locked on loss of access, otherwise validation or host errors.
     pub fn replace(
         &self,
         commands: &mut CommandSender<'_, '_>,
         menu: &str,
         proposed: &[&str],
-    ) -> Result<(), Error> {
+    ) -> Result<(), Refused> {
         if !self.keeps_access(menu, proposed)? {
-            return Err(Error::Denied);
+            return Err(Refused::Locked);
         }
-        commands.set_menu(menu, Some(proposed))
+        Ok(commands.set_menu(menu, Some(proposed))?)
     }
 }
 

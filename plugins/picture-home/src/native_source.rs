@@ -48,7 +48,8 @@ const BAR_LOOK: &str = "picture-home.bar.look";
 const BAR_LEFT: &str = "picture-home.bar.left-items";
 const BAR_CENTER: &str = "picture-home.bar.center-items";
 const BAR_RIGHT: &str = "picture-home.bar.right-items";
-const HINTS: &str = "picture-home.hints";
+/// When the row of button hints shows with the page (`native_dashboard::bar`).
+pub(crate) const HINTS: &str = "picture-home.hints";
 /// The reader's choice that the arrow keys stay on the page.
 const ARROWS_STAY: &str = "core.arrows-stay-on-page";
 /// The registry's menu row flags: shown as on (a switch that is on), and

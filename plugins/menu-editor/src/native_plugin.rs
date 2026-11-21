@@ -3,7 +3,7 @@
 //! Views own copies of what they show; fonts, canvas and registry pages never
 //! outlive their callback. The host stays authoritative: a rejected edit leaves
 //! the old view in place until the registry publishes the new menu.
-use crate::native_menu::{Candidate, ListRenderer, MenuGraph, ScreenState};
+use crate::native_menu::{Candidate, ListRenderer, MenuGraph, Refused, ScreenState};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled, Rect,
@@ -17,7 +17,7 @@ use paperpaw_sdk::{
         registry::Registry,
         reply::Reply,
         snapshot,
-        ui::{Instance, Ui},
+        ui::{Instance, Notify, Ui},
     },
 };
 use paperpaw_ui_kit::read_event;
@@ -245,7 +245,7 @@ impl Plugin for NativeMenuEditor {
                     }
                     // Settings or this editor would become unreachable: the
                     // entry's overlay says so; nothing was changed.
-                    Err(Error::Denied) => {
+                    Err(Refused::Locked) => {
                         if let View::Entry { refused, .. } = &mut self.slots[at].view {
                             *refused = true;
                             let mut scratch = [0; 64];
@@ -254,7 +254,14 @@ impl Plugin for NativeMenuEditor {
                         }
                         Ok(Handled::Yes)
                     }
-                    Err(error) => Err(error),
+                    // The host kept the menus as they were: the reader is
+                    // told, not left to find the change missing.
+                    Err(Refused::Failed(_)) => {
+                        let text = View::text(host, "menu-editor.not-saved")?;
+                        let mut scratch = buffer(COMMANDS)?;
+                        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)?;
+                        Ok(Handled::Yes)
+                    }
                 }
             }
         }
@@ -359,7 +366,7 @@ impl NativeMenuEditor {
         CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
     }
 
-    fn apply(&mut self, host: &Host<'_>, edit: Edit) -> Result<(String, usize), Error> {
+    fn apply(&mut self, host: &Host<'_>, edit: Edit) -> Result<(String, usize), Refused> {
         let graph = Self::graph(host)?;
         let mut scratch = buffer(COMMANDS)?;
         let mut commands = CommandSender::new(host, &mut scratch);

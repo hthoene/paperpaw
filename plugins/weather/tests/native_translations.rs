@@ -71,3 +71,20 @@ fn is_id(part: &str) -> bool {
             | "weather.wind"
     )
 }
+
+#[test]
+fn the_about_line_names_open_meteo_and_the_licence_in_both_languages() {
+    // Open-Meteo's data is CC BY 4.0, which asks for the source to be named
+    // (Beta 3 named it in About, #459).
+    for (name, catalog) in [("en", EN), ("de", DE)] {
+        let line = catalog
+            .lines()
+            .find_map(|l| l.strip_prefix("weather.about = "))
+            .unwrap_or_else(|| panic!("weather.about missing in {name}"));
+        assert!(line.len() <= 512, "{name}: {}", line.len());
+        assert!(
+            line.contains("Open-Meteo.com") && line.contains("CC BY 4.0"),
+            "{name}"
+        );
+    }
+}

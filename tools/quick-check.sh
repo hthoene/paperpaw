@@ -73,7 +73,8 @@
 #    (a test of one tree read the goldens of another through CARGO_MANIFEST_DIR), so the copy keeps its path,
 #    and a file is rewritten, with the time of now, only where its content differs (rsync --checksum).
 #    A run holds its set with flock for as long as it lives; a second run at the same time takes the next set
-#    (QUICK_CHECK_SETS, 2) and waits only if all are busy. After the run the whole folder is cut to
+#    (QUICK_CHECK_SETS, 2) and waits only if all are busy: that wait does not count against the budget below, it has
+#    its own limit (QUICK_CHECK_SET_WAIT, 540 s; then the run FAILS with "WAITING FOR A BUILD SET"). After the run the whole folder is cut to
 #    QUICK_CHECK_CACHE_GB (40): what the sets no longer use goes (the per-worktree S3 directories of the
 #    script before the sets, sets over QUICK_CHECK_SETS), then the largest build directories of the sets no
 #    run holds. fmt, generated and python run in the checkout itself (they need
@@ -89,7 +90,7 @@
 #  - a library change (ui-kit, SDK, core ...) builds the frames of `store` alone, the largest plugin
 #    and the one at the limit; changed plugins are built themselves (at most 4);
 #  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 450 s) and the whole run a budget
-#    (QUICK_CHECK_BUDGET, 480 s, the wait for a set and the fetch in it: with the ~25 s of the python checks in front of it, the whole quick-check
+#    (QUICK_CHECK_BUDGET, 480 s, from the start of the run without the wait for a set, with the fetch: with the ~25 s of the python checks in front of it, the whole quick-check
 #    command ends within 9 minutes, PlainBoard's limit being 10). A step that is cut, or not started for the budget, FAILS the run with
 #    a message (exit 1): it checked nothing, and the build directories are warm for the next run. NOT checked here: the S3 `allow indirect` band
 # (tools/check-s3-budget.sh: it needs a full Xtensa firmware build of the whole
@@ -285,15 +286,18 @@ take_set() { # N: 0 if set N is now held by this script
     return 1
 }
 sets_n="${QUICK_CHECK_SETS:-2}" t_wait=$SECONDS
+set_wait="${QUICK_CHECK_SET_WAIT:-540}"
 while [[ -z "$set_dir" ]]; do
     for ((n = 1; n <= sets_n; n++)); do take_set "$n" && break; done
     [[ -n "$set_dir" ]] && break
-    if ((budget - (SECONDS - t_start) < 120)); then
-        echo "quick-check: FAILED: all $sets_n build sets in $qc_home are busy since $((SECONDS - t_wait))s (QUICK_CHECK_SETS); nothing was checked"
+    if ((SECONDS - t_wait >= set_wait)); then
+        echo "quick-check: FAILED: WAITING FOR A BUILD SET: all $sets_n sets in $qc_home were busy for ${set_wait}s (QUICK_CHECK_SET_WAIT, QUICK_CHECK_SETS); nothing was checked, run again"
         exit 1
     fi
     sleep 5
 done
+# The wait is not the check's own time: the budget starts when the set is held (the fetch before it stays counted).
+t_start=$((t_start + SECONDS - t_wait))
 src="$set_dir/src"
 echo "quick-check: build set $set_dir (waited $((SECONDS - t_wait))s)"
 # The copy has no .git: the emulator's build script would say "no commit" and its `ready` test fails. The

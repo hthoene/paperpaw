@@ -63,23 +63,25 @@ root says `ERR_IO`, "Restart PaperPaw" (card gone); a library with books only in
 ### The book sheet (hold a book, or the menu button)
 
 A choice dialog (`Ui::ask`): open, *Mark as finished* / *Mark as unread* (`Library::set_finished`),
-*Book information*, *Move to the archive* (offered where the archive folder is set and the book is not
+*Add to favourites* / *Remove from favourites* (`Library::set_favourite`, with a notice), *Book
+information*, *Move to the archive* (offered where the archive folder is set and the book is not
 in it) and *Delete …* (offered where `Library::can_delete` answers OK). The move is `core.files`
 `move_entry` into the archive folder, never replacing: a taken name is tried as `name (2)` and on, up
-to 9; the host follows the move itself. Delete asks first and starts on the safe answer, then
-`Library::delete` with notes (the question says so); a refusal is told in a notice.
+to 9; the host follows the move itself. Delete asks first, as the menu at the bottom every choice is (the book's file name,
+the question, then *Keep it*, where the focus starts, and *Delete*), then `Library::delete` with
+notes (the question says so); a refusal is told in a notice.
 
 ### The rest of this slice
 
-- **Library menu**: order and view are the settings as menu items, then search, shelves, the library
-  folder (`core.library-folder`) and the settings (`core.settings`).
+- **Library menu**: order and view are the settings as menu items, then *Find* (the letters, below),
+  search, shelves, the library folder (`core.library-folder`) and the settings (`core.settings`).
 - **Shelves** list the favourites and the authors, series, tags and folders with their counts at the
   row's end; the lists of names show the count at the end too.
 - **How it works** is `files.plugin.how` in the catalogs (English and German; `how/` stays in the crate
   for the store's page); **help hints** are declared for the library screen.
 - **Live catalog**: the lists read again on `library_changed` (books, status, fields, the walk).
-- **Find by letter**: the last row of the shelves, *Find a book* (`files.list.show.find`, with the
-  count of letters), opens the names screen of `Shelf::Letters` (the `letters` facet asked as the
+- **Find by letter**: *Find* in the library menu (the action `files.find`, as in Beta 3) and the last
+  row of the shelves, *Find a book* (`files.list.show.find`, with the count of letters), open the names screen of `Shelf::Letters` (the `letters` facet asked as the
   library's own list is: all books, the archive left out): one row for each letter, *Books under B*,
   with its book count. A letter opens the library by title (`Order::Name`, filter All, the order
   `fixed` so a change of the setting does not replace it) at the window that holds the letter's `first`
@@ -126,9 +128,6 @@ to 9; the host follows the move itself. Delete asks first and starts on the safe
 
 ## Still missing (each returns with its piece)
 
-- **Favourites cannot be added or removed.** The facade `Library` has `set_finished` but no
-  `set_favourite` (`lib_status`, bit 1 favourite, in LIB op 8): the sheet has no row for it. The
-  favourites list and its shelf work for books marked elsewhere.
 - **Look for new books** (a request for a new catalog): no typed command.
 - **The search gesture on the home screen** (`swipe.down`, a keymap fragment): there is no declaration
   of one in the native contract.

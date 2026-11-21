@@ -151,6 +151,44 @@ fn the_first_step_lists_kinds_and_the_page_actions_by_what_is_possible() {
 }
 
 #[test]
+fn each_kind_and_page_action_has_its_icon_a_tool_its_own_a_widget_none() {
+    let widgets = [widget("a.one", categories::TIME), widget("a.two", "k.own")];
+    let tools = [tool("core.library"), tool("x.plain")];
+    let found = entries(&widgets, &tools, false, &[]).unwrap();
+    let tool_icon = |action: &str| {
+        if action == "core.library" {
+            "books"
+        } else {
+            ""
+        }
+    };
+    let first = rows(None, &found, 2, true).unwrap();
+    let icons: Vec<_> = first
+        .iter()
+        .map(|row| icon(row, &found, tool_icon))
+        .collect();
+    assert_eq!(
+        icons,
+        [
+            Some("clock"),
+            Some("puzzle"),
+            Some("apps"),
+            Some("plus"),
+            Some("trash"),
+            Some("refresh")
+        ]
+    );
+    let tools = rows(Some(TOOLS_KIND), &found, 1, false).unwrap();
+    let icons: Vec<_> = tools
+        .iter()
+        .map(|row| icon(row, &found, tool_icon))
+        .collect();
+    assert_eq!(icons, [Some("books"), None]);
+    let time = rows(Some(categories::TIME), &found, 1, false).unwrap();
+    assert_eq!(icon(&time[0], &found, tool_icon), None);
+}
+
+#[test]
 fn the_second_step_lists_the_things_of_the_kind() {
     let widgets = [widget("a.one", "k.time"), widget("a.two", "k.books")];
     let found = entries(&widgets, &[tool("core.library")], false, &[]).unwrap();

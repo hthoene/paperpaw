@@ -730,6 +730,38 @@ fn a_screen_declared_with_its_hints_hidden_has_flag_bit_8() {
 }
 
 #[test]
+fn a_screen_declared_with_its_hints_has_flag_bits_13_and_14() {
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    for (name, hints) in [
+        ("page", HintRow::OnPress),
+        ("panel", HintRow::Shown),
+        ("sleep", HintRow::Hidden),
+    ] {
+        d.screen(ScreenDecl::new(name, "demo.page.title", 1).hints(hints))
+            .unwrap();
+    }
+    // The last said wins.
+    d.screen(
+        ScreenDecl::new("shelf", "demo.page.title", 1)
+            .hints(HintRow::Hidden)
+            .hints(HintRow::OnPress),
+    )
+    .unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let batch = records_decode(&batches[0]).unwrap();
+    let flags: Vec<u32> = batch
+        .iter()
+        .filter_map(|record| match record {
+            Record::ScreenSpec(screen) => Some(screen.flags),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(flags, [0x4000, 0x2000, 0x6000, 0x4000]);
+}
+
+#[test]
 fn an_overlay_declared_to_dim_what_is_below_has_flag_bit_10() {
     let mut batches = Vec::new();
     let mut d = collecting(&mut batches);
