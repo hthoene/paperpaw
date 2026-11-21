@@ -14,7 +14,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::{CommandSender, RedrawMode},
-        events::{Event, Incoming, kinds},
+        events::{Answered, Event, Incoming, kinds},
         registrations,
         registry::StatusScope,
         reply::Reply,
@@ -131,7 +131,7 @@ impl Plugin for NativeHome {
         self.widgets.fresh();
         self.new_epoch();
         self.ensure_ui(host)?;
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::RegistryChanged, kinds::LibraryChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::RegistryChanged, kinds::LibraryChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Answered)
         else {
             return Ok(());
         };
@@ -178,6 +178,8 @@ impl Plugin for NativeHome {
                 self.screens.close(instance);
                 Ok(())
             }
+            // The menu of an item's options was answered (or closed).
+            Event::Answered { answer, .. } => self.answered(host, answer),
             // The minute tick, and a widget that says it shows something new
             // (`event.widget_changed`): what shows is laid out and drawn anew.
             Event::WidgetMade {
@@ -298,6 +300,21 @@ impl NativeHome {
     #[cfg(test)]
     pub(crate) fn test_widgets(&mut self) -> &mut Widgets {
         &mut self.widgets
+    }
+
+    /// The answer of an item's options menu goes to the dashboard that asked.
+    #[inline(never)]
+    fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        for dashboard in self.screens.all().filter_map(|slot| match slot {
+            Slot::Dashboard(dashboard) => Some(dashboard),
+            _ => None,
+        }) {
+            if dashboard.asked(answer.request()) {
+                return dashboard.options_answered(host, ui, answer);
+            }
+        }
+        Ok(())
     }
 
     /// Opens `core.ui` in the first live callback; the handle serves later ones.

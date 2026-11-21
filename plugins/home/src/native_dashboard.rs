@@ -189,7 +189,7 @@ pub struct Dashboard {
     editing: bool,
     /// Whether *Back* is named *Done* in the row of button hints.
     hinted: bool,
-    /// The options of an item, over the page.
+    /// The options of an item, asked as the bottom menu.
     options: Option<arrange::Options>,
     /// An item the buttons are moving or sizing.
     moving: Option<arrange::Moving>,
@@ -325,8 +325,9 @@ impl Dashboard {
             return Err(error);
         }
         self.drop_widgets(host, ui);
-        // The cells are new: what pointed at the old ones is no more.
-        self.options = None;
+        // The cells are new: what pointed at the old ones is no more. (The
+        // options asked as a menu stay: their answer comes after the menu's
+        // screen closed.)
         self.moving = None;
         self.focus.clamp(laid.targets.len());
         self.laid = Some(laid);
@@ -763,8 +764,6 @@ impl Dashboard {
     ) -> Result<(), Error> {
         self.just_shown = false;
         self.ensure(host, ui)?;
-        self.ensure_dialog(host)?;
-        self.describe_dialog(paint::asking(frame));
         self.origin = (frame.rect.x, frame.rect.y);
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
@@ -983,10 +982,7 @@ impl Dashboard {
         }
         paint::replay_icons(frame, font, fonts.icons, below.iter())?;
         Self::compose_widgets(host, ui, &self.listing, frame, laid)?;
-        paint::replay(frame, font, above.iter())?;
-        let mut dialog = Vec::new();
-        self.dialog_paint(font, &mut dialog)?;
-        paint::replay(frame, font, dialog.iter())
+        paint::replay(frame, font, above.iter())
     }
 
     /// Whether `input` only moves the focus on a page that is not being
@@ -1263,7 +1259,7 @@ impl Dashboard {
                 self.ensure(host, ui)?;
                 redraw(host)
             }
-            Next::Options(cell) => self.open_options(host, cell),
+            Next::Options(cell) => self.open_options(host, ui, cell),
             Next::Add => {
                 let page = self.nav.map_or(0, |nav| nav.page);
                 add_screen::open(host, ui, page, None)
