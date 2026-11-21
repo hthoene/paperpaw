@@ -113,13 +113,9 @@ fn add(builder: KernelBuilder) -> KernelBuilder {
     builder.items(Probe.manifest(), |r| Probe.register(r))
 }
 
-#[test]
-#[ignore = "the dev tool measures a widget's cell with its interface-6 probe widget, which the native Home does not place (todo 634, #244)"]
-fn reads_while_drawing_large_screens_and_leaks_are_found() {
-    let _turn = ONE_AT_A_TIME
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-{}", std::process::id()));
+/// Runs `perf` over the test plugin, on the X4.
+fn probe_report(name: &str) -> (Context, Report) {
+    let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-{name}-{}", std::process::id()));
     let mut context = Context::new(
         Target {
             plugins: vec!["perf-probe".into()],
@@ -131,47 +127,166 @@ fn reads_while_drawing_large_screens_and_leaks_are_found() {
     context.quick = true;
     let mut report = Report::default();
     perf::run(&context, &mut report).unwrap();
-    let found = |check: &str, place: &str, level: Level| {
-        report
-            .findings
-            .iter()
-            .filter(|f| f.check == check && f.place == place && f.level == level)
-            .map(|f| f.message.clone())
-            .collect::<Vec<_>>()
-    };
+    (context, report)
+}
+
+fn found(report: &Report, check: &str, place: &str, level: Level) -> Vec<String> {
+    report
+        .findings
+        .iter()
+        .filter(|f| f.check == check && f.place == place && f.level == level)
+        .map(|f| f.message.clone())
+        .collect()
+}
+
+/// A screen that reads the card while it draws (as the sleep screens of
+/// stats, news and notes did, #4357) is an error: the guard of the standard
+/// app and this check count the same calls.
+#[test]
+fn reads_while_drawing_large_screens_and_leaks_are_found() {
+    let _turn = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (context, report) = probe_report("screens");
     let text = report.text(Level::Info);
 
     // The file is not there: reading it asks its size, in vain.
     let asked = |m: &String| m.contains("drawn again, band 1: size notes.txt");
-    let reads = found("perf.draw-io", "perf-probe.reads", Level::Error);
+    let reads = found(&report, "perf.draw-io", "perf-probe.reads", Level::Error);
     assert!(reads.iter().any(asked), "{text}");
-    let widget = found("perf.draw-io", "perf-probe.widget", Level::Error);
-    assert!(widget.iter().any(asked), "{text}");
     assert!(
-        !found("perf.heap", "perf-probe.big", Level::Error).is_empty(),
+        !found(&report, "perf.heap", "perf-probe.big", Level::Error).is_empty(),
         "{text}"
     );
     assert!(
-        !found("perf.leak", "perf-probe.leaks", Level::Warning).is_empty(),
+        !found(&report, "perf.leak", "perf-probe.leaks", Level::Warning).is_empty(),
         "{text}"
     );
     // Nothing else is wrong with them.
     for place in ["perf-probe.big", "perf-probe.leaks"] {
         assert!(
-            found("perf.draw-io", place, Level::Error).is_empty(),
+            found(&report, "perf.draw-io", place, Level::Error).is_empty(),
             "{text}"
         );
     }
     assert!(
-        found("perf.heap", "perf-probe.reads", Level::Error).is_empty(),
+        found(&report, "perf.heap", "perf-probe.reads", Level::Error).is_empty(),
         "{text}"
     );
     assert!(
-        found("perf.leak", "perf-probe.reads", Level::Warning).is_empty(),
+        found(&report, "perf.leak", "perf-probe.reads", Level::Warning).is_empty(),
         "{text}"
     );
     assert!(context.out.join("perf/index.html").is_file());
     assert_eq!(report.pages[0].title, "Budgets on the X4");
+    let _ = std::fs::remove_dir_all(&context.out);
+}
+
+#[test]
+#[ignore = "the dev tool measures a widget's cell with its interface-6 probe widget, which the native Home does not place (todo 634, #244)"]
+fn a_widget_that_reads_while_drawing_is_found() {
+    let _turn = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (context, report) = probe_report("widget");
+    let text = report.text(Level::Info);
+    let asked = |m: &String| m.contains("drawn again, band 1: size notes.txt");
+    let widget = found(&report, "perf.draw-io", "perf-probe.widget", Level::Error);
+    assert!(widget.iter().any(asked), "{text}");
+    let _ = std::fs::remove_dir_all(&context.out);
+}
+
+/// A store plugin ships switched off; a check that names it looks at it
+/// switched on, so that its screens are there to be measured (they were
+/// not: "0 screens", and what a plugin read while it drew was not found).
+#[test]
+fn a_store_plugin_named_is_switched_on() {
+    let context = |plugin: &str| {
+        Context::new(
+            Target {
+                plugins: vec![plugin.into()],
+                ..Target::default()
+            },
+            std::env::temp_dir().join("paperpaw-dev-switched-on"),
+        )
+    };
+    for plugin in ["stats", "mail", "browser", "wikipedia", "format-rtf"] {
+        assert_eq!(
+            paperpaw_dev::session::switched_on(&context(plugin)),
+            [(format!("plugins.{plugin}"), "true".to_string())],
+            "{plugin}"
+        );
+    }
+    // A plugin that ships on is left as it is; so is the whole app.
+    assert!(paperpaw_dev::session::switched_on(&context("home")).is_empty());
+    assert!(paperpaw_dev::session::switched_on(&context("keyboard")).is_empty());
+    let all = Context::new(Target::default(), std::env::temp_dir());
+    assert!(paperpaw_dev::session::switched_on(&all).is_empty());
+}
+
+/// Every plugin of the app can be named: the ones that were left out of the
+/// dev app have their screens now, and a store plugin has them switched on.
+#[test]
+fn the_plugins_once_left_out_have_screens() {
+    let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-left-{}", std::process::id()));
+    let target = Target {
+        plugins: ["browser", "wikipedia", "kosync", "format-rtf", "stats"]
+            .map(String::from)
+            .to_vec(),
+        ..Target::default()
+    };
+    let context = Context::new(target.clone(), out);
+    let session =
+        paperpaw_dev::session::Session::new(&context, &paperpaw_dev::variant::Variant::x4())
+            .unwrap();
+    let screens = paperpaw_dev::cases::screens(&session, &target);
+    for wanted in ["browser.screen", "wikipedia.lookup", "stats.overview"] {
+        assert!(
+            screens.iter().any(|s| s == wanted),
+            "{wanted} missing from {screens:?}"
+        );
+    }
+}
+
+/// Screens that no parameters open are measured by a way in declared for
+/// them (a question asked, the phone keyboard) or with parameters that open
+/// them (a secret of the settings), none is left out as "not measured"; the
+/// one that needs a radio the X4 lacks is a note with its reason.
+#[test]
+fn screens_that_need_a_way_in_are_measured() {
+    let _turn = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-ways-{}", std::process::id()));
+    let mut context = Context::new(
+        Target {
+            plugins: ["keyboard", "transfer", "bluetooth", "settings"]
+                .map(String::from)
+                .to_vec(),
+            ..Target::default()
+        },
+        out,
+    );
+    context.quick = true;
+    let mut report = Report::default();
+    perf::run(&context, &mut report).unwrap();
+    let skipped: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.check == "perf.skipped")
+        .map(|f| (f.level, f.place.clone()))
+        .collect();
+    assert_eq!(
+        skipped,
+        [(Level::Info, "bluetooth.search".to_string())],
+        "{}",
+        report.text(Level::Info)
+    );
+    // They were measured: each has its line among the budgets.
+    let page = std::fs::read_to_string(context.out.join("perf/index.html")).unwrap();
+    for screen in ["keyboard.ask", "transfer.phone", "settings.secret"] {
+        assert!(page.contains(screen), "{screen} not measured");
+    }
     let _ = std::fs::remove_dir_all(&context.out);
 }
 

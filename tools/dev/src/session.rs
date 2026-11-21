@@ -57,6 +57,25 @@ pub struct Start {
     /// needs a network to show (the Wi-Fi plugin's list of networks closes
     /// while the radio is off, as it does on a device).
     pub wifi_online: bool,
+    /// Requests answered from the emulator's fixtures, whatever
+    /// `--network` says: what a declared way in needs of a store's list.
+    pub fixtures: bool,
+}
+
+/// `plugins.<id> = true` for each plugin of the target that the app
+/// builds in but ships switched off (the store's), so that `--plugin <id>`
+/// looks at it as `--set plugins.<id>=true` would.
+pub fn switched_on(context: &Context) -> Vec<(String, String)> {
+    context
+        .target
+        .plugins
+        .iter()
+        .filter(|id| {
+            paperpaw_app::STORE_PLUGINS.contains(&id.as_str())
+                || paperpaw_app::is_linked_store_plugin(id)
+        })
+        .map(|id| (format!("plugins.{id}"), "true".to_string()))
+        .collect()
 }
 
 /// A device running the app in a variant.
@@ -104,6 +123,11 @@ impl Session {
         // No first-time hints over the screens looked at, unless asked.
         let mut settings: Vec<(&str, &str)> = vec![("help.show", "false")];
         settings.extend(variant.settings());
+        // The store plugins looked at are switched on (they ship off, and
+        // a plugin that is off has no screens to look at); what the
+        // command line sets after this wins.
+        let on = switched_on(context);
+        settings.extend(on.iter().map(|(k, v)| (k.as_str(), v.as_str())));
         // What the command line set (`--set`), for every command.
         settings.extend(
             context
@@ -157,7 +181,8 @@ impl Session {
         };
         let mut device = device.map_err(|e| format!("{}: {e}", variant.name()))?;
         // A variation's own network stays (see `vary`).
-        if context.fixtures {
+        let fixtures = context.fixtures || start.fixtures;
+        if fixtures {
             device.use_fixtures();
         }
         device.set_wifi_online(start.wifi_online);
@@ -168,7 +193,7 @@ impl Session {
             variant: variant.clone(),
             root,
             keep: context.keep,
-            fixtures: context.fixtures,
+            fixtures,
         };
         session.settle();
         Ok(session)

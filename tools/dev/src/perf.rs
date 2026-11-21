@@ -41,6 +41,9 @@ use paperpaw_emulator::trace::FrameRecord;
 
 use crate::cases;
 use crate::cli::Context;
+use crate::reach::driver::Driver;
+use crate::reach::exempt::exempt;
+use crate::reach::ways::{self, Way};
 use crate::report::{self, Finding, Report, escape};
 use crate::session::{self, Session, Start};
 use crate::variant::{self, Variant};
@@ -90,12 +93,18 @@ enum Case {
         id: String,
         size: (u8, u8),
     },
+    /// A screen measured on a device of its own (reached by a declared
+    /// way in, or on a device with the hardware it needs): not opened
+    /// again on the one the others are.
+    Elsewhere {
+        id: String,
+    },
 }
 
 impl Case {
     fn id(&self) -> &str {
         match self {
-            Case::Screen { id, .. } | Case::Widget { id, .. } => id,
+            Case::Screen { id, .. } | Case::Widget { id, .. } | Case::Elsewhere { id } => id,
         }
     }
 
@@ -111,6 +120,7 @@ impl Case {
             Case::Widget { id, size } => {
                 session.set(cases::PAGE, &format!("{id} 0/0 {}x{}", size.0, size.1))
             }
+            Case::Elsewhere { .. } => Ok(()),
         }
     }
 
@@ -118,6 +128,7 @@ impl Case {
         match self {
             Case::Screen { .. } => cases::close(session),
             Case::Widget { .. } => session.set(cases::PAGE, ""),
+            Case::Elsewhere { .. } => Ok(()),
         }
     }
 
@@ -125,7 +136,7 @@ impl Case {
     fn shown(&self, session: &Session) -> bool {
         match self {
             Case::Screen { id, .. } => session.screen().as_deref() == Some(id.as_str()),
-            Case::Widget { .. } => true,
+            Case::Widget { .. } | Case::Elsewhere { .. } => true,
         }
     }
 }
@@ -396,6 +407,9 @@ struct Run {
     measured: Vec<Measured>,
     /// Screens that showed something else when opened, and what showed.
     skipped: Vec<(String, String)>,
+    /// Screens that showed something else and are declared not to be
+    /// looked for (`reach::exempt`), with why.
+    declared: Vec<(String, &'static str)>,
 }
 
 impl Run {
@@ -465,16 +479,27 @@ pub fn run(context: &Context, report: &mut Report) -> Result<(), String> {
 }
 
 /// Opens and closes one screen, without parameters or else with a book's
-/// path; what showed instead where it did not open.
+/// path or with those that open it ([`cases::opening`]); what showed
+/// instead where it did not open.
 fn measure_screen(
     session: &mut Session,
     id: &str,
 ) -> Result<Result<(Case, Measured), String>, String> {
     let mut shown = String::new();
-    for params in [
+    let mut tries = vec![
         Vec::new(),
         vec![(params::PATH.to_string(), session::BOOK.to_string())],
-    ] {
+    ];
+    let opening = cases::opening(id);
+    if !opening.is_empty() {
+        tries.push(
+            opening
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        );
+    }
+    for params in tries {
         let case = Case::Screen {
             id: id.to_string(),
             params,
@@ -485,6 +510,80 @@ fn measure_screen(
         }
     }
     Ok(Err(shown))
+}
+
+/// Measures a screen that no parameters open by the way in declared for it
+/// (`reach::ways`), on a device of its own: the steps are taken, the last
+/// one with the heap and the frames watched, and the screen drawn again.
+/// Opened once, not cycled: what it leaves behind is not looked at.
+fn measure_by_way(
+    context: &Context,
+    variant: &Variant,
+    way: &Way,
+) -> Result<Result<(Case, Measured), String>, String> {
+    let mut driver = Driver::anew(context, variant, way.start())?;
+    let steps = way.steps();
+    let Some((last, before)) = steps.split_last() else {
+        return Ok(Err(String::from("no steps")));
+    };
+    if driver.go(before, None).is_none() {
+        return Ok(Err(String::from("no device")));
+    }
+    let session = &mut driver.session;
+    drop(session.frames());
+    let base = budget::stats().live;
+    budget::reset_peak();
+    driver.step(last);
+    let session = &mut driver.session;
+    let frames = session.frames();
+    if session.screen().as_deref() != Some(way.screen) {
+        let shown = session.screen().unwrap_or_else(|| String::from("nothing"));
+        return Ok(Err(shown));
+    }
+    let library = session
+        .device
+        .library()
+        .open()
+        .map_err(|e| format!("library: {e}"))?;
+    let picture = |path: &str| picture_size(&library, path);
+    let mut measured = Measured {
+        id: way.screen.to_string(),
+        peak: budget::stats().peak.saturating_sub(base),
+        ..Measured::default()
+    };
+    if let Some(first) = frames.first() {
+        let b = &first.before;
+        measured.before = b.reads + b.sizes + b.lists;
+        measured.before_bytes = b.bytes;
+    }
+    if let Some(last) = frames.last() {
+        measured.came_up.push(last.millis);
+        measured.bands = last.bands.len();
+        measured.drawing += last.drawing.calls();
+        measured.faults = draw_io(last, 1, "came up", &picture);
+    }
+    measured.reference = fastest(session, 3);
+    drop(session.frames());
+    for n in 0..AGAIN {
+        session.device.draw_again();
+        let again = session.frames();
+        let Some(frame) = again.first() else {
+            continue;
+        };
+        measured.again.push(frame.millis);
+        if n == 0 {
+            measured.drawing += frame.drawing.calls();
+            for fault in draw_io(frame, 0, "drawn again", &picture) {
+                if !measured.faults.contains(&fault) {
+                    measured.faults.push(fault);
+                }
+            }
+        }
+    }
+    let case = Case::Elsewhere {
+        id: way.screen.to_string(),
+    };
+    Ok(Ok((case, measured)))
 }
 
 /// Opens and closes every screen and widget of the target on one profile.
@@ -521,6 +620,7 @@ fn measure_variant(context: &Context, variant: &Variant) -> Result<Run, String> 
         app,
         measured: Vec::new(),
         skipped: Vec::new(),
+        declared: Vec::new(),
     };
     let mut cases_done: Vec<Case> = Vec::new();
     // A second device, its radio on, for a screen that closes while the
@@ -545,12 +645,23 @@ fn measure_variant(context: &Context, variant: &Variant) -> Result<Run, String> 
                 tried = Ok(found);
             }
         }
+        // No parameters open it: the way in declared for it, on a device of
+        // its own (a question asked, the phone keyboard).
+        if tried.is_err()
+            && let Some(way) = ways::declared(&id, variant.profile)
+            && let Ok(found) = measure_by_way(context, variant, way)?
+        {
+            tried = Ok(found);
+        }
         match tried {
             Ok((case, measured)) => {
                 cases_done.push(case);
                 run.measured.push(measured);
             }
-            Err(shown) => run.skipped.push((id, shown)),
+            Err(shown) => match exempt(&id) {
+                Some(why) => run.declared.push((id, why)),
+                None => run.skipped.push((id, shown)),
+            },
         }
     }
     drop(online);
@@ -648,7 +759,7 @@ fn measure(
         id: case.id().to_string(),
         size: match case {
             Case::Widget { size, .. } => Some(*size),
-            Case::Screen { .. } => None,
+            Case::Screen { .. } | Case::Elsewhere { .. } => None,
         },
         params: match case {
             Case::Screen { params, .. } => params
@@ -656,7 +767,7 @@ fn measure(
                 .map(|(k, v)| format!("{k}={v}"))
                 .collect::<Vec<_>>()
                 .join(" "),
-            Case::Widget { .. } => String::new(),
+            Case::Widget { .. } | Case::Elsewhere { .. } => String::new(),
         },
         reference,
         ..Measured::default()
@@ -820,14 +931,26 @@ fn findings(run: &Run, report: &mut Report) {
             .variant(variant.clone()),
         );
     }
+    for (id, why) in &run.declared {
+        report.add(
+            Finding::info(
+                "perf.skipped",
+                id.clone(),
+                format!("{id} was not measured: it is declared not to be shown alone, {why}."),
+            )
+            .plugin(plugin_of(id))
+            .variant(variant.clone()),
+        );
+    }
     for (id, shown) in &run.skipped {
         report.add(
             Finding::error(
                 "perf.skipped",
                 id.clone(),
                 format!(
-                    "{id} was not measured: opening it without parameters (or with a book's \
-                     path) showed {shown} instead."
+                    "{id} was not measured: opening it without parameters, with a book's path \
+                     or with the parameters that open it (cases::OPENING), or by a declared \
+                     way in (WAYS in tools/dev/src/reach/ways.rs), showed {shown} instead."
                 ),
             )
             .plugin(plugin_of(id))

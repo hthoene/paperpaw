@@ -154,18 +154,36 @@ pub fn some_sizes(grid: (u8, u8)) -> Vec<(u8, u8)> {
     sizes
 }
 
+/// Screens that cannot be opened alone, with parameters that open them
+/// whatever the fixtures give (the emulator's own,
+/// [`paperpaw_emulator::offline::SCREENS`], are those that need its
+/// answers to show anything): the settings' secret by the plugin and name
+/// of a password, which need not be kept to be shown.
+pub const OPENING: &[(&str, &[(&str, &str)])] = &[("settings.secret", &[("id", "mail:password")])];
+
+/// The parameters that open `screen` where it does not open without any
+/// ([`OPENING`], then the emulator's): for a check that looks at every
+/// screen.
+pub fn opening(screen: &str) -> &'static [(&'static str, &'static str)] {
+    OPENING
+        .iter()
+        .chain(paperpaw_emulator::offline::SCREENS)
+        .find(|(id, _)| *id == screen)
+        .map_or(&[], |(_, params)| params)
+}
+
 /// The parameters `screen` is opened with to show it with data: with the
 /// emulator's fixtures, those their plugin opens it with where the
 /// fixtures give its data ([`paperpaw_emulator::offline::SCREENS`]);
-/// else none.
+/// else those that open it at all ([`OPENING`]), or none.
 pub fn params(session: &Session, screen: &str) -> &'static [(&'static str, &'static str)] {
     if !session.fixtures() {
-        return &[];
+        return OPENING
+            .iter()
+            .find(|(id, _)| *id == screen)
+            .map_or(&[], |(_, params)| params);
     }
-    paperpaw_emulator::offline::SCREENS
-        .iter()
-        .find(|(id, _)| *id == screen)
-        .map_or(&[], |(_, params)| params)
+    opening(screen)
 }
 
 /// Opens `screen` (with `params`) on the session and shows what is drawn.

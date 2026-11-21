@@ -110,8 +110,8 @@ use crate::report::{Finding, Report};
 use crate::session::Session;
 use crate::variant::Variant;
 
-mod driver;
-mod exempt;
+pub mod driver;
+pub mod exempt;
 pub mod places;
 pub mod ways;
 

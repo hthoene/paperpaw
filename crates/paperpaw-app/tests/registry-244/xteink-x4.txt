@@ -62,6 +62,17 @@ plugin | puzzles Off enabled=false BuiltIn
 plugin | tasks Off enabled=false BuiltIn
 plugin | calendar Off enabled=false BuiltIn
 plugin | format-epub-plus Off enabled=false BuiltIn
+plugin | browser Off enabled=false BuiltIn
+plugin | edge-light Off enabled=false BuiltIn
+plugin | file-sync Off enabled=false BuiltIn
+plugin | format-rtf Off enabled=false BuiltIn
+plugin | joplin Off enabled=false BuiltIn
+plugin | kosync Off enabled=false BuiltIn
+plugin | picture-frame Off enabled=false BuiltIn
+plugin | read-later-cloud Off enabled=false BuiltIn
+plugin | readwise Off enabled=false BuiltIn
+plugin | wallabag Off enabled=false BuiltIn
+plugin | wikipedia Off enabled=false BuiltIn
 plugin | wifi Running enabled=true BuiltIn
 setting-group | SettingGroupSpec { id: Id(core.space), title: "core.widget.space", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(home.clock), title: "home.widget.clock", order: 0, page: None, parent: None }

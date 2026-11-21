@@ -145,6 +145,17 @@ native-linked-store = [
     "dep:paperpaw-plugin-tasks",
     "dep:paperpaw-plugin-calendar",
     "dep:paperpaw-plugin-format-epub-plus",
+    "dep:paperpaw-plugin-browser",
+    "dep:paperpaw-plugin-edge-light",
+    "dep:paperpaw-plugin-file-sync",
+    "dep:paperpaw-plugin-format-rtf",
+    "dep:paperpaw-plugin-joplin",
+    "dep:paperpaw-plugin-kosync",
+    "dep:paperpaw-plugin-picture-frame",
+    "dep:paperpaw-plugin-read-later-cloud",
+    "dep:paperpaw-plugin-readwise",
+    "dep:paperpaw-plugin-wallabag",
+    "dep:paperpaw-plugin-wikipedia",
     "paperpaw-plugin-aids/linked",
     "paperpaw-plugin-fonts-browser/linked",
     "paperpaw-plugin-mail/linked",
@@ -174,6 +185,17 @@ native-linked-store = [
     "paperpaw-plugin-tasks/linked",
     "paperpaw-plugin-calendar/linked",
     "paperpaw-plugin-format-epub-plus/linked",
+    "paperpaw-plugin-browser/linked",
+    "paperpaw-plugin-edge-light/linked",
+    "paperpaw-plugin-file-sync/linked",
+    "paperpaw-plugin-format-rtf/linked",
+    "paperpaw-plugin-joplin/linked",
+    "paperpaw-plugin-kosync/linked",
+    "paperpaw-plugin-picture-frame/linked",
+    "paperpaw-plugin-read-later-cloud/linked",
+    "paperpaw-plugin-readwise/linked",
+    "paperpaw-plugin-wallabag/linked",
+    "paperpaw-plugin-wikipedia/linked",
 ]
 
 [build-dependencies]
@@ -252,6 +274,17 @@ paperpaw-plugin-puzzles = { workspace = true, optional = true }
 paperpaw-plugin-tasks = { workspace = true, optional = true }
 paperpaw-plugin-calendar = { workspace = true, optional = true }
 paperpaw-plugin-format-epub-plus = { workspace = true, optional = true }
+paperpaw-plugin-browser = { workspace = true, optional = true }
+paperpaw-plugin-edge-light = { workspace = true, optional = true }
+paperpaw-plugin-file-sync = { workspace = true, optional = true }
+paperpaw-plugin-format-rtf = { workspace = true, optional = true }
+paperpaw-plugin-joplin = { workspace = true, optional = true }
+paperpaw-plugin-kosync = { workspace = true, optional = true }
+paperpaw-plugin-picture-frame = { workspace = true, optional = true }
+paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
+paperpaw-plugin-readwise = { workspace = true, optional = true }
+paperpaw-plugin-wallabag = { workspace = true, optional = true }
+paperpaw-plugin-wikipedia = { workspace = true, optional = true }
 paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 
