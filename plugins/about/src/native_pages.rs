@@ -7,6 +7,10 @@
 //! (`build.rs`); the page's start is written first, then each part is
 //! inflated and appended on its own, so the whole text is never on the heap.
 use alloc::vec::Vec;
+use miniz_oxide::inflate::{
+    TINFLStatus,
+    core::{DecompressorOxide, decompress, inflate_flags},
+};
 use paperpaw_sdk::{Storage, StorageError, native::Error};
 
 /// The licences of this build's product, packed by `build.rs`.
@@ -41,9 +45,29 @@ fn next_part(packed: &[u8]) -> Result<(Vec<u8>, &[u8]), Error> {
     };
     let (deflated, length) = (word(0)?, word(4)?);
     let data = packed.get(8..8 + deflated).ok_or(Error::Invalid)?;
-    let text = miniz_oxide::inflate::decompress_to_vec_with_limit(data, length)
-        .map_err(|_| Error::Invalid)?;
+    let mut text = Vec::new();
+    text.try_reserve_exact(length)
+        .map_err(|_| Error::NoMemory)?;
+    text.resize(length, 0);
+    inflate_exact(data, &mut text)?;
     Ok((text, &packed[8 + deflated..]))
+}
+
+/// Inflates the raw deflate stream `data` into exactly `out`. The decoder is
+/// made on the heap, in place (its 10 KB are no stack frame: a plugin's frame
+/// stays under 2 KB), as the EPUB fonts' is.
+fn inflate_exact(data: &[u8], out: &mut [u8]) -> Result<(), Error> {
+    let mut decoder: Vec<DecompressorOxide> = Vec::new();
+    decoder.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+    decoder.resize_with(1, DecompressorOxide::default);
+    let state = decoder.first_mut().ok_or(Error::NoMemory)?;
+    let flags = inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+    let (status, _, written) = decompress(state, data, out, 0, flags);
+    if status == TINFLStatus::Done && written == out.len() {
+        Ok(())
+    } else {
+        Err(Error::Invalid)
+    }
 }
 
 /// Writes the licences to [`LICENCES_FILE`] in `storage`: `start` (the

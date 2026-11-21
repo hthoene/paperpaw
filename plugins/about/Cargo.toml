@@ -19,7 +19,7 @@ native-entry = []
 paperpaw-sdk.workspace = true
 paperpaw-ui-kit.workspace = true
 # The licences are kept deflated in the program and inflated a part at a time.
-miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
+miniz_oxide = { version = "=0.9.1", default-features = false }
 
 [build-dependencies]
 # `kernel` only for the build script (not unified with the plugin's own use of
