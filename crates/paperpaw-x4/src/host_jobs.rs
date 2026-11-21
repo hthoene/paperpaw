@@ -92,10 +92,9 @@ pub fn offer_plugin_jobs(
 
 /// Whether a start once an update on trial is kept is needed: there is code
 /// on the card to load (`card_code`), or the linked plugins of interface 7
-/// were not hosted at the trial's start (`linked_hosted` false: no code
-/// plugins load on a trial, and the linked ones go with them), so a kept
-/// update would otherwise leave the reader without them until some later
-/// start. Without the linked plugins (`!native_linked`: a build that has
+/// were not hosted at the trial's start (`linked_hosted` false: the stack's
+/// band was not armed, or there was no room for them), so a kept update would
+/// otherwise leave the reader without them until some later start. Without the linked plugins (`!native_linked`: a build that has
 /// none) only the card's code counts.
 #[must_use]
 pub const fn restart_once_kept(card_code: bool, linked_hosted: bool, native_linked: bool) -> bool {

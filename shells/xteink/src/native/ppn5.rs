@@ -527,13 +527,13 @@ mod x4 {
     /// admitted against every linked plugin by the desktop's tests). Called by
     /// the main loop once the stack's band is armed (`abi/heap-word.md`
     /// section 6): without it no plugin of interface 7 runs. A plugin the host
-    /// refuses is logged and does not stop the others.
+    /// refuses is logged and does not stop the others. Whether any is hosted.
     #[cfg(feature = "native-on")]
     #[inline(never)]
     pub(crate) fn register_linked(
         kernel: &mut paperpaw_core::Kernel,
         table: &crate::native::DeviceTable,
-    ) {
+    ) -> bool {
         fn linked_report(_: &X4Services, plugin: &str, tag: u32, status: i32) {
             warn!("native: linked: {plugin}: call {tag} ended with {status}");
         }
@@ -551,7 +551,7 @@ mod x4 {
         // brings another counter.
         let (Some(depth), Some(resources)) = (table.depth(), table.share()) else {
             warn!("native: no room for the linked plugins' table: none hosted");
-            return;
+            return false;
         };
         // This start loads native plugins: counted as one that may fail until
         // its first frame is shown (`safe_mode::started`); after two in a
@@ -605,6 +605,7 @@ mod x4 {
             times.fonts / 1000,
             times.widget_fonts / 1000,
         );
+        hosted > 0
     }
 
     /// The owner's fallback report of a teardown step that failed (called

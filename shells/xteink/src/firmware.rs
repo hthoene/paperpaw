@@ -106,7 +106,11 @@ pub struct Firmware {
     /// The loader's table of handles, for the linked plugins' hosting
     /// (`native-on`): one table for the device.
     #[cfg(feature = "native-on")]
-    pub device_table: Option<crate::native::DeviceTable>,
+    pub device_table: crate::native::DeviceTable,
+    /// Code of the card loads at this start (not on an update's trial, not
+    /// in safe mode): only then are plugin jobs taken.
+    #[cfg(feature = "native-on")]
+    pub card_code: bool,
     pub state: State,
 }
 
@@ -172,6 +176,9 @@ pub struct State {
     /// An update was kept after its trial, which started without code
     /// plugins, and there are some to load: a start at a calm moment.
     restart_for_code: bool,
+    /// The linked plugins of interface 7 were hosted at this start.
+    #[cfg(feature = "native-on")]
+    linked_hosted: bool,
     /// The pace the screen on top runs at (`Effects::pace`): its frames
     /// are shown without waiting for the panel ([`paced`]).
     pace: Option<core::time::Duration>,
@@ -218,28 +225,28 @@ impl Firmware {
         // says so. Here, on the kernel in its place: a local in `kernel()` or
         // `start()` would copy it (+4 KB on the frame).
         #[cfg(feature = "native-on")]
-        if let Some(table) = &self.device_table {
-            if paperpaw_x4::stack_band::host_native_at_start(crate::stack::band_armed()) {
-                crate::native::register_linked(&mut self.kernel, table);
-                // Plugin jobs (a store's install, update and removal, a
-                // plugin check), which the loader's own lists and the families
-                // wired by now decide (`paperpaw_x4::host_jobs`). Not where no
-                // code loads (an update on trial, safe mode): refused then.
-                let wired = crate::device_host::wired_families(false);
-                // With what this firmware's loader reads (`native::reads`).
-                if let Some(loader) = crate::native::reads()
-                    && !paperpaw_x4::host_jobs::offer_plugin_jobs(
-                        &mut self.kernel,
-                        loader,
-                        crate::native::FAMILY,
-                        wired,
-                    )
-                {
-                    warn!("native: plugin jobs are not taken: the kernel has no firmware host");
-                }
-            } else {
-                warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
+        if paperpaw_x4::stack_band::host_native_at_start(crate::stack::band_armed()) {
+            self.state.linked_hosted =
+                crate::native::register_linked(&mut self.kernel, &self.device_table);
+            // Plugin jobs (a store's install, update and removal, a
+            // plugin check), which the loader's own lists and the families
+            // wired by now decide (`paperpaw_x4::host_jobs`). Not where no
+            // code of the card loads (an update on trial, safe mode): refused then.
+            let wired = crate::device_host::wired_families(false);
+            // With what this firmware's loader reads (`native::reads`).
+            if self.card_code
+                && let Some(loader) = crate::native::reads()
+                && !paperpaw_x4::host_jobs::offer_plugin_jobs(
+                    &mut self.kernel,
+                    loader,
+                    crate::native::FAMILY,
+                    wired,
+                )
+            {
+                warn!("native: plugin jobs are not taken: the kernel has no firmware host");
             }
+        } else {
+            warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
         }
         // Interface 6's passwords through the same sealer, before the start.
         #[cfg(feature = "ppn5")]
@@ -279,11 +286,11 @@ impl Firmware {
     }
 
     /// A start is due once the update on trial is kept: code plugins to load,
-    /// or the linked plugins of interface 7 that a trial does not host
+    /// or the linked plugins of interface 7 where its start did not host them
     /// (`paperpaw_x4::host_jobs::restart_once_kept`).
     fn restart_once_kept(&self) -> bool {
         #[cfg(feature = "native-on")]
-        let (hosted, linked) = (self.device_table.is_some(), true);
+        let (hosted, linked) = (self.state.linked_hosted, true);
         #[cfg(not(feature = "native-on"))]
         let (hosted, linked) = (true, false);
         paperpaw_x4::host_jobs::restart_once_kept(
