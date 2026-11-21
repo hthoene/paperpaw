@@ -71,7 +71,7 @@ pub(super) fn draw(
     ui: &Ui,
     view: &mut GroupView,
     frame: &mut DrawFrame<'_>,
-    title: &str,
+    (title, focus): (&str, bool),
 ) -> Result<(), Error> {
     let mut made = None;
     if let Some(id) = view.preview.as_deref().filter(|_| !view.preview_refused) {
@@ -86,7 +86,7 @@ pub(super) fn draw(
     }
     view.list
         .set_head_height(made.as_ref().map_or(0, |m| m.height));
-    let drawn = view.list.draw_with(host, frame, title, true, Footer::None);
+    let drawn = view.list.draw_with(host, frame, title, focus, Footer::None);
     let Some(made) = made else {
         return drawn;
     };

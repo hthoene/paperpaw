@@ -80,6 +80,7 @@ pub fn items(name: &str, help: &str) -> Result<Vec<Item>, Error> {
             icon: None,
             stepper: false,
             track: None,
+            wrap_value: false,
             disabled: true,
             on: None,
             field: false,

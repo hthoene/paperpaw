@@ -9,6 +9,7 @@ use crate::native_secrets::{self, Choice, SecretView, SecretsView, Typed};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
+    keys::InputMode,
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
@@ -18,7 +19,7 @@ use paperpaw_sdk::{
         registrations,
         reply::Reply,
         settings::SettingValue,
-        ui::{Instance, Notify, Open, Param, Question, RequestId, Ui},
+        ui::{ButtonHint, Instance, Notify, Open, Param, Question, RequestId, Ui},
     },
 };
 use paperpaw_ui_kit::read_event;
@@ -341,6 +342,9 @@ pub struct NativeSettings {
     /// A finger on a slider's track (here, not in a view: a view is moved about
     /// on the stack, and a frame of the plugin's stays under the band).
     drag: Option<paperpaw_ui_kit::slider::Drag>,
+    /// A finger opened the page and no button was pressed since: no row shows
+    /// the focus (as in Beta 3).
+    finger: bool,
 }
 
 impl Plugin for NativeSettings {
@@ -378,8 +382,12 @@ impl Plugin for NativeSettings {
             } => self.opened(host, screen, instance, handover),
             Event::ScreenShown {
                 instance: Some(instance),
+                last_input,
                 ..
-            } => self.shown(host, token, instance),
+            } => {
+                self.finger = matches!(last_input, Some(InputMode::Touch | InputMode::Pen));
+                self.shown(host, token, instance)
+            }
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
@@ -406,6 +414,7 @@ impl Plugin for NativeSettings {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        let focus = !self.finger;
         let view = self.screens.top(token).ok_or(Error::State)?;
         // Noted stale while it was not drawn (see `changed`): made anew now.
         if *view.stale() {
@@ -416,22 +425,22 @@ impl Plugin for NativeSettings {
             View::List(v) => {
                 let title = messages.copy(host, "settings.title")?;
                 v.list
-                    .draw_with(host, &mut frame, &title, true, Footer::None)
+                    .draw_with(host, &mut frame, &title, focus, Footer::None)
             }
             View::Group(v) => {
                 let title = copy(&v.title)?;
                 let ui = self.ui.as_ref().ok_or(Error::State)?;
-                preview::draw(host, ui, v, &mut frame, &title)
+                preview::draw(host, ui, v, &mut frame, (&title, focus))
             }
             View::Choose(v) => {
                 let title = copy(&v.title)?;
                 v.list
-                    .draw_with(host, &mut frame, &title, true, Footer::None)
+                    .draw_with(host, &mut frame, &title, focus, Footer::None)
             }
             View::Themes(v) => {
                 let title = messages.copy(host, v.look.title())?;
                 v.list
-                    .draw_with(host, &mut frame, &title, true, Footer::None)
+                    .draw_with(host, &mut frame, &title, focus, Footer::None)
             }
             View::Secrets(v) => {
                 let title = messages.copy(host, "settings.secrets")?;
@@ -444,12 +453,12 @@ impl Plugin for NativeSettings {
                 } else {
                     Footer::None
                 };
-                v.list.draw_with(host, &mut frame, &title, true, footer)
+                v.list.draw_with(host, &mut frame, &title, focus, footer)
             }
             View::Secret(v) => {
                 let title = copy(&v.title)?;
                 v.list
-                    .draw_with(host, &mut frame, &title, true, Footer::None)
+                    .draw_with(host, &mut frame, &title, focus, Footer::None)
             }
             View::Search(v) => {
                 let title = messages.format(
@@ -469,13 +478,20 @@ impl Plugin for NativeSettings {
                 } else {
                     Footer::None
                 };
-                v.list.draw_with(host, &mut frame, &title, true, footer)
+                v.list.draw_with(host, &mut frame, &title, focus, footer)
             }
         }
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         self.ensure_ui(host)?;
+        if let Input::Action {
+            action: "core.up" | "core.down" | "core.left" | "core.right" | "core.confirm",
+            ..
+        } = input
+        {
+            self.finger = false;
+        }
         if let Some(handled) = self.slide_input(host, token, &input)? {
             return Ok(handled);
         }
@@ -506,6 +522,46 @@ impl Plugin for NativeSettings {
             _ => {}
         }
         Ok(ItemList::handled(step))
+    }
+}
+
+/// The key bar while a number is changed with the buttons: *Cancel*, *Keep*,
+/// `−`, `+` (as in Beta 3); `on` false gives the buttons their usual names
+/// again. A hint the host refuses leaves the bar as it was.
+fn edit_hints(host: &Host<'_>, on: bool) {
+    const ACTIONS: [&str; 4] = ["core.back", "core.confirm", "core.left", "core.right"];
+    let mut sent = [None, None, None, None];
+    let mut said = [String::new(), String::new()];
+    if on {
+        let Ok(mut messages) = Messages::new() else {
+            return;
+        };
+        for (word, key) in said
+            .iter_mut()
+            .zip(["settings.option.cancel", "settings.edit.keep"])
+        {
+            match messages.copy(host, key) {
+                Ok(text) => *word = text,
+                Err(_) => return,
+            }
+        }
+        sent = [
+            Some(said[0].as_str()),
+            Some(said[1].as_str()),
+            Some("\u{2212}"),
+            Some("+"),
+        ];
+    }
+    for (action, word) in ACTIONS.into_iter().zip(sent) {
+        let hint = match word {
+            Some(word) => ButtonHint::words(action, word),
+            None => ButtonHint::usual(action),
+        };
+        if let Ok(hint) = hint {
+            match CommandSender::new(host, &mut [0; 256]).set_hint(hint) {
+                Ok(()) | Err(_) => {}
+            }
+        }
     }
 }
 
@@ -971,6 +1027,7 @@ impl NativeSettings {
                 now,
             });
             v.list.replace(items);
+            edit_hints(host, true);
         }
         Ok(())
     }
@@ -1057,6 +1114,7 @@ impl NativeSettings {
             commands.end_preview()?;
             Self::redraw(host)?;
             v.editing = None;
+            edit_hints(host, false);
             v.list.replace(items);
             return Ok(Some(Handled::Yes));
         }

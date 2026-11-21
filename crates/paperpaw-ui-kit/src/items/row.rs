@@ -89,7 +89,21 @@ pub(super) fn draw_row_as(
         };
         buttons = Some((minus, plus, track));
     }
-    draw_title(paint, (font, style), cols, row, &title_block, ink)?;
+    let mut value = shown_value(row);
+    if !value.is_empty() && value_below(font, style, rect.width, row)? {
+        // The value on a line of its own under the title, at the right.
+        let line = crate::geometry::line_px(font, style.text)?.min(cols.height);
+        let strip = Rect::new(
+            cols.x,
+            cols.y.saturating_add(cols.height - line),
+            cols.width,
+            line,
+        );
+        cols.height -= line;
+        columns(paint, font, style, strip, "", value, ink)?;
+        value = "";
+    }
+    draw_title(paint, (font, style), cols, row, &title_block, ink, value)?;
     if row.note.is_empty() {
         return Ok(buttons);
     }
