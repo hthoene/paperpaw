@@ -289,8 +289,9 @@ impl Dashboard {
         )
     }
 
-    /// Two circles in the corner of a cell that a finger sizes it by: a ring
-    /// with a dot in it, as large as the corner's touch area.
+    /// The disc in the corner of a cell that a finger sizes it by, filled as
+    /// in Beta 3: half a row across (16 px at least), flush with the cell's
+    /// corner, in the corner of the larger touch area `side`.
     pub(super) fn corner_mark(
         &self,
         paint: &mut Vec<Paint>,
@@ -299,27 +300,14 @@ impl Dashboard {
         side: u16,
     ) -> Result<(), Error> {
         let corner = corner_rect(rect, side);
-        let ring = (corner.width / 2).max(8);
-        let dot = (ring / 2).max(4);
-        let line = u32::from(style.line).max(1);
-        let (x, y) = (
-            corner
-                .x
-                .saturating_add(corner.width)
-                .saturating_sub(ring + 4),
-            corner
-                .y
-                .saturating_add(corner.height)
-                .saturating_sub(ring + 4),
+        let shown = (corner.width / 2).max(16).min(corner.width);
+        let disc = Rect::new(
+            corner.x.saturating_add(corner.width - shown),
+            corner.y.saturating_add(corner.height - shown),
+            shown,
+            shown,
         );
-        let inner = Rect::new(x + (ring - dot) / 2, y + (ring - dot) / 2, dot, dot);
-        for (area, radius, thickness) in [
-            (Rect::new(x, y, ring, ring), u32::from(ring) / 2, Some(line)),
-            (inner, u32::from(dot) / 2, None),
-        ] {
-            paint::push(paint, Paint::Focus(area, radius, thickness, style.ink))?;
-        }
-        Ok(())
+        paint::push(paint, Paint::Focus(disc, style.corner, None, style.ink))
     }
 
     fn options_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
