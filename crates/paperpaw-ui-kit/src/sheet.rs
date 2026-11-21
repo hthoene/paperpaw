@@ -186,11 +186,11 @@ impl ItemList {
             match &self.items[index] {
                 Item::Heading(title) => heading(&mut body, &font, &style, rect, title)?,
                 Item::Row(row) => {
-                    if let Some((minus, plus)) =
+                    if let Some((minus, plus, track)) =
                         draw_row(&mut body, &font, &style, rect, row, focused)?
                     {
                         steps.try_reserve(1).map_err(|_| Error::NoMemory)?;
-                        steps.push((minus, plus, index));
+                        steps.push((minus, plus, index, track));
                     }
                     hits.try_reserve(1).map_err(|_| Error::NoMemory)?;
                     hits.push((rect, index));

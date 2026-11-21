@@ -28,6 +28,8 @@ pub mod flag {
     pub const SHOWN: u32 = 1 << 9;
     /// Another setting's `shown_if` names it.
     pub const GOVERNS: u32 = 1 << 10;
+    /// A number that asks for a slider on a touch screen.
+    pub const SLIDER: u32 = 1 << 11;
 }
 
 /// The group developer settings are in.

@@ -79,12 +79,13 @@ const CASES: [Case; 18] = [
     // The size of the book text on a touch screen: a slider whose track is the
     // sizes the reading font draws differently, evenly spaced (a finger's
     // width moves the knob as far everywhere), and from the right in a
-    // right-to-left language. The native plugin has no slider (numbers use
-    // − and +); the kit draws none. Interface-6 `font_slider.rs`.
+    // right-to-left language. The native plugin shows the kit's slider track
+    // for every number that asks for one (not this uneven-step track, and not
+    // mirrored). Interface-6 `font_slider.rs`.
     Case {
         name: "settings-font-slider",
         golden: None,
-        blocked_by: &["ui-kit.slider", "H1", "H4"],
+        blocked_by: &["H1", "H4"],
     },
     // A page costs no more frames than with the pictures' look off: a group
     // opened or left draws once, without the second whole-screen frame
@@ -235,7 +236,7 @@ fn settings_group_preview() {
 }
 
 #[test]
-#[ignore = "BLOCKED ui-kit.slider/H1/H4: the native plugin has no slider (numbers use − and +) and the kit draws none"]
+#[ignore = "BLOCKED H1/H4: the evenly spaced font-size track and its mirroring are not built; the kit's slider row is covered by the x4-pro-settings-light snapshot"]
 fn settings_font_slider() {
     CASES[9].refuse().unwrap();
 }
