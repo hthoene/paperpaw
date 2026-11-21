@@ -8,10 +8,10 @@ use paperpaw_sdk::native::snapshot::capture_snapshot;
 use paperpaw_sdk::native::storage::DataStorage;
 use paperpaw_sdk::native::{Error, Host, callbacks::DrawFrame, formatting::Arg};
 use paperpaw_ui_kit::page::{Face, Look, Page, Words as Dates};
-use paperpaw_ui_kit::widget::Align;
+use paperpaw_ui_kit::widget::{Align, LocalZone};
 
 use crate::files::DataFolder;
-use crate::native_screens::utc_day;
+use crate::native_screens::{day_in, today_in};
 use crate::native_widgets::{goal, weekday_of};
 use crate::store::{self, Day};
 use crate::texts::{HostWords, Words, duration, seconds_on, weekday_short};
@@ -39,20 +39,29 @@ fn top_of(seconds: &[u32; DAYS], goal: Option<u64>) -> u32 {
 }
 
 /// What the screen shows, read when it opens: today and the seconds read on
-/// it as the recorder has them (`None`: not known, then the log's), and the
-/// log of days.
+/// it as the recorder has them (`None`: not known, then the log's), the log
+/// of days and the time zone they are counted in.
 #[derive(Debug)]
 pub(crate) struct Prepared {
     counted: Option<(i32, u32)>,
     days: Vec<Day>,
+    zone: LocalZone,
 }
 
 impl Prepared {
-    /// Reads the log of days.
+    /// Reads the log of days, by the local day (UTC where the zone cannot be
+    /// read).
     pub(crate) fn read(host: &Host<'_>, counted: Option<(i32, u32)>) -> Self {
+        let zone = capture_snapshot(host)
+            .and_then(|snapshot| LocalZone::read(host, &snapshot))
+            .unwrap_or(LocalZone::fixed(0));
         let storage = DataStorage::new(host);
-        let days = store::days(&DataFolder(&storage), utc_day).unwrap_or_default();
-        Self { counted, days }
+        let days = store::days(&DataFolder(&storage), day_in(zone)).unwrap_or_default();
+        Self {
+            counted,
+            days,
+            zone,
+        }
     }
 }
 
@@ -65,12 +74,16 @@ pub(crate) fn draw(
     frame: &mut DrawFrame<'_>,
     prepared: &Prepared,
 ) -> Result<(), Error> {
-    let Prepared { counted, days } = prepared;
+    let Prepared {
+        counted,
+        days,
+        zone,
+    } = prepared;
     let counted = *counted;
-    let unix = capture_snapshot(host)?.unix_seconds();
+    let snapshot = capture_snapshot(host)?;
     let today = counted
         .map(|(day, _)| day)
-        .or_else(|| unix.and_then(|unix| u32::try_from(unix).ok()).map(utc_day));
+        .or_else(|| today_in(*zone, &snapshot));
     let look = Look::open(host)?;
     let mut page = look.page(frame)?;
     let mut words = Dates::new(host)?;
@@ -149,7 +162,7 @@ pub(crate) fn draw(
         Align::Left,
         &best,
     )?;
-    let foot = words.stand((FOOT.0, FOOT.1), unix.unwrap_or(0), &[])?;
+    let foot = words.stand((FOOT.0, FOOT.1), snapshot.unix_seconds().unwrap_or(0), &[])?;
     page.footer(&foot)?;
     page.show(frame)
 }

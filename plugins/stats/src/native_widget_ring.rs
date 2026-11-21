@@ -36,7 +36,7 @@ struct Numbers {
 
 /// The numbers, if the device knows the time.
 fn numbers(cx: &Cx<'_>, goal: Option<u64>) -> Result<Option<Numbers>, Error> {
-    let Some((today, days)) = days(cx)? else {
+    let Some((_, today, days)) = days(cx)? else {
         return Ok(None);
     };
     let least = goal.map_or(1, |g| g.min(u64::from(u32::MAX)) as u32);
