@@ -11,6 +11,7 @@ use alloc::vec::Vec;
 use paperpaw_sdk::native::{
     Error, Host,
     document::{Documents, FormatCursor},
+    net::MAX_SERVED_BODY,
     storage::Root,
 };
 use paperpaw_ui_kit::{
@@ -57,6 +58,11 @@ pub fn build(host: &Host<'_>) -> Result<Vec<u8>, Error> {
     let library = setting_text(host, LIBRARY)?;
     join(&mut json, ",name:", &name)?;
     join(&mut json, ",library:", library.trim_matches('/'))?;
+    // The most a file may be, in MiB: the host refuses a larger one before
+    // a byte (`413`), so the page says so instead of "not received" (#459).
+    json.try_reserve(16).map_err(|_| Error::NoMemory)?;
+    core::fmt::Write::write_fmt(&mut json, format_args!(",maxMb:{}", MAX_SERVED_BODY >> 20))
+        .map_err(|_| Error::NoMemory)?;
     json.try_reserve(32).map_err(|_| Error::NoMemory)?;
     json.push_str(",books:[");
     for (i, extension) in book_extensions(host)?.iter().enumerate() {
@@ -165,9 +171,9 @@ mod tests {
     }
 
     /// Every text the page reads is one the page names, and the page
-    /// does not read a text that is not given (`T.name`, `T.library` and `T.books`
-    /// are the three the plugin adds; `T.noMove` is never set, so the page
-    /// shows *Move* and *Rename*).
+    /// does not read a text that is not given (`T.name`, `T.library`, `T.books`
+    /// and `T.maxMb` are the ones the plugin adds; `T.noMove` is never set, so
+    /// the page shows *Move* and *Rename*).
     #[test]
     fn every_text_the_page_reads_is_given() {
         let mut read: Vec<&str> = Vec::new();
@@ -180,9 +186,30 @@ mod tests {
         let given: Vec<&str> = crate::PAGE_TEXTS.iter().map(|(name, _)| *name).collect();
         for name in read {
             assert!(
-                given.contains(&name) || ["name", "library", "books", "noMove"].contains(&name),
+                given.contains(&name)
+                    || ["name", "library", "books", "maxMb", "noMove"].contains(&name),
                 "{name}"
             );
+        }
+    }
+
+    /// A file over what the host takes is said to be too large, with the
+    /// most it takes: before it is sent, and where the host answers 413
+    /// (#459: it was "not sent: 413" after the whole upload).
+    #[test]
+    fn a_file_over_the_hosts_limit_is_said_to_be_too_large() {
+        assert_eq!(MAX_SERVED_BODY >> 20, 64);
+        assert!(PAGE.contains("if (item.file.size > T.maxMb * 1048576) return done(tooLarge);"));
+        assert!(PAGE.contains("request.status == 413 ? tooLarge"));
+        for catalog in [
+            include_str!("../i18n/en.ini"),
+            include_str!("../i18n/de.ini"),
+        ] {
+            let text = catalog
+                .lines()
+                .find_map(|l| l.strip_prefix("transfer.web.too-large = "))
+                .unwrap();
+            assert!(text.contains("{max} MB"), "{text}");
         }
     }
 }

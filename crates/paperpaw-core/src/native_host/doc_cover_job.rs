@@ -97,8 +97,11 @@ impl DocState {
     ///
     /// Says when the wait of a job (or a start held back) that only time
     /// holds ends (the kernel's clock, ms), so that the pump asks to be woken
-    /// then: `None` while a list is up (its leaving makes a pass), without
-    /// anything to wait for, or with no hold.
+    /// then: `None` without anything to wait for, or with no hold. While a
+    /// list is up the job waits for its leaving (which makes a pass), but a
+    /// cover the list asked for and that was held back waits for the quiet
+    /// time only (`cover_jobs_released`): its end is said, or a list on an
+    /// idle device would wait for its covers until the next input.
     pub(super) fn list_hold(&self, up: bool, quiet_until: u64) -> Option<u64> {
         let now = self.now.get();
         self.input_quiet_until.set(quiet_until);
@@ -115,9 +118,13 @@ impl DocState {
         if self.table.set_list_hold(hold) && !hold {
             self.job_started.set(now);
         }
+        if up {
+            let released = self.job_resume_at.get().max(quiet_until);
+            return (self.job_held_back.get() && now < released).then_some(released);
+        }
         let waiting = self.table.cover_job().is_some() || self.job_held_back.get();
         let at = list_over.max(quiet_until);
-        (hold && !up && waiting).then_some(at)
+        (hold && waiting).then_some(at)
     }
 
     /// What the job that runs has run since it began (or since this was last

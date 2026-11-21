@@ -3,7 +3,7 @@
 use crate::{
     declarations,
     native_model::{self, Facts, Kind, MOST_LINES, MOST_PAGES, Texts},
-    stages,
+    native_pages, stages,
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -18,7 +18,8 @@ use paperpaw_sdk::{
         registrations,
         reply::Reply,
         stages::Stage,
-        ui::{Instance, Open},
+        storage::DataStorage,
+        ui::{Instance, Notify, Open, Param, Ui},
     },
 };
 use paperpaw_ui_kit::read_event;
@@ -40,12 +41,17 @@ const SCREEN: u32 = crate::declarations::SCREEN_TOKEN;
 struct View {
     kinds: Vec<Kind>,
     list: ItemList,
+    /// The start of the licences' page: PaperPaw's version, the
+    /// introduction, the source and the lines other plugins added.
+    licences_start: String,
 }
 
 /// The interface-7 About plugin.
 #[derive(Debug, Default)]
 pub struct NativeAbout {
     device: Option<Device>,
+    /// `core.ui`, for handing a page to the reader; opened when first needed.
+    ui: Option<Ui>,
     screens: Screens<View>,
 }
 
@@ -107,22 +113,80 @@ impl Plugin for NativeAbout {
         };
         let step = view.list.input(host, &input)?;
         if let ItemStep::Chosen(index) = step {
-            return match view.kinds.get(index) {
-                // BLOCKED (#228): the text of these rows opens in the reader with
-                // `command.open` into `core.reader` and `root` = `5` ("handed":
-                // the reader may read the Data of the plugin that handed it the
-                // path, draft 22 `doc_open.root` 5). Until that merges the rows
-                // refuse plainly rather than fake; the rest of the page works.
-                Some(Kind::Licences | Kind::BuiltIn) => Err(Error::Unsupported),
-                // The lines other plugins added are shown, not opened.
-                _ => Ok(Handled::Yes),
+            let page = match view.kinds.get(index) {
+                Some(Kind::Licences) => {
+                    let storage = DataStorage::new(host);
+                    native_pages::write_licences(&storage, &view.licences_start)
+                        .map(|()| native_pages::LICENCES_FILE)
+                }
+                Some(Kind::BuiltIn) => self.write_plugins(host),
+                // The other rows are shown, not opened.
+                _ => return Ok(Handled::Yes),
             };
+            self.read(host, page)?;
+            return Ok(Handled::Yes);
         }
         Ok(ItemList::handled(step))
     }
 }
 
 impl NativeAbout {
+    /// Hands the page written at `page` to the reader; where it could not be
+    /// written or handed over, says that it could not be shown.
+    fn read(&mut self, host: &Host<'_>, page: Result<&str, Error>) -> Result<(), Error> {
+        let handed = page.and_then(|path| {
+            if self.ui.is_none() {
+                self.ui = Some(Ui::open(host)?);
+            }
+            let ui = self.ui.as_ref().ok_or(Error::State)?;
+            let params = [Param::new("root", "0")?, Param::new("path", path)?];
+            let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+            let handover = ui.handover(host, &params, &mut input, &mut out)?;
+            let mut scratch = [0; 128];
+            CommandSender::new(host, &mut scratch)
+                .open(Open::slot("core.reader")?.handover(handover))
+        });
+        if handed.is_ok() {
+            return Ok(());
+        }
+        let text = Messages::new()?.copy(host, "about.not-shown")?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+    }
+
+    /// Writes the list of the plugins built in, with their versions, to
+    /// [`native_pages::PLUGINS_FILE`]; read from the device now (the page
+    /// keeps only their names).
+    fn write_plugins(&self, host: &Host<'_>) -> Result<&'static str, Error> {
+        let device = self.device.as_ref().ok_or(Error::State)?;
+        let mut messages = Messages::new()?;
+        let title = messages.copy(host, "about.plugins.title")?;
+        let help = messages.copy(host, "about.plugins.help")?;
+        let mut text = String::new();
+        let mut add = |parts: &[&str]| -> Result<(), Error> {
+            for part in parts {
+                text.try_reserve(part.len()).map_err(|_| Error::NoMemory)?;
+                text.push_str(part);
+            }
+            Ok(())
+        };
+        add(&["# ", &title, "\n\n", &help, "\n\n"])?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let mut cursor = DeviceCursor::start();
+        for _ in 0..MOST_PAGES {
+            let page = device.builtins(host, cursor, &mut input, &mut out)?;
+            for plugin in page.rows() {
+                add(&["- ", plugin.id(), " ", plugin.version(), "\n"])?;
+            }
+            match page.end().next_cursor() {
+                Some(next) => cursor = next,
+                None => break,
+            }
+        }
+        native_pages::write_plugins(&DataStorage::new(host), &text)?;
+        Ok(native_pages::PLUGINS_FILE)
+    }
+
     fn opened(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         if self.device.is_none() {
             self.device = Some(Device::open(host)?);
@@ -132,6 +196,7 @@ impl NativeAbout {
         let mut messages = Messages::new()?;
         let texts = texts(host, &mut messages, &facts)?;
         let rows = native_model::rows(&texts, &facts)?;
+        let licences_start = native_model::licences_start(&texts, &facts)?;
         let mut kinds = Vec::new();
         let mut items = Vec::new();
         for (kind, item) in rows {
@@ -143,6 +208,7 @@ impl NativeAbout {
             View {
                 kinds,
                 list: ItemList::new(items),
+                licences_start,
             },
         )
     }
@@ -289,5 +355,6 @@ fn texts(host: &Host<'_>, messages: &mut Messages, facts: &Facts) -> Result<Text
         licences: messages.copy(host, "about.licences")?,
         licences_help: messages.copy(host, "about.licences.help")?,
         credits: messages.copy(host, "about.credits")?,
+        intro: messages.copy(host, "about.intro")?,
     })
 }

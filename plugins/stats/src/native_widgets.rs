@@ -9,7 +9,7 @@
 //! The pieces the widgets share (the figures, the shades, the captions) are
 //! here; each widget is a module of its own.
 use crate::files::DataFolder;
-use crate::native_screens::{failed, utc_day};
+use crate::native_screens::{day_in, failed, today_in};
 use crate::store::{self, Day};
 use crate::texts::Words;
 use alloc::{string::String, vec::Vec};
@@ -24,7 +24,7 @@ use paperpaw_sdk::{Color, Rect};
 use paperpaw_ui_kit::widget::layout::{caption, caption_height};
 use paperpaw_ui_kit::widget::settings::text_of;
 use paperpaw_ui_kit::widget::text::{Wrapped, largest_size};
-use paperpaw_ui_kit::widget::{Cx, Look, TextSize};
+use paperpaw_ui_kit::widget::{Cx, LocalZone, Look, TextSize};
 use paperpaw_ui_kit::{Paint, geometry, paint};
 
 use crate::declarations::{
@@ -289,39 +289,33 @@ pub(crate) fn stamp(host: &Host<'_>) -> Result<u64, Error> {
     Ok(hash)
 }
 
-/// The day now (UTC until the system zone comes with the snapshot), if the
-/// device knows the time.
+/// The local day now, if the device knows the time.
 ///
 /// # Errors
 /// Host refusals.
 pub(crate) fn today_of(host: &Host<'_>) -> Result<Option<i32>, Error> {
-    Ok(capture_snapshot(host)?
-        .unix_seconds()
-        .and_then(|unix| u32::try_from(unix).ok())
-        .map(utc_day))
+    let snapshot = capture_snapshot(host)?;
+    Ok(today_in(LocalZone::read(host, &snapshot)?, &snapshot))
 }
 
-/// Today and the days read, if the device knows the time.
+/// The local time zone, today in it and the days read, if the device knows
+/// the time.
 ///
 /// # Errors
 /// Host refusals and [`Error::NoMemory`].
-pub(crate) fn days(cx: &Cx<'_>) -> Result<Option<(i32, Vec<Day>)>, Error> {
-    let Some(today) = cx
-        .snapshot
-        .unix_seconds()
-        .and_then(|unix| u32::try_from(unix).ok())
-        .map(utc_day)
-    else {
+pub(crate) fn days(cx: &Cx<'_>) -> Result<Option<(LocalZone, i32, Vec<Day>)>, Error> {
+    let zone = LocalZone::read(cx.host, &cx.snapshot)?;
+    let Some(today) = today_in(zone, &cx.snapshot) else {
         return Ok(None);
     };
     let storage = DataStorage::new(cx.host);
     // A log that cannot be read shows as no days (as interface 6 did).
-    let days = match store::days(&DataFolder(&storage), utc_day) {
+    let days = match store::days(&DataFolder(&storage), day_in(zone)) {
         Ok(days) => days,
         Err(error) if failed(error) == Error::NoMemory => return Err(Error::NoMemory),
         Err(_) => Vec::new(),
     };
-    Ok(Some((today, days)))
+    Ok(Some((zone, today, days)))
 }
 
 /// The catalog of a widget's context as the plugin's texts.

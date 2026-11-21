@@ -319,6 +319,44 @@ pub(crate) fn native_binding_ok(layer: &str, input: &str, action: &str) -> bool 
         && (action.is_empty() || full_id(action).is_ok())
 }
 
+/// Whether binding `changes` (an input and its new action, empty for none), in
+/// order, in the global layer of `keys` leaves that layer without an input to
+/// the main menu that the device has, where it had one: such a
+/// `command.bind_key` batch is refused (`registry.md` section 4.2). An input
+/// that is none, or one the device lacks, changes nothing.
+pub(crate) fn binds_away_the_menu<'a>(
+    keys: &dyn paperpaw_sdk::keys::KeyBindings,
+    has: &DeviceInputs,
+    changes: impl Iterator<Item = (&'a str, &'a str)>,
+) -> bool {
+    let mut global: Vec<(InputKey, bool)> = keys
+        .bindings(GLOBAL_KEYMAP_LAYER)
+        .into_iter()
+        .filter_map(|(name, action, _)| {
+            let input = InputKey::parse(&name).filter(|input| has.has(input))?;
+            Some((input, action.is_some_and(|id| id.as_str() == MENU)))
+        })
+        .collect();
+    let reaches = |global: &[(InputKey, bool)]| global.iter().any(|(_, menu)| *menu);
+    if !reaches(&global) {
+        return false;
+    }
+    for (input, action) in changes {
+        let Some(input) = InputKey::parse(input).filter(|input| has.has(input)) else {
+            continue;
+        };
+        let menu = action == MENU;
+        match global.iter_mut().find(|(key, _)| *key == input) {
+            Some((_, opens)) => *opens = menu,
+            None => global.push((input, menu)),
+        }
+    }
+    !reaches(&global)
+}
+
+/// The main menu's action, which the global layer keeps an input to.
+const MENU: &str = "core.menu";
+
 /// What came of a native plugin's binding (`Keymap::bind_native`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Native {
@@ -762,7 +800,6 @@ impl Keymap {
         action: Option<&Id>,
         has: &DeviceInputs,
     ) -> bool {
-        const MENU: &str = "core.menu";
         if action.is_some_and(|id| id.as_str() == MENU) {
             return false;
         }

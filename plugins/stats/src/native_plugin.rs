@@ -15,6 +15,7 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_sdk::{DirEntry, Handled, Storage, StorageError};
 use paperpaw_ui_kit::Screens;
+use paperpaw_ui_kit::widget::LocalZone;
 
 use crate::files::DataFolder;
 use crate::native_calendar::CalendarView;
@@ -438,8 +439,7 @@ impl NativeStats {
             Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
             None => None,
         };
-        let today = today_of(host)?;
-        let view = OverviewView::new(host, &data, today, current)?;
+        let view = OverviewView::new(host, &data, current)?;
         self.screens.open(instance, View::Overview(view))
     }
 
@@ -450,7 +450,7 @@ impl NativeStats {
         instance: paperpaw_sdk::native::ui::Instance,
     ) -> Result<(), Error> {
         let storage = DataStorage::new(host);
-        let view = CalendarView::new(host, &DataFolder(&storage), today_of(host)?)?;
+        let view = CalendarView::new(host, &DataFolder(&storage))?;
         self.screens.open(instance, View::Calendar(view))
     }
 
@@ -492,14 +492,6 @@ impl NativeStats {
     }
 }
 
-/// The local day (UTC until draft 25), none until the device knows the time.
-fn today_of(host: &Host<'_>) -> Result<Option<i32>, Error> {
-    Ok(capture_snapshot(host)?
-        .unix_seconds()
-        .and_then(|unix| u32::try_from(unix).ok())
-        .map(native_screens::utc_day))
-}
-
 /// What the recorder has to say: the card could not be written to, once.
 /// (Today's reading is asked for through the stage, not sent.) The notice is
 /// best effort: a refusal to show it is not the event's error (the recording
@@ -537,6 +529,8 @@ struct HostCx<'h, 'cb> {
     files: FilesRead<'h, 'cb>,
     now_ms: u64,
     snapshot: Option<Snapshot>,
+    /// The time zone days are counted in: UTC where it cannot be read.
+    zone: LocalZone,
 }
 
 /// Runs `then` with the surroundings of an event at `now_ms` (0: a call
@@ -544,6 +538,9 @@ struct HostCx<'h, 'cb> {
 fn with_cx<R>(host: &Host<'_>, now_ms: u64, then: impl FnOnce(&HostCx<'_, '_>) -> R) -> R {
     let storage = DataStorage::new(host);
     let snapshot = capture_snapshot(host).ok();
+    let zone = snapshot
+        .and_then(|snapshot| LocalZone::read(host, &snapshot).ok())
+        .unwrap_or(LocalZone::fixed(0));
     let cx = HostCx {
         host,
         data: DataFolder(&storage),
@@ -554,6 +551,7 @@ fn with_cx<R>(host: &Host<'_>, now_ms: u64, then: impl FnOnce(&HostCx<'_, '_>) -
             now_ms
         },
         snapshot,
+        zone,
     };
     then(&cx)
 }
@@ -590,9 +588,8 @@ impl Surroundings for HostCx<'_, '_> {
         let snapshot = self.snapshot?;
         crate::recorder::unix_at(snapshot.unix_seconds()?, snapshot.instant().millis(), at_ms)
     }
-    /// UTC days until the system time zone comes with the snapshot (draft 25).
     fn day_of(&self, unix: u32) -> i32 {
-        (unix / 86_400) as i32
+        self.zone.day_of(i64::from(unix))
     }
     fn limits(&self) -> Limits {
         Limits {

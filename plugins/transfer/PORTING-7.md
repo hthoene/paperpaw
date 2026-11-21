@@ -294,3 +294,9 @@ and the emulator do not offer it, and a required feature that is missing refuses
 admission (`make` ended with status -1, *not registered*). Without it the plugin registers and works;
 a plugin sent from the computer (Wi-Fi page or cable) is refused by the host (*not allowed*) and the
 computer is told so. Test: `hosted_construction::make_registers_where_the_host_offers_no_install_feature`.
+
+## Too large for the device (#459)
+
+The host takes bodies up to `MAX_SERVED_BODY` (64 MiB) and answers 413 before a byte to a larger one.
+The page gets the limit (`T.maxMb`) and says `transfer.web.too-large` before it sends such a file, and
+for a 413, instead of "not sent: 413" after the upload.

@@ -20,10 +20,11 @@ use paperpaw_ui_kit::{
 };
 
 use crate::native_chart;
-use crate::native_screens::{failed, message, open_book, utc_day};
+use crate::native_screens::{day_in, failed, local_today, message, open_book};
 use crate::overview_rows::{self, Chart, Facts, Tile, Way};
 use crate::store;
 use crate::texts::{HostWords, Words};
+use paperpaw_ui_kit::widget::LocalZone;
 
 /// Whether a way's screen is on interface 7: all of them are.
 fn shown(_way: &Way) -> bool {
@@ -50,28 +51,30 @@ pub(crate) struct OverviewView {
 }
 
 impl OverviewView {
-    /// Reads the figures over `data`; `today` is the local day (none until the
-    /// device knows the time) and `current` the book being read.
+    /// Reads the figures over `data`, by the local day; `current` is the book
+    /// being read.
     pub(crate) fn new(
         host: &Host<'_>,
         data: &dyn Storage,
-        today: Option<i32>,
         current: Option<u16>,
     ) -> Result<Self, Error> {
-        Self::build(&mut HostWords::new(host)?, data, today, current)
+        let (zone, today) = local_today(host)?;
+        Self::build(&mut HostWords::new(host)?, data, zone, today, current)
     }
 
-    /// As [`Self::new`], with the texts given.
+    /// As [`Self::new`], with the texts, the time zone and today (none until
+    /// the device knows the time) given.
     pub(crate) fn build(
         words: &mut impl Words,
         data: &dyn Storage,
+        zone: LocalZone,
         today: Option<i32>,
         current: Option<u16>,
     ) -> Result<Self, Error> {
-        let days = store::days(data, utc_day).map_err(failed)?;
+        let days = store::days(data, day_in(zone)).map_err(failed)?;
         let books = store::count_books(data).map_err(failed)?;
         let today_pages = match today {
-            Some(day) => overview_rows::distinct_pages(data, day, utc_day)?,
+            Some(day) => overview_rows::distinct_pages(data, day, day_in(zone))?,
             None => 0,
         };
         let facts = Facts {

@@ -36,6 +36,7 @@ fn every_key_the_native_plugin_asks_for_is_in_both_languages() {
                         | "files.shelf"
                         | "files.shelves"
                         | "files.favourites"
+                        | "files.find"
                         | "files.sort"
                         | "files.archive"
                         | "files.view"

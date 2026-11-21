@@ -15,6 +15,7 @@ use paperpaw_sdk::annotations::Kind;
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::native::Error;
 use paperpaw_ui_kit::{
+    files::{self, Volume},
     mem::push,
     text::{concat, copy, decimal_u64},
 };
@@ -583,23 +584,29 @@ pub fn exchange_file(book: &str) -> Result<String, Error> {
     ])
 }
 
-/// Where the annotations both sides had at the last exchange are kept, in
-/// `plugin_dir` (the plugin's folder): named by the book's key.
+/// What Beta 3 knew of the book with `key`: `<key>.txt` in the plugin's
+/// folder, the lines [`parse_known`] reads (#459). It is moved to `name`,
+/// where Beta 4 keeps it: written there first and only then removed, so
+/// a failure leaves it for the next exchange. `None` where Beta 3 kept
+/// nothing for the book.
 ///
 /// # Errors
-/// `NoMemory` when the name cannot be kept.
-pub fn known_file(plugin_dir: &str, book: &str) -> Result<String, Error> {
-    // The book's key (`library::key`): 16 hex digits of the FNV-1a hash of its
-    // path, whose values never change; made here without an allocation.
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let hash = paperpaw_sdk::digest::fnv1a64(book);
-    let mut digits = [0u8; 16];
-    for (at, digit) in digits.iter_mut().enumerate() {
-        let nibble = usize::try_from((hash >> ((15 - at) * 4)) & 15).unwrap_or(0);
-        *digit = HEX.get(nibble).copied().unwrap_or(b'0');
+/// [`Error::NoSpace`] for a file larger than `max`, `NoMemory`, or the
+/// volume's refusal to read it.
+pub fn carry_over(
+    v: &impl Volume,
+    key: &str,
+    name: &str,
+    max: usize,
+) -> Result<Option<Vec<u8>>, Error> {
+    let old = concat(&[key, ".txt"])?;
+    let Some(bytes) = files::read_all_on(v, &old, max)? else {
+        return Ok(None);
+    };
+    if files::replace_on(v, name, &bytes).is_ok() {
+        v.remove(&old).ok();
     }
-    let key = core::str::from_utf8(&digits).unwrap_or_default();
-    concat(&[plugin_dir, "/", key, ".txt"])
+    Ok(Some(bytes))
 }
 
 /// A fingerprint of `note` (64-bit FNV-1a): whether it changed since.

@@ -151,8 +151,8 @@ pub fn wired_lookup() {
 /// offered are made (`paperpaw_x4::native_offer`): `core.work` with `core.net` and
 /// `core.sockets` (one wiring), the card's three, and `core.secrets`: the groups
 /// the lists are kept in, static. `wifi`:
-/// the kernel has a Wi-Fi model.
-pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
+/// the kernel has a Wi-Fi model; `bluetooth`: it has a Bluetooth radio model.
+pub fn wired_families(wifi: bool, bluetooth: bool) -> paperpaw_x4::native_offer::Wired {
     use core::sync::atomic::Ordering::Relaxed;
     let wired = WIRED.load(Relaxed);
     let (work, card) = (wired & WIRED_WORK != 0, wired & WIRED_CARD != 0);
@@ -162,6 +162,7 @@ pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
         secrets: wired & WIRED_SECRETS != 0,
         lookup: wired & WIRED_LOOKUP != 0,
         wifi,
+        bluetooth,
     }
 }
 

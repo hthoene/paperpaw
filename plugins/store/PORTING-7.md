@@ -151,9 +151,9 @@ finishes the port; until then nothing is dropped.
   (interface 6's `plugin-origin.txt`, its one-time adoption of the plugins installed
   before included) and forgets it on another install or a removal; the store keeps no
   record of its own. Built-in and linked plugins are never the store's.
-- **The screen runs `check_file` first** and passes `flash_hint` from the device
-  layout: `no_room` is only set after a check, so without it *Install* shows and the
-  install ends in reason 13 instead of saying *no room* beforehand.
+- **No room is said once the host's check said it** (reason 13 of an install, as
+  above): the store runs no `check_file` before the download, so *Install* shows until
+  then (#459 checked this line, which said otherwise).
 - Fallible (`NoMemory`; sweep in `tests/native_page_refusal.rs`); nothing indexes
   text; no host call.
 
@@ -439,3 +439,11 @@ in place; its removal comes with the PR that finishes the port).
   the reader).
 - The wiring items above, the metadata `used` list, and the heap measurement against
   Beta 3's 99.9 KiB (store start).
+
+## Offline mode: the offer to go online for the list (#459)
+
+Beta 3's start offered *Go online* where Offline mode held the list back; the native start said
+*No connection* and a tap asked again in vain. `Loader::held_offline` is set where the list's
+request ended `Reason::Offline` (the host's Offline mode), the start says `store.offline.offer`
+under *Offline mode*, and *Select* or a tap sends `command.go_online` (`uses.wifi`, 5 minutes, as
+the fonts' browser) before it asks again.

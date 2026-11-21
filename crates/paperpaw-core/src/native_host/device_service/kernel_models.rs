@@ -80,7 +80,7 @@ impl crate::Kernel {
 }
 
 /// `dev_bonded.kind`: 0 other, 1 keyboard, 2 remote, 3 sensor, 4 phone.
-fn kind_code(kind: DeviceKind) -> u32 {
+pub(crate) fn kind_code(kind: DeviceKind) -> u32 {
     match kind {
         DeviceKind::Keyboard => 1,
         DeviceKind::Remote => 2,

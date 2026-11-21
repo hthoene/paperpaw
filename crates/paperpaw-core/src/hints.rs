@@ -79,7 +79,7 @@ impl Kernel {
         if active.screen.mode().is_full_screen() {
             return HintVisibility::Hidden;
         }
-        active.screen.hints().unwrap_or(HintVisibility::Shown)
+        active.hints().unwrap_or(HintVisibility::Shown)
     }
 
     /// Shows the row for a while over a screen that has it on a press.

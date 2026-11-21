@@ -44,5 +44,5 @@ its Beta 3 version 1.0.5: no further bump).
   whole.
 - A place's name, region and country are cut at 120 and 80 bytes.
 - The weekday of a date near the ends of `i32` no longer overflows.
-- The line in *About* naming Open-Meteo comes through `about.lines`, a contribution the host takes
-  later.
+- The line in *About* naming Open-Meteo comes through the stage `about.lines` (the plugin subscribes
+  and answers with `weather.about`, as wikipedia does; #459).

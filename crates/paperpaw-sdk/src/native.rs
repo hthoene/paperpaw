@@ -13,9 +13,12 @@
 //! `versions.env`), and a new one is a new interface (ADR 0026). A plugin
 //! file names the compiler that built it ([`compiler`]), and a device
 //! loads it only where that built the firmware too.
-//! [`FINGERPRINT`] says which, and a device loads only files with its own
-//! ([`Native::fingerprint`]); its top 16 bits are the interface's version,
-//! so a file of another can say so ([`Fingerprint::interface`]). A plugin
+//! [`FINGERPRINT`] says which: a device loads a format-4 file only with its
+//! own ([`Native::fingerprint`]); its top 16 bits are the interface's
+//! version, so a file of another can say so ([`Fingerprint::interface`]).
+//! A format-5 file (interface 7) carries no fingerprint: it names the
+//! interface's major and the newest minor it needs, and runs where the
+//! firmware has that minor ([`Native::minor`]). A plugin
 //! built for an interface runs on every PaperPaw of it, whichever release
 //! made the plugin. `docs/plugins.md` says how a plugin is built, packed
 //! (`paperpaw-sign pack`), signed and published.
@@ -54,12 +57,15 @@ pub const INTERFACE: u16 = 7;
 /// The draft of [`INTERFACE`] this build is, while the owner has not frozen
 /// it. A draft may change what plugins see without a new interface, but
 /// each such change takes the next draft, and the draft is part of
-/// [`FINGERPRINT`]: a plugin built for an earlier draft is refused, never
-/// loaded. `crates/paperpaw-sdk/interface.txt` keeps it as `draft`.
+/// [`FINGERPRINT`]: a format-4 file built for an earlier draft is refused,
+/// never loaded. A format-5 file carries no draft (only the major and the
+/// minor it needs), so one built for an earlier draft of interface 7 runs
+/// unchanged where its additions were appended only.
+/// `crates/paperpaw-sdk/interface.txt` keeps it as `draft`.
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 37;
+pub const DRAFT: u16 = 38;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it

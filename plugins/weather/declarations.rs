@@ -5,7 +5,7 @@
 //! plugin subscribes to. `build.rs` turns it into the image's batches.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind,
-    ScreenDecl, SpecDecl, WidgetDecl,
+    ScreenDecl, SpecDecl, SubscribeDecl, WidgetDecl,
 };
 pub use paperpaw_ui_kit::widget::options::Opt;
 use paperpaw_ui_kit::widget::options::{declare_all, shared_look};
@@ -24,6 +24,8 @@ pub const HTTP_TOKEN: u32 = 4;
     reason = "only the plugin schedules work; the build script sees the declarations alone"
 )]
 pub const WORK_TOKEN: u32 = 5;
+/// The token of the answers to `about.lines`.
+pub const ABOUT_TOKEN: u32 = 6;
 /// The widget *Weather now*.
 pub const NOW_TOKEN: u32 = 20;
 /// The widget *Forecast*.
@@ -288,6 +290,18 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.subscribe_event(kind, LIFECYCLE_TOKEN)?;
     }
     d.subscribe_event(EventKind::HttpDone, HTTP_TOKEN)?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The line in *About* that names Open-Meteo and the data's licence (CC BY
+/// 4.0 asks for both, as Beta 3 named them): the plugin answers
+/// `about.lines` (`stages/subscribed/about.lines@1.def`, a copy of the
+/// owner's schema, held to it by a test).
+pub fn about<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe(SubscribeDecl::new("about.lines", ABOUT_TOKEN))?;
     d.submit()?;
     Ok(())
 }

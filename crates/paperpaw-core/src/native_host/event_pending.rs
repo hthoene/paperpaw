@@ -244,6 +244,11 @@ impl Pending {
         !self.edges.is_empty()
     }
 
+    /// Whether an edge of event `tag` waits.
+    pub(crate) fn holds(&self, tag: u32) -> bool {
+        self.edges.iter().any(|edge| edge.tag == tag)
+    }
+
     /// Marks the lifecycle event `tag` (one of [`CORE_TAGS`]) pending: a
     /// second one before the first was told is one. No allocation.
     pub(crate) fn core(&mut self, tag: u32) -> Result<(), i32> {

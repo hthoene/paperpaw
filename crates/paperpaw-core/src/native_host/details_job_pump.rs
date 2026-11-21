@@ -242,6 +242,7 @@ impl crate::Kernel {
                 // step of a book that prepares (this pass's preparing loop
                 // came before it), or the next book.
                 self.native_outbox_run();
+                // What it tells the library is taken by the next look's pass.
                 self.native_cover_job_pump();
                 Some(self.native_job_due())
             }

@@ -39,7 +39,7 @@ fn the_page_opens_where_the_device_answers_unsupported() {
         &hosted::Setup::x4().with_kernel(catalogs),
         paperpaw_plugin_about::NATIVE_ENTRY.entry(),
         "about",
-        &["core.device"],
+        &["core.device", "core.ui"],
     )
     .expect("installed");
     let kernel = installed.kernel();

@@ -137,7 +137,7 @@ fn work_out(
     heat: bool,
     (weeks, first_day): (u8, u8),
 ) -> Result<Option<Shown>, Error> {
-    let Some((today, days)) = days(cx)? else {
+    let Some((_, today, days)) = days(cx)? else {
         return Ok(None);
     };
     let (first, last, weeks) = if heat {

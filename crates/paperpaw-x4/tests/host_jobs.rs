@@ -82,6 +82,7 @@ fn plugin_jobs_check_a_plugin_against_what_the_loader_offers_a_card_plugin() {
                 secrets: bits & 4 != 0,
                 wifi: bits & 8 != 0,
                 lookup: false,
+                bluetooth: false,
             };
             let (loader, offered) = plugin_host(family, wired);
             let theirs = card_host(

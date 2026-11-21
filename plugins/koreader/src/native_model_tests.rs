@@ -144,7 +144,6 @@ fn tables_are_used_and_built() {
 
 #[test]
 fn the_names_beside_a_book() {
-    let dir = paperpaw_sdk::data::plugin_dir("koreader");
     let name = |book: &str| {
         (
             native::sidecar(book).unwrap(),
@@ -175,14 +174,6 @@ fn the_names_beside_a_book() {
             "x.y/b.c.sdr/metadata.epub.lua".into(),
             "x.y/b.c.sdr/b.c.epub.annotations.lua".into()
         )
-    );
-    assert_eq!(
-        native::known_file(&dir, "Books/a.epub").unwrap(),
-        ".paperpaw/plugins/koreader/7a3c21d7188a879f.txt"
-    );
-    assert_eq!(
-        native::known_file(&dir, "").unwrap(),
-        ".paperpaw/plugins/koreader/cbf29ce484222325.txt"
     );
 }
 
@@ -330,4 +321,90 @@ proptest! {
     fn any_text_of_what_is_known_is_read_without_panic(text in "[bh0-9a-f ets\\nm]{0,80}") {
         std::hint::black_box(native::parse_known(&text).is_ok());
     }
+}
+
+/// The plugin's data folder in memory.
+#[derive(Default)]
+struct Mem(core::cell::RefCell<std::collections::BTreeMap<String, Vec<u8>>>);
+
+impl paperpaw_ui_kit::files::Volume for Mem {
+    fn size(&self, name: &str) -> Result<u64, paperpaw_sdk::native::Error> {
+        let files = self.0.borrow();
+        let file = files
+            .get(name)
+            .ok_or(paperpaw_sdk::native::Error::NotFound)?;
+        Ok(file.len() as u64)
+    }
+    fn read_at(
+        &self,
+        name: &str,
+        at: u64,
+        out: &mut [u8],
+    ) -> Result<usize, paperpaw_sdk::native::Error> {
+        let files = self.0.borrow();
+        let file = files
+            .get(name)
+            .ok_or(paperpaw_sdk::native::Error::NotFound)?;
+        let from = usize::try_from(at).unwrap().min(file.len());
+        let n = out.len().min(file.len() - from);
+        out[..n].copy_from_slice(&file[from..from + n]);
+        Ok(n)
+    }
+    fn write(&self, name: &str, data: &[u8]) -> Result<(), paperpaw_sdk::native::Error> {
+        self.0.borrow_mut().insert(name.into(), data.into());
+        Ok(())
+    }
+    fn append(&self, name: &str, data: &[u8]) -> Result<(), paperpaw_sdk::native::Error> {
+        self.0
+            .borrow_mut()
+            .entry(name.into())
+            .or_default()
+            .extend_from_slice(data);
+        Ok(())
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), paperpaw_sdk::native::Error> {
+        let file = self
+            .0
+            .borrow_mut()
+            .remove(from)
+            .ok_or(paperpaw_sdk::native::Error::NotFound)?;
+        self.0.borrow_mut().insert(to.into(), file);
+        Ok(())
+    }
+    fn remove(&self, name: &str) -> Result<(), paperpaw_sdk::native::Error> {
+        self.0
+            .borrow_mut()
+            .remove(name)
+            .map(|_| ())
+            .ok_or(paperpaw_sdk::native::Error::NotFound)
+    }
+    fn sync(&self) -> Result<(), paperpaw_sdk::native::Error> {
+        Ok(())
+    }
+}
+
+#[test]
+fn what_beta_3_knew_of_a_book_moves_to_where_beta_4_keeps_it() {
+    // Beta 3 kept `<key>.txt` in the plugin's folder (#459): without it the
+    // first exchange starts empty, and a highlight removed on one side comes
+    // back from the other.
+    let key = "7a3c21d7188a879f";
+    let new = "books/koreader/7a3c21d7188a879f/known.txt";
+    let mem = Mem::default();
+    let beta3 = "theirs 4\nh 3 120 3 180 5d2c0000000000aa\n";
+    paperpaw_ui_kit::files::Volume::write(&mem, "7a3c21d7188a879f.txt", beta3.as_bytes()).unwrap();
+    let moved = native::carry_over(&mem, key, new, 4096).unwrap().unwrap();
+    assert_eq!(moved, beta3.as_bytes());
+    let last = native::parse_known(core::str::from_utf8(&moved).unwrap()).unwrap();
+    assert_eq!((last.known.len(), last.seen), (1, 4));
+    assert_eq!(
+        mem.0.borrow().get(new).map(Vec::as_slice),
+        Some(beta3.as_bytes())
+    );
+    assert!(!mem.0.borrow().contains_key("7a3c21d7188a879f.txt"));
+    // Nothing kept under Beta 3: nothing to carry over.
+    assert_eq!(
+        native::carry_over(&mem, "0000000000000000", new, 4096).unwrap(),
+        None
+    );
 }

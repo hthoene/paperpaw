@@ -328,22 +328,27 @@ impl NativeKoReader {
     /// library does not know the book.
     fn known(&self, host: &Host<'_>, book: &str) -> Result<Option<(String, Last)>, Error> {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let key = match self
-            .library()?
-            .book_key(host, BookRef::path(book)?, &mut input, &mut out)
-        {
-            Ok(key) => known_name(key.key())?,
-            Err(Error::NotFound | Error::State) => return Ok(None),
-            Err(error) => return Err(error),
+        let (key, name) =
+            match self
+                .library()?
+                .book_key(host, BookRef::path(book)?, &mut input, &mut out)
+            {
+                Ok(key) => (copy(key.key())?, known_name(key.key())?),
+                Err(Error::NotFound | Error::State) => return Ok(None),
+                Err(error) => return Err(error),
+            };
+        let bytes = match files::read_all(host, Root::Data, &name, MAX_KNOWN)? {
+            Some(bytes) => Some(bytes),
+            None => model::carry_over(&files::volume(host, Root::Data), &key, &name, MAX_KNOWN)?,
         };
-        let last = match files::read_all(host, Root::Data, &key, MAX_KNOWN)? {
+        let last = match bytes {
             Some(bytes) => {
                 let text = core::str::from_utf8(&bytes).map_err(|_| Error::Utf8)?;
                 model::parse_known(text)?
             }
             None => Last::default(),
         };
-        Ok(Some((key, last)))
+        Ok(Some((name, last)))
     }
 
     /// KOReader's side of `book`: its annotations file for KOReader while

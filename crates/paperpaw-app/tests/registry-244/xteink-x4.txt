@@ -1024,6 +1024,7 @@ action files.by-author | title=files.by-author sealed=false runs-itself=true nat
 action files.by-series | title=files.by-series sealed=false runs-itself=true native=Some(23)
 action files.by-tag | title=files.by-tag sealed=false runs-itself=true native=Some(24)
 action files.favourites | title=files.favourites sealed=false runs-itself=true native=Some(21)
+action files.find | title=files.list.find sealed=false runs-itself=true native=Some(26)
 action files.search | title=files.search sealed=false runs-itself=true native=Some(25)
 action files.shelves | title=files.shelves sealed=false runs-itself=true native=Some(20)
 action fonts-browser.open | title=fonts-browser.more sealed=false runs-itself=true native=Some(1)
@@ -1331,6 +1332,7 @@ menu-merged core.tools | store.open by=store order=90 kind=0 flags=0x22
 menu-merged core.tools | core.screenshot by=core order=95 kind=0 flags=0x22
 menu-merged files.menu | files.sort by=files order=10 kind=1 flags=0x22
 menu-merged files.menu | files.view by=files order=11 kind=1 flags=0x22
+menu-merged files.menu | files.find by=files order=20 kind=0 flags=0x22
 menu-merged files.menu | files.search by=files order=21 kind=0 flags=0x22
 menu-merged files.menu | core.library.look-again by=files order=25 kind=0 flags=0x22
 menu-merged files.menu | files.shelves by=files order=30 kind=2 flags=0x22
@@ -2369,7 +2371,7 @@ native Screen picture-home | ScreenSpec(ScreenSpec { name: "pick", title: "pictu
 native Screen picture-home | ScreenSpec(ScreenSpec { name: "status-items", title: "picture-home.setting.bar", token: 13, flags: 0 })
 native Screen plugin-manager | ScreenSpec(ScreenSpec { name: "list", title: "plugin-manager.title", token: 10, flags: 64 })
 native Screen plugin-manager | ScreenSpec(ScreenSpec { name: "screens", title: "plugin-manager.screens", token: 11, flags: 0 })
-native Screen reader | ScreenSpec(ScreenSpec { name: "screen", title: "reader.title", token: 10, flags: 4352 })
+native Screen reader | ScreenSpec(ScreenSpec { name: "screen", title: "reader.title", token: 10, flags: 20480 })
 native Screen reader | ScreenSpec(ScreenSpec { name: "toc", title: "reader.toc", token: 11, flags: 0 })
 native Screen reader | ScreenSpec(ScreenSpec { name: "annotations", title: "reader.annotations", token: 12, flags: 0 })
 native Screen reader | ScreenSpec(ScreenSpec { name: "skim-screen", title: "reader.skim", token: 13, flags: 4 })
@@ -2419,6 +2421,7 @@ native Action files | ActionSpec(ActionSpec { name: "by-author", title: "files.b
 native Action files | ActionSpec(ActionSpec { name: "by-series", title: "files.by-series", token: 23, flags: 0 })
 native Action files | ActionSpec(ActionSpec { name: "by-tag", title: "files.by-tag", token: 24, flags: 0 })
 native Action files | ActionSpec(ActionSpec { name: "search", title: "files.search", token: 25, flags: 0 })
+native Action files | ActionSpec(ActionSpec { name: "find", title: "files.list.find", token: 26, flags: 0 })
 native Action fonts-browser | ActionSpec(ActionSpec { name: "open", title: "fonts-browser.more", token: 1, flags: 0 })
 native Action fonts-browser | ActionSpec(ActionSpec { name: "own", title: "fonts-browser.own", token: 2, flags: 0 })
 native Action home | ActionSpec(ActionSpec { name: "all-tools", title: "home.drawer", token: 1, flags: 0 })
@@ -2550,6 +2553,7 @@ native MenuEntry files | MenuEntry(MenuEntry { menu: "files.shelves", item: "fil
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.shelves", item: "files.by-tag", order: 30, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.sort", order: 10, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.view", order: 11, place: 0, anchor: "" })
+native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.find", order: 20, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.search", order: 21, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "core.library.look-again", order: 25, place: 0, anchor: "" })
 native MenuEntry files | MenuEntry(MenuEntry { menu: "files.menu", item: "files.shelves", order: 30, place: 0, anchor: "" })
@@ -2623,6 +2627,7 @@ native Icon files | IconSpec(IconSpec { item: "files.by-author", icon: "user" })
 native Icon files | IconSpec(IconSpec { item: "files.by-series", icon: "list-details" })
 native Icon files | IconSpec(IconSpec { item: "files.by-tag", icon: "tag" })
 native Icon files | IconSpec(IconSpec { item: "files.search", icon: "search" })
+native Icon files | IconSpec(IconSpec { item: "files.find", icon: "letter-case" })
 native Icon files | IconSpec(IconSpec { item: "files.sort", icon: "sort-ascending" })
 native Icon files | IconSpec(IconSpec { item: "files.view", icon: "layout-grid" })
 native Icon files | IconSpec(IconSpec { item: "core.library-folder", icon: "folder" })

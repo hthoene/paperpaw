@@ -295,6 +295,39 @@ fn a_cover_held_for_the_users_quiet_time_wakes_the_device_when_it_is_over() {
 }
 
 #[test]
+fn a_released_cover_asks_for_another_pass_so_the_list_hears_it_at_once() {
+    use crate::native_host::{
+        lib_host::LibraryHost, lib_reads::tests::card, lib_service::LibWrite,
+    };
+    world(|w| {
+        let log = Rc::new(Log::default());
+        let (mut kernel, _opener) = kernel(w, &log);
+        let card = card();
+        let library = Rc::new(LibraryHost::new(
+            card.storage.clone(),
+            card.env.clone(),
+            None,
+        ));
+        let hosts = kernel.shared.native_instances.hosts().unwrap();
+        hosts.wire_library(library.clone()).unwrap();
+        kernel.shared.now = Instant(10_000);
+        w.state.now.set(10_000);
+        w.state.allow_cover_jobs();
+        // A list asked for a cover within the quiet time: held back.
+        w.state.cover_job_held_back();
+        kernel.shared.now = Instant(11_000);
+        w.state.now.set(11_000);
+        // The pass releases it and tells the library after the library's own
+        // pump: another pass is asked for, which takes the change for the
+        // list, not some later tick.
+        kernel.native_service_pump();
+        assert!(kernel.shared.native_instances.service_more());
+        assert!(kernel.service_due().is_some_and(|at| at.millis() == 11_000));
+        assert!(library.take_changed(&mut |_, _, _| {}), "bit 6 waits");
+    });
+}
+
+#[test]
 fn a_book_that_is_not_the_cover_job_is_stepped_at_once_again() {
     world(|w| {
         let log = Rc::new(Log::default());

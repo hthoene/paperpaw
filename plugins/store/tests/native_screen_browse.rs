@@ -14,8 +14,8 @@ use paperpaw_plugin_store::native_list::Hooks;
 use paperpaw_plugin_store::native_model::GROUPS;
 use paperpaw_plugin_store::native_page::{Installed, Kind, Origin};
 use paperpaw_plugin_store::native_screen_list::{
-    Counts, Row, Say, choose, count, empty_words, group_name, items, retry, rows, searched,
-    section_name,
+    Counts, Row, Say, choose, count, empty_words, group_name, items, offer_words, retry, rows,
+    searched, section_name,
 };
 use paperpaw_plugin_store::native_screen_view::{
     Act, Source, Top, Which, activation, first_from, hit_entry, mark, note, open_page, pick,
@@ -401,6 +401,15 @@ fn with_no_list_the_start_says_why_and_select_tries_again() {
     );
     assert_eq!(empty_words(Trouble::Loading, true), ("store.loading", ""));
     assert_eq!(empty_words(Trouble::None, true), ("store.loading", ""));
+    // Held back by Offline mode: the offer to go online (#459).
+    assert_eq!(
+        offer_words(true),
+        ("core.offline.title", "store.offline.offer")
+    );
+    assert_eq!(
+        offer_words(false),
+        ("core.offline.title", "store.offline.offer.buttons")
+    );
     assert!(retry(true, Trouble::Offline));
     assert!(retry(true, Trouble::Failed));
     assert!(!retry(true, Trouble::Loading));

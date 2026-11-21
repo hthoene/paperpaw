@@ -10,9 +10,11 @@ use paperpaw_sdk::native::declare::{
 pub const GUIDE: u32 = 20;
 /// The action that opens the guide.
 pub const OPEN: u32 = 1;
-/// Event tokens: the start, and a book opened.
+/// Event tokens: the start, a book opened, and a setting changed (the
+/// language: the guide's own words follow it).
 pub const STARTED: u32 = 2;
 pub const BOOK_OPENED: u32 = 3;
+pub const SETTING_CHANGED: u32 = 4;
 
 /// The guide (one at a time).
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
@@ -46,13 +48,15 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The first start (the guide opens once) and the first book opened (noted, so
-/// a device in use gets no guide).
+/// The first start (the guide opens once), the first book opened (noted, so
+/// a device in use gets no guide) and the settings changing (the language
+/// chosen on the first page changes the guide's words at once, as in Beta 3).
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Started, STARTED)?;
     d.subscribe_event(EventKind::BookOpened, BOOK_OPENED)?;
+    d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.submit()?;
     Ok(())
 }

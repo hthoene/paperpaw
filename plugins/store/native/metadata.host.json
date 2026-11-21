@@ -162,6 +162,10 @@
     {
       "key": "uses.registry",
       "required": false
+    },
+    {
+      "key": "uses.wifi",
+      "required": false
     }
   ]
 }

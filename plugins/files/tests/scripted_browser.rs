@@ -7,9 +7,10 @@
 #![cfg(feature = "linked")]
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use paperpaw_core::native_host::registrations::{
-    EventAnswered, EventLibraryChanged, EventScreenOpened, EventScreenShown, InputAction, Record,
-    ServiceEnd, ServiceFsEntry, ServiceLibBook, ServiceLibEntry, ServiceLibResult, ServiceLibState,
-    ServiceUiHandle, ServiceUiParam, ServiceUiRequest, record_encode_one, records_decode,
+    EventActionRun, EventAnswered, EventLibraryChanged, EventScreenOpened, EventScreenShown,
+    InputAction, Record, ServiceEnd, ServiceFsEntry, ServiceLibBook, ServiceLibEntry,
+    ServiceLibResult, ServiceLibState, ServiceUiHandle, ServiceUiParam, ServiceUiRequest,
+    record_encode_one, records_decode,
 };
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_IO, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED};
 use paperpaw_plugin_files::NATIVE_ENTRY;
@@ -20,6 +21,8 @@ use std::rc::Rc;
 const BROWSER_TOKEN: u32 = 10;
 const SHELF_TOKEN: u32 = 11;
 const EVENTS_TOKEN: u32 = 3;
+/// The library menu's *Find*.
+const FIND_TOKEN: u32 = 26;
 const GENERATION: u32 = 4;
 
 /// The scripted host has no screens: a command that needs one (a redraw, a
@@ -47,6 +50,8 @@ struct Knobs {
     archived: Cell<bool>,
     /// The book is marked finished.
     finished: Cell<bool>,
+    /// The book is a favourite.
+    favourite: Cell<bool>,
     /// What `delete` says of the book.
     delete_status: Cell<i32>,
     /// How many `move`s answer "taken" before one succeeds.
@@ -101,6 +106,13 @@ fn entry(key: u32, title: &'static str, progress: u32) -> Record<'static> {
     })
 }
 
+/// The book's `lib_book.flags`: finished (bit 2) or opened (bit 1), and a
+/// favourite (bit 0).
+fn book_flags(world: &World) -> u32 {
+    let read = if world.finished.get() { 4 } else { 2 };
+    read | u32::from(world.favourite.get())
+}
+
 fn script_library(host: &ScriptedHost, world: &World) {
     let world = world.clone();
     host.service("core.library", 1, 0, move |op, input| {
@@ -149,7 +161,7 @@ fn script_library(host: &ScriptedHost, world: &World) {
                     series: "",
                     number: "",
                     progress: 40,
-                    flags: if world.finished.get() { 4 } else { 2 },
+                    flags: book_flags(&world),
                     added: 0,
                     size: 1000,
                     format: "epub",
@@ -507,7 +519,7 @@ fn holding_a_book_asks_what_to_do_with_it() {
         log_has(
             &world,
             "ask kind 1 title One text one.epub choices \
-             Open|Mark as finished|Book information|Move to the archive|Delete …"
+             Open|Mark as finished|Add to favourites|Book information|Move to the archive|Delete …"
         ),
         "{log:?}"
     );
@@ -523,8 +535,46 @@ fn a_finished_book_offers_to_mark_it_unread() {
     hold_first_book(&plugin);
     assert!(
         log(&world).iter().any(|l| l.ends_with(
-            "choices Open|Mark as unread|Book information|Move to the archive|Delete …"
+            "choices Open|Mark as unread|Add to favourites|Book information|Move to the archive|Delete …"
         )),
+        "{:?}",
+        log(&world)
+    );
+}
+
+#[test]
+fn a_book_is_put_among_the_favourites_and_taken_out_again() {
+    let world = World::default();
+    world.phase.set(2);
+    let host = setup(&world);
+    let plugin = open_favourites(&host);
+    // Add to favourites: status bit 1 set through the path, the list read
+    // again, a notice said so (submitted, though this host has no screen).
+    hold_first_book(&plugin);
+    let before = log(&world).len();
+    let done = plugin.event(0, &answered(1, 1, 2)).unwrap();
+    assert!(fine(done.status), "{}", done.status);
+    assert!(
+        log(&world)[before..].contains(&"status books/Crime/one.epub set 2 clear 0".to_string()),
+        "{:?}",
+        log(&world)
+    );
+    assert!(!done.batches.is_empty());
+    // A favourite offers to take it out, which clears the bit only.
+    world.favourite.set(true);
+    hold_first_book(&plugin);
+    assert!(
+        log(&world).iter().any(|l| l.ends_with(
+            "choices Open|Mark as finished|Remove from favourites|Book information|Move to the archive|Delete …"
+        )),
+        "{:?}",
+        log(&world)
+    );
+    let before = log(&world).len();
+    let done = plugin.event(0, &answered(2, 1, 2)).unwrap();
+    assert!(fine(done.status), "{}", done.status);
+    assert!(
+        log(&world)[before..].contains(&"status books/Crime/one.epub set 0 clear 2".to_string()),
         "{:?}",
         log(&world)
     );
@@ -549,7 +599,7 @@ fn the_sheets_choices_do_what_they_say() {
     // Information opens its screen with the path (the open itself is refused
     // by this host: it has no screens).
     hold_first_book(&plugin);
-    let done = plugin.event(0, &answered(2, 1, 2)).unwrap();
+    let done = plugin.event(0, &answered(2, 1, 3)).unwrap();
     assert!(fine(done.status), "{}", done.status);
     assert!(log_has(&world, "handover path=books/Crime/one.epub"));
     // Open goes to the reader with the path too.
@@ -573,7 +623,7 @@ fn the_archive_takes_the_book_under_a_free_name() {
     let host = setup(&world);
     let plugin = open_favourites(&host);
     hold_first_book(&plugin);
-    let done = plugin.event(0, &answered(1, 1, 3)).unwrap();
+    let done = plugin.event(0, &answered(1, 1, 4)).unwrap();
     assert!(fine(done.status), "{}", done.status);
     let log = log(&world);
     assert!(
@@ -600,27 +650,30 @@ fn a_book_is_deleted_only_after_the_question_is_answered_yes() {
     let host = setup(&world);
     let plugin = open_favourites(&host);
     hold_first_book(&plugin);
-    // Delete is the sheet's last choice: it asks first, deleting nothing.
-    let done = plugin.event(0, &answered(1, 1, 4)).unwrap();
+    // Delete is the sheet's last choice: it asks first, deleting nothing,
+    // as the menu at the bottom (a choice, not a dialog in the middle): the
+    // book's name, the question, then *Keep it* (where the focus starts) and
+    // *Delete*.
+    let done = plugin.event(0, &answered(1, 1, 5)).unwrap();
     assert_eq!(done.status, 0);
     assert!(!log(&world).iter().any(|l| l.starts_with("delete")));
     assert!(
         log_has(
             &world,
-            "ask kind 2 title Delete this book, with its place, bookmarks and notes? \
-             This cannot be undone. text  choices Delete|Keep it"
+            "ask kind 1 title one.epub text Delete this book, with its place, bookmarks and \
+             notes? This cannot be undone. choices Keep it|Delete"
         ),
         "{:?}",
         log(&world)
     );
-    // No: nothing is deleted.
-    let done = plugin.event(0, &answered(2, 2, 0)).unwrap();
+    // Keep it: nothing is deleted.
+    let done = plugin.event(0, &answered(2, 1, 0)).unwrap();
     assert_eq!(done.status, 0);
     assert!(!log(&world).iter().any(|l| l.starts_with("delete ")));
-    // Yes: the book goes with what is kept for it (flag 1: with notes).
+    // Delete: the book goes with what is kept for it (flag 1: with notes).
     hold_first_book(&plugin);
-    plugin.event(0, &answered(3, 1, 4)).unwrap();
-    let done = plugin.event(0, &answered(4, 2, 1)).unwrap();
+    plugin.event(0, &answered(3, 1, 5)).unwrap();
+    let done = plugin.event(0, &answered(4, 1, 1)).unwrap();
     assert!(fine(done.status), "{}", done.status);
     assert!(
         log_has(&world, "delete books/Crime/one.epub flags 1"),
@@ -638,12 +691,35 @@ fn a_refused_delete_is_told_and_never_aborts() {
         let host = setup(&world);
         let plugin = open_favourites(&host);
         hold_first_book(&plugin);
-        plugin.event(0, &answered(1, 1, 4)).unwrap();
-        let done = plugin.event(0, &answered(2, 2, 1)).unwrap();
+        plugin.event(0, &answered(1, 1, 5)).unwrap();
+        let done = plugin.event(0, &answered(2, 1, 1)).unwrap();
         assert!(fine(done.status), "{status}: {}", done.status);
         // A notice said how it went: submitted, though this host has no screen for it.
         assert!(!done.batches.is_empty(), "{status}");
     }
+}
+
+#[test]
+fn find_in_the_library_menu_opens_the_letters_of_the_titles() {
+    let world = World::default();
+    world.phase.set(2);
+    let host = setup(&world);
+    let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
+    let run = event_batch(&Record::EventActionRun(EventActionRun {
+        now_ms: 0,
+        action: "",
+        flags: 0,
+    }))
+    .unwrap();
+    let done = plugin.event(FIND_TOKEN, &run).unwrap();
+    // The names screen of the letters is opened (the open itself is refused
+    // by this host: it has no screens).
+    assert!(fine(done.status), "{}", done.status);
+    assert!(
+        log_has(&world, "handover kind=letters"),
+        "{:?}",
+        log(&world)
+    );
 }
 
 #[test]

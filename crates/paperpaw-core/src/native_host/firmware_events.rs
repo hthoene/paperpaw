@@ -200,6 +200,9 @@ impl Kernel {
             let Ok(mut driver) = driver.try_borrow_mut() else {
                 return true;
             };
+            driver.set_battery_low(!paperpaw_sdk::firmware::battery_allows_install(
+                &self.shared.status,
+            ));
             let hosts = self.shared.native_instances.hosts();
             let plugins = &self.shared.plugins;
             // Only the id of a data plugin to load is kept, not the event.

@@ -426,6 +426,33 @@ pub enum StatusBar {
     Hide,
 }
 
+/// When the row of button hints shows with a screen, on devices with a row
+/// of buttons below the display (`screen.spec.flags` bits 13-14, draft 38,
+/// `docs/abi/ui.md` section 1.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum HintRow {
+    /// Always, below the screen: the screen gets the part above the row.
+    Shown,
+    /// Only for a few seconds after one of its buttons was pressed, over the
+    /// screen's bottom edge: the screen gets the whole display (the reader's
+    /// page, as in Beta 3).
+    OnPress,
+    /// Never (the sleep screen).
+    Hidden,
+}
+
+impl HintRow {
+    /// The value of bits 13-14.
+    pub(crate) const fn bits(self) -> u32 {
+        match self {
+            Self::Shown => 1 << 13,
+            Self::OnPress => 2 << 13,
+            Self::Hidden => 3 << 13,
+        }
+    }
+}
+
 impl StatusBar {
     /// The value of bits 11-12.
     pub(crate) const fn bits(self) -> u32 {
@@ -539,6 +566,16 @@ impl ScreenDecl<'_> {
     #[must_use]
     pub const fn hints_hidden(mut self) -> Self {
         self.policy_flags |= 256;
+        self
+    }
+    /// When the row of button hints shows with this screen (draft 38):
+    /// [`HintRow::OnPress`] for the reader's page, [`HintRow::Hidden`] as
+    /// [`ScreenDecl::hints_hidden`]; not said: always. A screen may change it
+    /// at run time
+    /// ([`ScreenPolicy::hints`](crate::native::ui::ScreenPolicy::hints)).
+    #[must_use]
+    pub const fn hints(mut self, hints: HintRow) -> Self {
+        self.policy_flags = (self.policy_flags & !(3 << 13)) | hints.bits();
         self
     }
 }

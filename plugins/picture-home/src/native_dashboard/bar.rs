@@ -65,6 +65,38 @@ impl Plan {
 }
 
 impl Dashboard {
+    /// Tells the host when its row of button hints shows with the page, as the
+    /// setting *Buttons row* says (always, after a press, never; Beta 3's
+    /// `set_screen_hints`), where that changed since it was told. For a
+    /// callback that may send commands; a refusal leaves the row as it was.
+    pub fn sync_hint_row(&mut self, host: &Host<'_>, instance: Instance) {
+        use paperpaw_sdk::native::declare::HintRow;
+        use paperpaw_sdk::native::settings::{self, SettingValue};
+        let mut scratch = [0; 64];
+        let wanted = match settings::read_setting(host, crate::native_source::HINTS, &mut scratch) {
+            Ok(SettingValue::Text(value)) => Visible::of(value),
+            // Not set: its default, always.
+            Ok(_) => Visible::On,
+            Err(_) => return,
+        };
+        if self.hint_row.unwrap_or(Visible::On) == wanted {
+            return;
+        }
+        let hints = match wanted {
+            Visible::Off => HintRow::Hidden,
+            Visible::Auto => HintRow::OnPress,
+            Visible::On => HintRow::Shown,
+        };
+        let policy = paperpaw_sdk::native::ui::ScreenPolicy::new().hints(hints);
+        let mut scratch = [0; 64];
+        if CommandSender::new(host, &mut scratch)
+            .screen_policy(Some(instance), policy)
+            .is_ok()
+        {
+            self.hint_row = Some(wanted);
+        }
+    }
+
     /// Whether the bar is drawn now.
     pub(super) fn bar_shown(&self, plan: &Plan) -> bool {
         match plan.visible {
@@ -202,6 +234,19 @@ impl Dashboard {
         Ok(Some(Handled::Yes))
     }
 
+    /// A tap where nothing is, at `now_ms`: a bar that shows after a press and
+    /// is hidden shows, and the tap is taken (#459: as Beta 3; on a device with
+    /// touch alone no key shows it). Whether it did.
+    pub(super) fn bar_reveal(&mut self, now_ms: u64) -> bool {
+        self.expire(now_ms);
+        let plan = self.laid.as_ref().and_then(|laid| laid.bar.as_ref());
+        if !reveals(plan, self.editing, self.revealed) {
+            return false;
+        }
+        self.revealed = Some(now_ms.saturating_add(BAR_MS));
+        true
+    }
+
     /// The bar's time is over at `now_ms`: it goes.
     fn expire(&mut self, now_ms: u64) -> bool {
         if self.revealed.is_some_and(|until| now_ms >= until) {
@@ -228,6 +273,12 @@ impl Dashboard {
         }
         Ok(())
     }
+}
+
+/// Whether a tap where nothing is shows the bar of `plan`: one that shows
+/// after a press and is hidden (`revealed` none), not while editing.
+fn reveals(plan: Option<&Plan>, editing: bool, revealed: Option<u64>) -> bool {
+    !editing && revealed.is_none() && plan.is_some_and(|plan| plan.visible == Visible::Auto)
 }
 
 #[cfg(test)]
@@ -264,6 +315,19 @@ mod tests {
         assert!(plan(Visible::Off, true).auto());
         assert!(!plan(Visible::On, false).auto());
         assert!(!plan(Visible::Off, false).auto());
+    }
+
+    #[test]
+    fn a_tap_where_nothing_is_shows_a_bar_that_shows_after_a_press() {
+        // #459: on a device with touch alone the bar never showed.
+        let auto = plan(Visible::Auto, false);
+        assert!(reveals(Some(&auto), false, None));
+        // Shown already, while editing, always or never shown: nothing to do.
+        assert!(!reveals(Some(&auto), false, Some(5_000)));
+        assert!(!reveals(Some(&auto), true, None));
+        assert!(!reveals(Some(&plan(Visible::On, false)), false, None));
+        assert!(!reveals(Some(&plan(Visible::Off, true)), false, None));
+        assert!(!reveals(None, false, None));
     }
 
     #[test]

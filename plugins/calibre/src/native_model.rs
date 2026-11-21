@@ -635,6 +635,45 @@ pub fn queue(messages: &mut Vec<Message>, message: Message) -> Result<(), Error>
     push(messages, message)
 }
 
+/// The library calls a received book's import makes, so that what is done
+/// with a book Calibre sent before is tested without a host.
+pub trait Placing {
+    /// Imports the received book at its name, as `existing` says.
+    ///
+    /// # Errors
+    /// The library's refusals.
+    fn import(&mut self, existing: paperpaw_sdk::native::library::Existing) -> Result<(), Error>;
+    /// Deletes the book at that name with what is kept for it, unless the
+    /// reader marked something in it (`State`).
+    ///
+    /// # Errors
+    /// The library's refusals.
+    fn delete(&mut self) -> Result<(), Error>;
+}
+
+/// Puts a received book in the library: a book Calibre sent before
+/// (`sent`) is replaced, any other book at that name is not.
+///
+/// Beta 3 wrote the books Calibre sent itself, so the library has no
+/// importer for them and refuses to replace them (`Denied`, #459). Such a
+/// book is deleted first, and the new one takes its name; where the reader
+/// marked something in it, it stays (`State`: not replaced).
+///
+/// # Errors
+/// The library's refusals.
+pub fn place(library: &mut impl Placing, sent: bool) -> Result<(), Error> {
+    use paperpaw_sdk::native::library::Existing;
+    if !sent {
+        return library.import(Existing::Refuse);
+    }
+    match library.import(Existing::Replace) {
+        Err(Error::Denied) => {}
+        placed => return placed,
+    }
+    library.delete()?;
+    library.import(Existing::Replace)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, reason = "fixtures")]
@@ -941,5 +980,73 @@ mod tests {
                 Some(text)
             );
         }
+    }
+
+    /// A library with one book at the name, or none.
+    struct Card {
+        /// Whether the library knows the book there as the plugin's import.
+        ours: bool,
+        there: bool,
+        marked: bool,
+        calls: Vec<String>,
+    }
+
+    impl Placing for Card {
+        fn import(
+            &mut self,
+            existing: paperpaw_sdk::native::library::Existing,
+        ) -> Result<(), Error> {
+            use paperpaw_sdk::native::library::Existing;
+            self.calls.push(alloc::format!("import {existing:?}"));
+            match existing {
+                _ if !self.there => {}
+                Existing::Replace if !self.ours => return Err(Error::Denied),
+                Existing::Replace => {}
+                _ => return Err(Error::State),
+            }
+            (self.there, self.ours) = (true, true);
+            Ok(())
+        }
+        fn delete(&mut self) -> Result<(), Error> {
+            self.calls.push("delete".into());
+            if self.marked {
+                return Err(Error::State);
+            }
+            self.there = false;
+            Ok(())
+        }
+    }
+
+    fn card(ours: bool, there: bool, marked: bool) -> Card {
+        Card {
+            ours,
+            there,
+            marked,
+            calls: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_book_calibre_sent_under_beta_3_is_replaced() {
+        // #459: every update of a book received under Beta 3 was refused.
+        let mut beta3 = card(false, true, false);
+        assert_eq!(place(&mut beta3, true), Ok(()));
+        assert_eq!(beta3.calls, ["import Replace", "delete", "import Replace"]);
+        // Sent under Beta 4: replaced at once.
+        let mut ours = card(true, true, false);
+        assert_eq!(place(&mut ours, true), Ok(()));
+        assert_eq!(ours.calls, ["import Replace"]);
+    }
+
+    #[test]
+    fn a_book_the_reader_marked_or_calibre_did_not_send_is_kept() {
+        let mut marked = card(false, true, true);
+        assert_eq!(place(&mut marked, true), Err(Error::State));
+        assert_eq!(marked.calls, ["import Replace", "delete"]);
+        let mut theirs = card(false, true, false);
+        assert_eq!(place(&mut theirs, false), Err(Error::State));
+        assert_eq!(theirs.calls, ["import Refuse"]);
+        let mut new = card(false, false, false);
+        assert_eq!(place(&mut new, false), Ok(()));
     }
 }

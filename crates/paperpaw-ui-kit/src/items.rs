@@ -1356,7 +1356,7 @@ fn shifted(rect: Rect, band: Rect, shift: u16) -> (Rect, Rect) {
 
 /// Draws the icon of a row at the start of its first line (`band`) and tells
 /// how far the title moves: the icon and a gap, before the title's own margin.
-fn row_icon(
+pub(crate) fn row_icon(
     paint: &mut Vec<Paint>,
     style: &Style,
     (rect, band): (Rect, Rect),

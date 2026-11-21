@@ -52,7 +52,7 @@ mod native_web;
 pub use native_entry::NATIVE_ENTRY;
 
 /// The texts of the web page: the name it reads them by, and the translation.
-pub(crate) const PAGE_TEXTS: [(&str, &str); 25] = [
+pub(crate) const PAGE_TEXTS: [(&str, &str); 26] = [
     ("title", "transfer.web.title"),
     ("device", "transfer.web.device"),
     ("upload", "transfer.web.upload"),
@@ -78,6 +78,7 @@ pub(crate) const PAGE_TEXTS: [(&str, &str); 25] = [
     ("sent", "transfer.web.sent"),
     ("notSent", "transfer.web.not-sent"),
     ("retry", "transfer.web.retry"),
+    ("tooLarge", "transfer.web.too-large"),
 ];
 
 /// The settings the plugin declares, made by its build script from the same

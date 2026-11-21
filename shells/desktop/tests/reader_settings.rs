@@ -142,6 +142,33 @@ fn shown(name: &str, book: &str, ini: &str, requests: &[String]) -> Vec<u8> {
 }
 
 #[test]
+fn a_book_shows_with_its_own_settings_kept_by_beta_3() {
+    // "Only this book": Beta 3's reader kept a book's own settings, with the
+    // switch, in `books/<book key>/settings.ini` of its folder; the host reads
+    // them while the reader tells it the book on show (#454). The sizes are
+    // within the X4's built-in reading font (a larger one gives way to its
+    // largest).
+    let book = "alice-in-wonderland.epub";
+    let global = |size: u8| format!("[core]\nfont-size = {size}\n");
+    // A page of the story, past the cover.
+    let small = shown("scope-small", book, &global(10), &turns(3));
+    let large = shown("scope-large", book, &global(14), &turns(3));
+    assert_ne!(small, large, "the font size changed nothing on the page");
+    let card = card("scope-book", book, &global(10));
+    let key = paperpaw_core::kit::library::key(&format!("books/{book}"));
+    let scope = card.join(format!(".paperpaw/plugins/reader/books/{key}"));
+    fs::create_dir_all(&scope).unwrap();
+    fs::write(
+        scope.join("settings.ini"),
+        "[core]\nscope-only = on\nfont-size = 14\n",
+    )
+    .unwrap();
+    let shot = card.join("page.png");
+    session(&card, &shot, &turns(3));
+    assert_eq!(page(&shot), large, "the book's own font size was not used");
+}
+
+#[test]
 fn hanging_punctuation_moves_commas_and_quotes_into_the_margin() {
     // A page of the story (past the cover and the contents), justified: the
     // comma that ends a line hangs out of the text's edge. The page is one
