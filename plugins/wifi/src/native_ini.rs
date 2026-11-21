@@ -1,6 +1,7 @@
 //! The `wifi.ini` on the card on interface 7 (slice 5): networks put in the
-//! plugin's data folder (e.g. by the flasher), read once at a start, kept
-//! among the plugin's secrets and then removed. The rules of the
+//! plugin's data folder (the host hands it the file at the top of the card,
+//! from the flasher or written by hand: core `card_wifi.rs`), read once at a
+//! start, kept among the plugin's secrets and then removed. The rules of the
 //! interface-6 plugin (`wifi_file_networks`), host-free where they can be,
 //! with fallible allocation; the passwords read are wiped.
 use alloc::string::String;

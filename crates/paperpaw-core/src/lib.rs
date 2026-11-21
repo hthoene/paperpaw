@@ -50,6 +50,7 @@ mod bluetooth;
 mod bluetooth;
 mod builder;
 mod card;
+mod card_wifi;
 mod catalog_file;
 mod code_plugin;
 mod commands;
@@ -476,6 +477,9 @@ impl Kernel {
         self.open_sealed_secrets();
         // The reading apps kept for books and folders: read once.
         self.read_reading_apps();
+        // `wifi.ini` at the top of the card, for the Wi-Fi plugin to read at
+        // `STARTED` (`card_wifi.rs`).
+        self.hand_card_wifi_over();
         self.native_took(from, |times| &mut times.start_prepare);
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());

@@ -1006,6 +1006,7 @@ impl NativeReader {
         now_ms: u64,
     ) -> Result<(), Error> {
         self.screens.shown(SCREEN, instance)?;
+        View::scope_book(host, self.screens.get(instance).map(|view| &*view));
         self.wake(host, instance)?;
         Self::set_grays(host, instance, false);
         let (asked, reopened) = (self.aloud_asked.take(), self.reopening.take());
