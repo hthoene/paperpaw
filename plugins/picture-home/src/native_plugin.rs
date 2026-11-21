@@ -24,7 +24,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
-        events::{Event, Incoming, kinds},
+        events::{Answered, Event, Incoming, kinds},
         files::Files,
         formatting::Arg,
         image::ImageReady,
@@ -127,7 +127,7 @@ impl Plugin for NativePictureHome {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ImageReady, kinds::Tick, kinds::WidgetChanged)
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ImageReady, kinds::Tick, kinds::WidgetChanged, kinds::Answered)
         else {
             return Ok(());
         };
@@ -178,6 +178,8 @@ impl Plugin for NativePictureHome {
             Event::WidgetChanged { instance, .. } if token == WIDGET_CHANGED => {
                 self.widget_changed(host, instance)
             }
+            // The menu of an item's options was answered (or closed).
+            Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ScreenClosed { instance, .. } => {
                 if let Some(dashboard) = self.dashboards.get(instance) {
                     dashboard.close(host);
@@ -286,6 +288,17 @@ impl NativePictureHome {
             return Ok(());
         }
         area.queue(host)
+    }
+
+    /// The answer of an item's options menu goes to the dashboard that asked.
+    #[inline(never)]
+    fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
+        for dashboard in self.dashboards.all() {
+            if dashboard.asked(answer.request()) {
+                return dashboard.options_answered(host, answer);
+            }
+        }
+        Ok(())
     }
 
     /// Opens `core.ui` in the first live callback; the handle serves later ones.

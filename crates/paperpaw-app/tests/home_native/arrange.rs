@@ -87,8 +87,8 @@ fn choose(app: &mut App, option: &str) {
 
 /// The options of the item whose text says `label`, while editing: tapped,
 /// or with the buttons the focus moved from item to item until confirm offers
-/// that one's. The native options are a dialog over the page (the screen stays
-/// the dashboard), told as a dialog with a button for each option.
+/// that one's. The options are the bottom menu every screen uses (the keyboard
+/// plugin's `keyboard.ask`), told as a dialog with a row for each option.
 fn options_of(app: &mut App, label: &str) {
     if app.kernel.device().input.touch {
         app.tap_on(label);
@@ -106,7 +106,7 @@ fn options_of(app: &mut App, label: &str) {
             app.run(actions::RIGHT);
         }
     }
-    assert_eq!(app.screen(), HOME, "{}", app.described());
+    assert_eq!(app.screen(), "keyboard.ask", "{}", app.described());
     assert!(
         app.parts().iter().any(|p| p.role == Role::Dialog),
         "no options for {label}:\n{}",

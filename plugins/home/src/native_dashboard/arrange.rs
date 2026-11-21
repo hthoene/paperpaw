@@ -1,29 +1,32 @@
-//! The dashboard while editing: the options of an item (a dialog over the
-//! page: move, change the size, remove, cancel), and an item the buttons are
-//! moving or sizing. What the buttons do to cells is `native_arrange` without
-//! the host; this file holds the state, draws the dialog, and writes the page
-//! once an item is set down or removed.
+//! The dashboard while editing: the options of an item (the bottom menu every
+//! other screen uses: move, change the size, settings, remove), and an item
+//! the buttons are moving or sizing. What the buttons do to cells is
+//! `native_arrange` without the host; this file holds the state, asks for the
+//! menu, and writes the page once an item is set down or removed.
 //!
 //! The finger's drag of an item or its corner waits for H4 (an ignored
 //! acceptance case); a tap on an item offers its options.
-use paperpaw_ui_kit::dialog::Dialog;
-
 use super::*;
 use crate::native_add_screen as add_screen;
 use crate::native_arrange::{self as arrange, Choice, Dir, Mode, Put, choices};
 
-/// The word of *Cancel* in the options: the plugin's own.
-const CANCEL: &str = "home.edit.cancel";
 use crate::native_item_settings as item_settings;
-use paperpaw_sdk::{native::callbacks::PointerPhase, widgets::grid::Cells};
+use paperpaw_sdk::{
+    native::{
+        callbacks::PointerPhase,
+        events::{AnswerOutcome, Answered},
+        ui::{Question, RequestId},
+    },
+    widgets::grid::Cells,
+};
 
-/// The options of the item of a cell: which button has the focus, and the
-/// dialog (made at the first draw: it needs the font).
+/// The options of the item of a cell, asked as a menu: the request, and the
+/// cell it is for. Kept across a new layout: the answer comes after the menu's
+/// screen has closed, which may have laid the page out again.
 #[derive(Debug)]
 pub(super) struct Options {
     cell: usize,
-    focus: usize,
-    dialog: Option<Dialog>,
+    request: RequestId,
     /// The item is a widget that has settings of its own: *Settings* is offered.
     settings: bool,
 }
@@ -48,8 +51,14 @@ pub(super) struct Moving {
 }
 
 impl Dashboard {
-    /// The options of the item of `cell` open.
-    pub(super) fn open_options(&mut self, host: &Host<'_>, cell: usize) -> Result<(), Error> {
+    /// The options of the item of `cell` asked as the bottom menu, titled with
+    /// the item's name.
+    pub(super) fn open_options(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        cell: usize,
+    ) -> Result<(), Error> {
         let settings = match self.widget_at(cell) {
             // A refused read (other than for memory) means: no Settings.
             Some(id) => match item_settings::has_settings(host, id) {
@@ -58,13 +67,64 @@ impl Dashboard {
             },
             None => false,
         };
+        let title = self
+            .laid
+            .as_ref()
+            .and_then(|laid| laid.cells.get(cell))
+            .map_or("", |c| c.name.as_str());
+        let mut messages = Messages::new()?;
+        let mut words = String::new();
+        for (at, (_, key)) in choices(settings).iter().enumerate() {
+            let word = messages.copy(host, key)?;
+            words = if at == 0 {
+                word
+            } else {
+                paperpaw_ui_kit::text::concat(&[&words, "\n", &word])?
+            };
+        }
+        let question = Question::choice(title, "", &words)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let request = ui.ask(host, question, &mut input, &mut out)?;
         self.options = Some(Options {
             cell,
-            focus: 0,
-            dialog: None,
+            request,
             settings,
         });
-        redraw(host)
+        Ok(())
+    }
+
+    /// Whether the options' menu of `request` is this page's.
+    pub fn asked(&self, request: RequestId) -> bool {
+        self.options.as_ref().is_some_and(|o| o.request == request)
+    }
+
+    /// The answer of the options' menu: what was chosen is done to the item it
+    /// was asked for. A menu closed with nothing chosen leaves the page as it is.
+    pub fn options_answered(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        answer: Answered,
+    ) -> Result<(), Error> {
+        let Some(options) = self.options.as_ref() else {
+            return Ok(());
+        };
+        if options.request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
+            return Ok(());
+        }
+        let (cell, settings) = (options.cell, options.settings);
+        self.options = None;
+        if answer.outcome() != AnswerOutcome::Answered {
+            return Ok(());
+        }
+        let chosen = usize::try_from(answer.choice())
+            .ok()
+            .and_then(|at| choices(settings).get(at))
+            .map(|(choice, _)| *choice);
+        match chosen {
+            Some(choice) => self.choose(host, ui, cell, choice),
+            None => Ok(()),
+        }
     }
 
     /// The id of the widget in the item of `cell`, if the item is a widget.
@@ -77,104 +137,30 @@ impl Dashboard {
         }
     }
 
-    /// Makes the options' dialog where it is not made yet.
-    pub(super) fn ensure_dialog(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let (Some(options), Some(laid)) = (self.options.as_mut(), self.laid.as_ref()) else {
-            return Ok(());
-        };
-        if options.dialog.is_some() {
-            return Ok(());
-        }
-        let title = laid.cells.get(options.cell).map_or("", |c| c.name.as_str());
-        let display = snapshot::capture_snapshot(host)?;
-        let font = Font::acquire_role(host, FontRole::Ui)?;
-        let made = Self::make_dialog(host, &display, &font, title, options.settings);
-        let released = font.release();
-        let dialog = made?;
-        released?;
-        options.dialog = Some(dialog);
-        Ok(())
-    }
-
-    fn make_dialog(
-        host: &Host<'_>,
-        display: &snapshot::Snapshot,
-        font: &Font<'_>,
-        title: &str,
-        settings: bool,
-    ) -> Result<Dialog, Error> {
-        let style = Style::read(host, display, font)?;
-        let mut messages = Messages::new()?;
-        let mut words: Vec<String> = Vec::new();
-        words
-            .try_reserve_exact(choices(settings).len())
-            .map_err(|_| Error::NoMemory)?;
-        for (choice, key) in choices(settings) {
-            let key = if *choice == Choice::Cancel {
-                CANCEL
-            } else {
-                key
-            };
-            words.push(messages.copy(host, key)?);
-        }
-        let mut labels: Vec<&str> = Vec::new();
-        labels
-            .try_reserve_exact(words.len())
-            .map_err(|_| Error::NoMemory)?;
-        labels.extend(words.iter().map(String::as_str));
-        let (width, height) = (display.display_width(), display.display_height());
-        let mut dialog = Dialog::new(font, &style, (width, height), title, &[], &labels)?;
-        let at = height.saturating_sub(dialog.height()) / 2;
-        dialog.place(at)?;
-        Ok(dialog)
-    }
-
-    /// Whether the options' dialog tells what it is (from the draw callback).
-    pub(super) fn describe_dialog(&mut self, describing: bool) {
-        if let Some(Options {
-            dialog: Some(dialog),
-            ..
-        }) = &mut self.options
-        {
-            dialog.set_describing(describing);
-        }
-    }
-
-    /// The options' dialog as drawn operations, over the page.
-    pub(super) fn dialog_paint(&self, font: &Font<'_>, out: &mut Vec<Paint>) -> Result<(), Error> {
-        if let Some(Options {
-            dialog: Some(dialog),
-            focus,
-            ..
-        }) = &self.options
-        {
-            dialog.prepare(out, font, Some(*focus))?;
-        }
-        Ok(())
-    }
-
-    /// An input while the options show or an item is moved or sized; `None` if
-    /// neither, then the page takes it.
+    /// An input while an item is moved or sized; `None` if not, then the page
+    /// takes it.
     pub(super) fn arrange_input(
         &mut self,
         host: &Host<'_>,
         ui: &Ui,
         input: &Input<'_>,
     ) -> Result<Option<Handled>, Error> {
-        if self.options.is_some() {
-            return self.options_input(host, ui, input).map(Some);
-        }
         if let Some(moving) = self.moving {
             return self.moving_input(host, ui, moving, input).map(Some);
         }
-        self.drag_input(host, input)
+        self.drag_input(host, ui, input)
     }
 
     /// A finger while editing: on an item it takes the item along (by its
     /// corner it sizes it); lifted where it came down it is a tap (the item's
     /// options), lifted elsewhere the item goes there where the cells are free.
     /// What a finger takes is its own, with no gesture made of it.
-    fn drag_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Option<Handled>, Error> {
+    fn drag_input(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        input: &Input<'_>,
+    ) -> Result<Option<Handled>, Error> {
         let Input::Pointer {
             position,
             phase,
@@ -200,7 +186,7 @@ impl Dashboard {
             }
             (PointerPhase::Up | PointerPhase::Cancel, Some(drag)) if drag.contact == contact => {
                 self.drag = None;
-                self.drag_end(host, drag, phase == PointerPhase::Up)?;
+                self.drag_end(host, ui, drag, phase == PointerPhase::Up)?;
                 Ok(Some(Handled::Yes))
             }
             _ => Ok(None),
@@ -262,7 +248,7 @@ impl Dashboard {
 
     /// The finger lifted (`up`) or was taken away: a tap offers the item's
     /// options, a drag puts the item where it would land if the cells are free.
-    fn drag_end(&mut self, host: &Host<'_>, drag: Drag, up: bool) -> Result<(), Error> {
+    fn drag_end(&mut self, host: &Host<'_>, ui: &Ui, drag: Drag, up: bool) -> Result<(), Error> {
         if !up {
             return redraw(host);
         }
@@ -275,7 +261,7 @@ impl Dashboard {
             if let Some(at) = at {
                 self.focus.to(at);
             }
-            return self.open_options(host, drag.cell);
+            return self.open_options(host, ui, drag.cell);
         }
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
@@ -343,65 +329,6 @@ impl Dashboard {
         paintpush(paint, Paint::Focus(disc, style.corner, None, style.ink))
     }
 
-    fn options_input(
-        &mut self,
-        host: &Host<'_>,
-        ui: &Ui,
-        input: &Input<'_>,
-    ) -> Result<Handled, Error> {
-        // The raw key before its action is the kernel's: taken here, no action
-        // would follow and the buttons would be dead in the dialog.
-        if leaves_to_kernel(input) {
-            return Ok(Handled::No);
-        }
-        self.ensure_dialog(host)?;
-        let Some(options) = self.options.as_mut() else {
-            return Ok(Handled::No);
-        };
-        let chosen = match *input {
-            Input::Action {
-                action: "core.back",
-                ..
-            } => Some(Choice::Cancel),
-            Input::Action {
-                action: "core.confirm",
-                ..
-            } => choices(options.settings)
-                .get(options.focus)
-                .map(|(choice, _)| *choice),
-            Input::Action { action, .. } => {
-                let to = options
-                    .dialog
-                    .as_ref()
-                    .and_then(|dialog| dialog.step(options.focus, action));
-                if let Some(to) = to.filter(|to| *to != options.focus) {
-                    options.focus = to;
-                    redraw(host)?;
-                }
-                None
-            }
-            Input::Gesture {
-                position,
-                kind: InputGestureKind::Tap,
-                ..
-            } => options
-                .dialog
-                .as_ref()
-                .and_then(|dialog| dialog.hit(position))
-                .and_then(|button| choices(options.settings).get(button))
-                .map(|(choice, _)| *choice),
-            // A finger is left to the kernel, which makes the tap of it.
-            Input::Pointer { .. } => return Ok(Handled::No),
-            // The dialog is modal: everything else is taken.
-            _ => None,
-        };
-        let cell = options.cell;
-        if let Some(choice) = chosen {
-            self.choose(host, ui, cell, choice)?;
-        }
-        Ok(Handled::Yes)
-    }
-
     fn choose(
         &mut self,
         host: &Host<'_>,
@@ -409,9 +336,7 @@ impl Dashboard {
         cell: usize,
         choice: Choice,
     ) -> Result<(), Error> {
-        self.options = None;
         match choice {
-            Choice::Cancel => redraw(host),
             Choice::Move => self.pick_up(host, cell, Mode::Move),
             Choice::Resize => self.pick_up(host, cell, Mode::Resize),
             Choice::Settings => self.settings(host, ui, cell),
@@ -601,12 +526,6 @@ impl Dashboard {
     }
 }
 
-/// Whether the options' dialog leaves `input` to the kernel: the raw key,
-/// whose action the kernel makes only where it is not taken.
-const fn leaves_to_kernel(input: &Input<'_>) -> bool {
-    matches!(input, Input::Key { .. })
-}
-
 /// The corner of `rect` a finger sizes it by: `side` square, at most half the
 /// cell each way.
 fn corner_rect(rect: Rect, side: u16) -> Rect {
@@ -626,26 +545,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_options_are_offered_in_the_order_the_dialog_has_its_buttons() {
+    fn the_options_are_offered_in_the_order_the_menu_has_its_rows() {
         let plain = choices(false);
-        assert_eq!(plain.len(), 4);
+        assert_eq!(plain.len(), 3);
         assert_eq!(plain[0].0, Choice::Move);
-        assert_eq!(plain[3].0, Choice::Cancel);
+        assert_eq!(plain[2].0, Choice::Remove);
         assert_eq!(choices(true)[2].0, Choice::Settings);
-    }
-
-    #[test]
-    fn the_raw_key_is_left_to_the_kernel_so_its_action_reaches_the_dialog() {
-        let key = Input::Key {
-            now_ms: 0,
-            key: "right",
-            state: paperpaw_sdk::native::callbacks::KeyState::Press,
-        };
-        assert!(leaves_to_kernel(&key));
-        let action = Input::Action {
-            action: "core.right",
-            now_ms: 0,
-        };
-        assert!(!leaves_to_kernel(&action));
     }
 }
