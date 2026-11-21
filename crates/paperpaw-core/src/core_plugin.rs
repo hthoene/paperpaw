@@ -112,7 +112,7 @@ pub(crate) fn items(device_name: &str, r: &mut Staging) -> Result<(), RegisterEr
 /// The power modes built in (ADR 0025): a level, how much longer
 /// declared work may wait, and values worn over the reader's own (a
 /// number after `<=` is a limit).
-static POWER_MODES: [paperpaw_sdk::presets::Preset; 3] = [
+static POWER_MODES: [paperpaw_sdk::presets::Preset; 4] = [
     paperpaw_sdk::presets::Preset::fixed(
         "core.normal",
         "core.power-mode",
@@ -133,6 +133,15 @@ static POWER_MODES: [paperpaw_sdk::presets::Preset; 3] = [
         "core.power.offline",
         "core.power.offline.help",
         "power.level = offline\npower.stretch = 4\ncore.sleep-after <= 5\nx4.frontlight <= 30",
+    ),
+    // Everything as in Normal; where the shell has a clock that follows the
+    // work (`PowerControls::cpu_clock`) it keeps it at the full speed (#452).
+    paperpaw_sdk::presets::Preset::fixed(
+        "core.performance",
+        "core.power-mode",
+        "core.power.performance",
+        "core.power.performance.help",
+        "power.level = normal",
     ),
 ];
 

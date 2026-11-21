@@ -93,6 +93,10 @@ impl Remote {
                 let (place, naps, reason) = crate::power::last_run();
                 println!("PP:BOOT {reason:?} {place} {naps}");
                 println!("PP:NAPS {}", crate::power::naps());
+                // The time at the slow clock (#452): ms since the start, and
+                // how often it went slow.
+                let (slow_ms, slows) = crate::cpu_clock::slow();
+                println!("PP:CLOCK {slow_ms} {} {slows}", crate::now().0);
                 if let Some(message) = critical_section::with(|cs| PANIC.borrow_ref(cs).clone()) {
                     println!("PP:PANIC {message}");
                 }

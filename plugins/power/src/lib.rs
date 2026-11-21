@@ -1,11 +1,11 @@
 //! Power: which power mode is worn (ADR 0025). The reader chooses
-//! Normal, Saving, Offline, or Automatic, which goes by the battery:
-//! Saving below one level, Offline below another, Normal while charging.
+//! Normal, Saving, Offline, Performance (Normal with the processor kept at
+//! its full clock, #452), or Automatic, which goes by the battery: Saving
+//! below one level, Offline below another, Normal while charging.
 //! The modes themselves are presets of the kind `core.power-mode`, worn by
 //! the kernel (`command.wear`); this plugin only decides which, silently.
 //!
-//! - *Power* in the quick panel: the four as segments, by buttons and by
-//!   touch alike.
+//! - *Power* in the quick panel: the mode, a row that opens the choice.
 //! - Settings › System › Power: the mode, Automatic's two levels and
 //!   *Normal while charging*.
 //! - A status item, *Power mode*: nothing in Normal, so the lines stay calm.

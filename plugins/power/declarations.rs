@@ -14,11 +14,12 @@ pub const EVENTS_TOKEN: u32 = 1;
 
 pub const GROUP: &str = "power.group";
 /// The choices of `power.mode`; translation keys too.
-pub const MODES: [&str; 4] = [
+pub const MODES: [&str; 5] = [
     "power.mode.auto",
     "power.mode.normal",
     "power.mode.saving",
     "power.mode.offline",
+    "power.mode.performance",
 ];
 
 pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {

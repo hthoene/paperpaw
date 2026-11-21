@@ -74,8 +74,12 @@ impl Firmware {
             }
         }
         if !power::nap_until(until) {
-            self.delay
-                .delay_millis(until.saturating_sub(now().0) as u32);
+            // At the slow clock; the next turn starts at the full one.
+            let wait = until.saturating_sub(now().0);
+            if wait > 0 {
+                self.wait_clock();
+                self.delay.delay_millis(wait as u32);
+            }
         }
     }
 

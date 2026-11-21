@@ -325,7 +325,7 @@ fn wear(host: &Host<'_>) -> Result<(), Error> {
         return Ok(());
     }
     let mut commands = [0; 256];
-    CommandSender::new(host, &mut commands).wear(choice.level.preset(), choice.automatic)
+    CommandSender::new(host, &mut commands).wear(choice.preset(), choice.automatic)
 }
 
 /// What the device can do, as far as the power menu cares.

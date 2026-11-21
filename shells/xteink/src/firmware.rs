@@ -349,12 +349,15 @@ impl Firmware {
         true
     }
 
-    /// Waits for the panel's busy line to fall. The radio's frames are taken
-    /// out of its queue meanwhile: five fit in it, and a refresh takes up to
+    /// Waits for the panel's busy line to fall, at the slow clock where
+    /// that may be ([`Self::wait_clock`]). The radio's frames are taken out
+    /// of its queue meanwhile: five fit in it, and a refresh takes up to
     /// 3.5 s.
     fn panel_wait(&mut self) -> Result<(), paperpaw_x4::display::Error> {
+        self.wait_clock();
         let network = &mut self.network;
         let waited = self.panel.wait_with(|| network.keep_served());
+        crate::cpu_clock::work();
         // The newer X3's UC8279d is driven by a mode of its own, not tried
         // on every module: an update on trial whose first refresh times out
         // shows nothing on this X3, and goes back to the firmware before it.
@@ -372,6 +375,9 @@ impl Firmware {
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
     fn step(&mut self) {
+        // Work: the full clock, whatever the wait before left (#452).
+        crate::cpu_clock::work();
+        crate::cpu_clock::set_policy(paperpaw_x4::controls::clock_policy(self.kernel.power()));
         // Power held 8 s (G12): out, whatever else is going on. The timer's
         // readings reset the processor if this is not reached in time.
         if self.take_escape() {
@@ -459,6 +465,15 @@ impl Firmware {
         self.tick();
         self.poll_frame();
         self.rest(battery, installing);
+    }
+
+    /// A wait starts: the slow clock of the power mode, unless a radio is
+    /// on (its tasks need the full clock and the APB's 80 MHz). The next
+    /// [`crate::cpu_clock::work`] ends it.
+    fn wait_clock(&self) {
+        if !self.network.radio_on() {
+            crate::cpu_clock::wait();
+        }
     }
 
     /// Whether the button response is *Faster* (see `device`).
