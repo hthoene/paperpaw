@@ -140,6 +140,8 @@ static ALLOWED: AtomicBool = AtomicBool::new(false);
 const MIN_NAP_US: u64 = 3000;
 
 pub fn init(low_power: LowPower<'static>) {
+    #[cfg(feature = "x4")]
+    init_cable();
     critical_section::with(|cs| LOW_POWER.replace(cs, Some(low_power)));
 }
 
@@ -182,11 +184,9 @@ fn sleep_until(deadline: Instant) -> bool {
     // clocks and regulators. The RTC alarm wakes the hardware without
     // a CPU interrupt; sample_now reads the buttons after waking.
     #[cfg(feature = "x4")]
-    critical_section::with(|_| {
-        crate::cpu_clock::across_sleep(|| low_power.sleep_light(RtcSleepConfig::default()))
-    });
+    critical_section::with(|_| light(&mut low_power));
     #[cfg(not(feature = "x4"))]
-    crate::cpu_clock::across_sleep(|| low_power.sleep_light(RtcSleepConfig::default()));
+    light(&mut low_power);
     critical_section::with(|cs| LOW_POWER.replace(cs, Some(low_power)));
     mark(at::WOKEN);
     crate::stack::arm_band();
@@ -208,15 +208,82 @@ pub fn sleep_asleep(until_ms: u64) -> bool {
     };
     low_power.set_wakeup_deadline(Instant::EPOCH + Duration::from_millis(until_ms));
     mark(at::NAP_IDLE);
-    let down = crate::input::power_nap(|| {
-        crate::cpu_clock::across_sleep(|| low_power.sleep_light(RtcSleepConfig::default()))
-    });
+    let down = crate::input::power_nap(|| light(&mut low_power));
     low_power.clear_wakeup_deadline();
     critical_section::with(|cs| LOW_POWER.replace(cs, Some(low_power)));
     mark(at::WOKEN);
     crate::stack::arm_band();
     count_nap();
     down
+}
+
+/// One light sleep, as every nap takes it: on the crystal (#434, see
+/// [`crate::cpu_clock::across_sleep`]), and on the X4 a cable plugged in ends
+/// it ([`cable_wake`]).
+fn light(low_power: &mut LowPower<'static>) {
+    cable_wake(|| crate::cpu_clock::across_sleep(|| low_power.sleep_light(sleep_config())));
+}
+
+/// A light sleep's settings: on the ESP32-C3 ESP-IDF's
+/// (`rtc_sleep_get_default_config` with the crystal and the 8 MHz oscillator
+/// powered down, #451): the digital and the RTC domains held at about 0.6 V
+/// while asleep instead of esp-hal's 1.1 V, and the 8 MHz oscillator off.
+/// Memory, pads and VDD_SPI are kept as with esp-hal's.
+fn sleep_config() -> RtcSleepConfig {
+    #[cfg_attr(not(feature = "esp32c3"), allow(unused_mut))]
+    let mut config = RtcSleepConfig::default();
+    #[cfg(feature = "esp32c3")]
+    {
+        /// ESP-IDF's `RTC_CNTL_DBIAS_SLP`.
+        const DBIAS_ASLEEP: u8 = 5;
+        config.set_int_8m_pd_en(true);
+        config.set_dig_dbias_slp(DBIAS_ASLEEP);
+        config.set_rtc_dbias_slp(DBIAS_ASLEEP);
+        config.set_dbg_atten_slp(esp_hal::rtc_cntl::sleep::RTC_CNTL_DBG_ATTEN_LIGHTSLEEP_DEFAULT);
+    }
+    config
+}
+
+/// The X4's cable pin (GPIO 20, high while a cable is in), a source that ends
+/// a light sleep (#451): plugged in, the processor wakes at once and stays
+/// awake on USB, so the computer that starts to talk to it finds its USB port
+/// clocked, not one asleep until the next alarm. A second handle on the pin
+/// the board reads (`Board::usb_power`).
+#[cfg(feature = "x4")]
+static CABLE: Mutex<RefCell<Option<esp_hal::gpio::Input<'static>>>> =
+    Mutex::new(RefCell::new(None));
+
+#[cfg(feature = "x4")]
+fn init_cable() {
+    use esp_hal::gpio::{Input, InputConfig};
+    // SAFETY: the pin is configured as the board's handle has it (input, no
+    // pull) and only read here, and listened to for the length of a sleep;
+    // the board's handle never listens.
+    let pin = unsafe { esp_hal::peripherals::GPIO20::steal() };
+    let cable = Input::new(pin, InputConfig::default());
+    critical_section::with(|cs| CABLE.replace(cs, Some(cable)));
+}
+
+/// Runs `sleep` with the cable pin as a source that ends it, while no cable
+/// is in (with one in, its level would end every sleep at once). The pin's
+/// interrupt is off again before the interrupts come back: a cable plugged in
+/// is seen by the main loop, not by a handler.
+fn cable_wake(sleep: impl FnOnce()) {
+    #[cfg(feature = "x4")]
+    critical_section::with(|cs| {
+        let mut cable = CABLE.borrow_ref_mut(cs);
+        match cable.as_mut().filter(|pin| pin.is_low()) {
+            Some(pin) => {
+                pin.listen(esp_hal::gpio::Event::HighLevel);
+                sleep();
+                pin.unlisten();
+                pin.clear_interrupt();
+            }
+            None => sleep(),
+        }
+    });
+    #[cfg(not(feature = "x4"))]
+    sleep();
 }
 
 /// The watchdogs for a light sleep that lasts minutes: the timer group's
