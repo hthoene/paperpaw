@@ -188,6 +188,8 @@ impl<'h, 'cb> Reader<'h, 'cb> {
                     at: current,
                 }
             }
+            // A list keeps ids and shows their catalogue names, as the settings do.
+            (RegistrySettingKind::List, Value::Text(text)) => Control::Value(self.names(&text)?),
             (_, Value::Text(text)) => Control::Value(text),
             _ => Control::Value(String::new()),
         };
@@ -205,6 +207,26 @@ impl<'h, 'cb> Reader<'h, 'cb> {
             editor,
             control,
         })
+    }
+
+    /// The catalogue names of the ids of a list value, a key the catalogue
+    /// lacks as it is.
+    fn names(&self, value: &str) -> Result<String, Error> {
+        let mut messages = paperpaw_ui_kit::Messages::new()?;
+        let mut text = String::new();
+        for id in value.split(',').map(str::trim).filter(|id| !id.is_empty()) {
+            let name = match messages.copy(self.host, id) {
+                Err(Error::NotFound | Error::Invalid) => copy(id)?,
+                other => other?,
+            };
+            text.try_reserve(name.len().saturating_add(2))
+                .map_err(|_| Error::NoMemory)?;
+            if !text.is_empty() {
+                text.push_str(", ");
+            }
+            text.push_str(&name);
+        }
+        Ok(text)
     }
 
     fn options(&mut self, key: &str) -> Result<Vec<Choice>, Error> {
