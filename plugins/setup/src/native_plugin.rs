@@ -135,13 +135,17 @@ impl Plugin for NativeSetup {
                 sample: &guide.texts.sample,
             };
             let layout = lay_out(guide, &style, &measure);
-            let mut ops = Vec::new();
+            let (mut ops, mut book) = (Vec::new(), Vec::new());
             let fonts = Fonts {
                 ui: &ui,
                 reading: reading.as_ref(),
             };
-            guide.prepare(&mut ops, &fonts, &style, &layout)?;
-            paint::replay(&mut frame, &ui, ops.iter())
+            guide.prepare(&mut ops, &mut book, &fonts, &style, &layout)?;
+            paint::replay(&mut frame, &ui, ops.iter())?;
+            match &reading {
+                Some(reading) => paint::replay(&mut frame, reading, book.iter()),
+                None => Ok(()),
+            }
         })();
         let reading = reading.map(Font::release).transpose();
         let ui = ui.release();
@@ -263,13 +267,17 @@ impl NativeSetup {
         self.screens.open(instance, guide)
     }
 
-    /// The language changed: each open guide takes its words and its page
-    /// anew and is drawn again (#459: until then Next, Back, Skip and the end
-    /// page stayed in the language the guide opened in).
+    /// The language changed: each open guide takes its words, its steps'
+    /// titles and its page anew and is drawn again, its key bar too (#459,
+    /// #472: until then the title and *Skip* stayed in the language the guide
+    /// opened in).
     fn language_changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let mut any = false;
         for guide in self.screens.all() {
             guide.texts = texts(host)?;
+            let mut reader = Reader::open(host)?;
+            let found = reader.steps();
+            guide.retitle(reader.finish(found)?);
             let loaded = read_page(host, guide, guide.page)?;
             guide.commit(guide.page, loaded.gone, (loaded.setting, loaded.help));
             key_bar(host, guide);

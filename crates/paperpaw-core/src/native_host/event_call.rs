@@ -35,7 +35,8 @@ pub(crate) struct Staged {
     /// commands (`commands_dev.rs`).
     pub(crate) dev: Option<alloc::boxed::Box<super::commands::dev::DevBatch>>,
     /// What a screen's callback stages besides (empty for a service's event,
-    /// whose stage admits none of it).
+    /// whose stage admits none of it; an event's or an action's callback has
+    /// its item states, answers, lookups and its own top screen's hints).
     pub(crate) screen: ScreenEffects,
 }
 
@@ -240,6 +241,12 @@ impl crate::Kernel {
             CALLBACK_COMMAND_BYTES,
         )
         .with_ui(env, self.event_screen(id), 0, self.screen_keys_remaining())
+        // Its own top screen's button hints, as a screen's callback sets them
+        // (`ui.md` section 3): the words of a guide follow a language chosen.
+        .with_hint_labels(
+            self.shared.stack_rows.labels(),
+            !self.hint.buttons.is_empty(),
+        )
         .with_widgets(instances.ui_services(), owner)
         .with_handover_store(instances.ui_services().map(|ui| &ui.store));
         // An event's or an action's callback sets its items' states too, as
@@ -289,6 +296,7 @@ impl crate::Kernel {
         let item_states = stage.take_item_states();
         let answers = stage.take_answers();
         let lookups = stage.take_lookup_readies();
+        let hints = stage.take_hint_sets();
         // Its power and Wi-Fi commands, in the box their submit made.
         let dev = stage.take_dev_boxed();
         let marked = match instances.ui_services() {
@@ -304,11 +312,13 @@ impl crate::Kernel {
             || !item_states.0.is_empty()
             || !answers.is_empty()
             || !lookups.is_empty()
+            || !hints.is_empty()
         {
             let mut staged = Staged::new(owner, commands, redraw, images);
             staged.screen.item_states = item_states;
             staged.screen.answers = answers;
             staged.screen.lookups = lookups;
+            staged.screen.hints = hints;
             staged.opens = opens;
             staged.dev = dev;
             // Empty, checked before the callback: this cannot refuse.
