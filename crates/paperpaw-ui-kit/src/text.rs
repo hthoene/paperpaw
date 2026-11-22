@@ -83,45 +83,6 @@ pub fn centred(
     Ok(())
 }
 
-/// `text` cut to `width` at its start, so that its end stays: "…" and the
-/// longest tail that fits (a path, a file name with its extension, a version).
-/// The whole text where it fits.
-///
-/// # Errors
-/// A refused font reply and [`Error::NoMemory`].
-pub fn fit_end(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<String, Error> {
-    if font.measure_text(size, text)? <= width {
-        return copy(text);
-    }
-    let mut result = String::new();
-    result
-        .try_reserve_exact(text.len().checked_add(3).ok_or(Error::NoMemory)?)
-        .map_err(|_| Error::NoMemory)?;
-    // The most letters of the end that fit with the ellipsis, found by halving
-    // as `fit` does.
-    let total = text.chars().count();
-    let (mut fits, mut over) = (0, total);
-    let tail = |keep: usize| {
-        text.char_indices()
-            .nth(total - keep)
-            .map_or(text.len(), |(at, _)| at)
-    };
-    while over - fits > 1 {
-        let probe = fits + (over - fits) / 2;
-        result.clear();
-        result.push('…');
-        result.push_str(&text[tail(probe)..]);
-        if font.measure_text(size, &result)? > width {
-            over = probe;
-        } else {
-            fits = probe;
-        }
-    }
-    result.clear();
-    result.push('…');
-    result.push_str(&text[tail(fits)..]);
-    Ok(result)
-}
 #[allow(
     clippy::too_many_arguments,
     reason = "one measured text run and its target geometry"
