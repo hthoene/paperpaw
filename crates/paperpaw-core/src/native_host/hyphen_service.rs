@@ -173,6 +173,10 @@ struct Tables {
     open: Vec<Open>,
     strikes: Vec<Strike>,
     words: u64,
+    /// No room for another table at the last try: the word count before
+    /// which none can come (a table gives its room only once idle), and how
+    /// many were open then (one closed otherwise makes room at once).
+    no_room: Option<(u64, usize)>,
 }
 
 /// The host and its open tables.
@@ -351,6 +355,14 @@ fn ensure_open(
     {
         return Some(index);
     }
+    // No room at the last try and none since: the card is not read for each
+    // word of the language that waits (#483).
+    if tables
+        .no_room
+        .is_some_and(|(until, open)| now < until && tables.open.len() == open)
+    {
+        return None;
+    }
     let (file, identity) = match state.host.open(key) {
         Ok(opened) => opened,
         Err(_) => {
@@ -382,7 +394,11 @@ fn ensure_open(
             .max_by_key(|(_, o)| now.saturating_sub(o.last_word))
             .map(|(i, _)| i);
         // Nothing idle long enough: the newer language's words stay whole.
-        tables.open.remove(idle?);
+        let Some(idle) = idle else {
+            wait_for_room(tables, now);
+            return None;
+        };
+        tables.open.remove(idle);
     }
     let used: usize = tables.open.iter().map(|o| o.table.heap_bytes()).sum();
     if tables.open.try_reserve(1).is_err() {
@@ -410,7 +426,12 @@ fn ensure_open(
             });
             Some(tables.open.len() - 1)
         }
-        Err(OpenError::NoMemory | OpenError::OverBudget { .. }) => None,
+        // The device's heap may have room at the next word: tried again.
+        Err(OpenError::NoMemory) => None,
+        Err(OpenError::OverBudget { .. }) => {
+            wait_for_room(tables, now);
+            None
+        }
         Err(OpenError::Check(error)) => {
             let unsound = matches!(error, CheckError::Table(_));
             strike(tables, &owned, epoch, unsound);
@@ -418,6 +439,13 @@ fn ensure_open(
         }
         Err(_) => None,
     }
+}
+
+/// No room now: the next try is when the open table used longest ago can be
+/// idle, or a while from now where none is open.
+fn wait_for_room(tables: &mut Tables, now: u64) {
+    let oldest = tables.open.iter().map(|o| o.last_word).min().unwrap_or(now);
+    tables.no_room = Some((oldest.saturating_add(IDLE_WORDS), tables.open.len()));
 }
 
 /// Slot 38 as the plugin calls it: the pairs are checked, then the count of
