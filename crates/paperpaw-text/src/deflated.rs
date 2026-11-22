@@ -484,7 +484,7 @@ mod tests {
                 240,
                 "{compact} {tables}"
             );
-            // Again, from a full cache and the block it ended with.
+            // Again, from a full cache.
             assert_eq!(
                 same(&plain, &deflated, &mut cache),
                 240,
@@ -554,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    fn a_block_is_inflated_once_for_the_glyphs_in_it() {
+    fn each_block_inflates_to_its_size_and_none_past_the_last() {
         let blocks = deflate_bitmaps(&pack(true, false, false), &deflate, &cold).unwrap();
         let font = BitmapFont::new(blocks).unwrap();
         let (deflated, bytes) = font.deflated().unwrap();
