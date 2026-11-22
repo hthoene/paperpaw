@@ -4920,6 +4920,8 @@ change the plugin SDK.
 
 - **Plugin store: Select did not say Try again when the list could not be fetched** (#472). The key bar words a plugin sets from an event for its own screen were dropped; now they show, as the store's message asks to press Select to try again.
 
+- **Setup: the page that offers a few plugins did not say what it is for** (#472). It now explains that these are plugins many readers add, that any or none can be chosen, and that all of them are in the plugin store later (store 1.0.17).
+
 - **Settings and setup as in Beta 3** (#472). A long title in a settings row wraps to a second line beside its value or switch instead of ending in "…". A list setting with a long value shows it again (the sleep screen's widgets, the status lines), with the names of its widgets and status items instead of their ids. The status lines' settings (the lines above and below the text, each part of a line) open their editor again, where lines and items are shown, hidden and ordered. *Advanced settings* on the main page is a switch again. The first-run setup asks for a screen lock again.
 
 ## [0.6.0-beta.3] - 2026-11-05
