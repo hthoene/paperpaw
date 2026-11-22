@@ -72,21 +72,33 @@ impl<'a> Open<'a> {
     }
 }
 
+/// The most bytes of a full id: every record field that names one is a
+/// `str 128`.
+const FULL_ID_MAX_BYTES: usize = 128;
+
+/// A full id (`<plugin>.<name>`): NoSpace over [`FULL_ID_MAX_BYTES`],
+/// Invalid without a dot or against [`is_dotted_id`].
 pub(crate) fn full_id(id: &str) -> Result<(), Error> {
-    if id.len() > 128 {
+    if id.len() > FULL_ID_MAX_BYTES {
         return Err(Error::NoSpace);
     }
-    if !id.contains('.')
-        || id.split('.').any(|part| {
-            part.is_empty()
-                || !part
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        })
-    {
+    if !id.contains('.') || !is_dotted_id(id) {
         return Err(Error::Invalid);
     }
     Ok(())
+}
+
+/// Whether `id` is parts of [`is_id_byte`]s split by dots, none empty: the
+/// grammar of every id the SDK sends, relative (`page`, `reader.font`) or
+/// full (also with a dot). Lengths are the caller's to check.
+pub(crate) fn is_dotted_id(id: &str) -> bool {
+    id.split('.')
+        .all(|part| !part.is_empty() && part.bytes().all(is_id_byte))
+}
+
+/// Whether `byte` may stand in a part of an id or in an icon name: `[a-z0-9-]`.
+pub(crate) const fn is_id_byte(byte: u8) -> bool {
+    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
 }
 
 /// How the row of button hints labels the button bound to one action while the

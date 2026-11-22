@@ -1,5 +1,6 @@
 //! Borrowed menu declarations encoded through the generated record codec.
 use super::{Declarations, DeclareError, Item, Latched, filled, records_wire as wire, within};
+use crate::native::ui::navigation::{is_dotted_id, is_id_byte};
 use paperpaw_native::host_glue::ERR_INVALID;
 
 /// Where a menu entry goes, with an anchor only for placements that need one.
@@ -121,7 +122,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
             menu_full_id(item, wire::ICON_SPEC_ITEM_MAX_BYTES, "icon item")?;
             filled(icon, "icon name")?;
             within(icon, wire::ICON_SPEC_ICON_MAX_BYTES, "icon name")?;
-            if !icon.bytes().all(menu_name_byte) {
+            if !icon.bytes().all(is_id_byte) {
                 return Err(DeclareError::Encode(ERR_INVALID));
             }
             Ok(Item::Icon(wire::IconSpec { item, icon }))
@@ -258,10 +259,6 @@ pub(super) fn need_bits(need: crate::MenuNeed) -> Result<(u32, u64), DeclareErro
     Ok((need, capability))
 }
 
-fn menu_name_byte(byte: u8) -> bool {
-    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
-}
-
 pub(super) fn menu_identifier(
     value: &str,
     maximum: usize,
@@ -269,10 +266,7 @@ pub(super) fn menu_identifier(
 ) -> Result<(), DeclareError> {
     filled(value, field)?;
     within(value, maximum, field)?;
-    if value
-        .split('.')
-        .any(|part| part.is_empty() || !part.bytes().all(menu_name_byte))
-    {
+    if !is_dotted_id(value) {
         return Err(DeclareError::Encode(ERR_INVALID));
     }
     Ok(())
