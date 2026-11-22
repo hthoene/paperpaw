@@ -520,7 +520,7 @@ impl Run<'_, '_> {
         let annotations = annotate::place(
             self.cx,
             p.annotated.as_ref(),
-            (block, range.clone(), &runs, bidi),
+            (block, line.range.start, range.clone(), &runs, bidi),
             (x, word_spacing),
             (
                 self.y + p.leading,
