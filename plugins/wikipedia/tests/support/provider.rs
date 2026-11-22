@@ -3,8 +3,8 @@
 //! word and a text, and the calls the host makes to the provider.
 #![allow(dead_code, reason = "each test binary uses a part")]
 use paperpaw_core::native_host::registrations::{
-    EventHttpDone, EventScreenOpened, EventSuspend, Record, ServiceEnd, ServiceNetAnswer,
-    ServiceNetBytes, ServiceNetStarted, ServiceUiParam, ServiceUiText, StageCall,
+    EventHttpDone, EventScreenClosed, EventScreenOpened, EventSuspend, Record, ServiceEnd,
+    ServiceNetAnswer, ServiceNetBytes, ServiceNetStarted, ServiceUiParam, ServiceUiText, StageCall,
     record_encode_one, records_decode,
 };
 use paperpaw_plugin_wikipedia::declarations::{
@@ -27,7 +27,7 @@ pub const NOT_FOUND: &str = "Wikipedia has no article on this.";
 /// The hand-over of the opened screen.
 pub const HANDOVER: u32 = 9;
 
-/// The requests asked for (`url token`).
+/// The requests asked for (`url token`) and cancelled (`cancel token`).
 pub type Log = Rc<RefCell<Vec<String>>>;
 
 pub fn stream(records: &[Record<'_>]) -> Vec<u8> {
@@ -62,6 +62,11 @@ pub fn host_with(status: u32, body: &'static str) -> (ScriptedHost, Log) {
                 Ok(stream(&[Record::ServiceNetStarted(ServiceNetStarted {
                     id,
                 })]))
+            }
+            (2, Some(Record::ServiceNetToken(cancelled))) => {
+                seen.borrow_mut()
+                    .push(format!("cancel {}", cancelled.token));
+                Ok(Vec::new())
             }
             (3, _) => Ok(stream(&[Record::ServiceNetAnswer(ServiceNetAnswer {
                 status,
@@ -137,6 +142,17 @@ pub fn open_screen(p: &Plugin<'_>) -> i32 {
     }))
     .unwrap();
     p.event(SCREEN_TOKEN, &opened).unwrap().status
+}
+
+/// The summary screen (instance 1) closed.
+pub fn close_screen(p: &Plugin<'_>) -> i32 {
+    let closed = event_batch(&Record::EventScreenClosed(EventScreenClosed {
+        now_ms: 0,
+        screen: "wikipedia.lookup",
+        instance: 1,
+    }))
+    .unwrap();
+    p.event(SCREEN_TOKEN, &closed).unwrap().status
 }
 
 /// The provider's answer to an ask of `text` in `language`: title, text,
