@@ -1,5 +1,5 @@
-//! The kernel's one-time notices at start (the Literata upgrade hint and the
-//! low-memory notice, #798): a title, a text and one or two buttons on the
+//! The kernel's one-time notices at start (the Literata upgrade hint, the
+//! low-memory notice, #798, and the passwords that do not open here, #466): a title, a text and one or two buttons on the
 //! host's [`Board`], closing on any answer. What an answer does is the
 //! notice's own ([`Answer`]).
 use crate::{Place, Turn};
@@ -20,6 +20,9 @@ enum Answer {
     /// The low-memory notice: *Plugins* (the first button) opens the plugin
     /// manager's list.
     LowMemory,
+    /// Passwords that do not open here: *Remove them* (the first button)
+    /// removes them (`secrets_i6::REMOVE`), *OK* keeps them.
+    Secrets,
 }
 
 /// The plugin manager's list, where the low-memory notice's *Plugins* goes.
@@ -69,6 +72,24 @@ impl StartNotice {
         }
     }
 
+    /// The passwords that do not open here: *Remove them* and *OK*, the focus
+    /// on *OK* (and *Back* is *OK*).
+    pub(super) fn secrets(env: &Place<'_>) -> Self {
+        let tr = env.i18n();
+        let labels = Vec::from([
+            String::from(tr.tr("core.secrets-unopened.remove")),
+            String::from(tr.tr("core.confirm.ok")),
+        ]);
+        let text = (
+            tr.tr("core.secrets-unopened.title"),
+            tr.tr("core.secrets-unopened"),
+        );
+        Self {
+            board: Board::new(env, text, labels, 1),
+            answer: Answer::Secrets,
+        }
+    }
+
     pub(super) fn region(&self) -> Rect {
         self.board.region()
     }
@@ -93,6 +114,10 @@ impl StartNotice {
                 cx.command(Ask::OpenScreen(PLUGINS, Params::new()));
             }
             Answer::LowMemory => {}
+            Answer::Secrets if button == 0 => {
+                cx.command(Ask::Emit(crate::secrets_i6::REMOVE, Params::new()));
+            }
+            Answer::Secrets => {}
         }
     }
 

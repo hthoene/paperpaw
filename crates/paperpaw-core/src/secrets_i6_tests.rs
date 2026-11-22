@@ -12,6 +12,7 @@ use alloc::rc::Rc;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{
     Id, MemoryStorage,
+    builtin::actions,
     secrets::{FILE, SecretChange},
 };
 
@@ -305,16 +306,38 @@ fn a_card_from_another_device_is_told_once_per_start() {
     let lifecycle = SecretsLifecycle::new(SecretsInputs::new(mine, Rc::new(Fake::new(9))).host());
     kernel.wire_secrets(&lifecycle);
     assert_eq!(kernel.secrets().get("mail.pw"), None, "absent here");
-    assert!(kernel.notice.is_none());
-    kernel.finish();
-    assert!(kernel.notice.is_some(), "told");
-    kernel.tick(paperpaw_platform::Instant(10_000));
-    assert!(kernel.notice.is_none(), "the notice went by");
+    assert!(!asks(&kernel));
+    kernel.tick(paperpaw_platform::Instant(1_000));
+    assert!(asks(&kernel), "told in a dialog over the home screen");
+    // *OK* (the focus) closes it and keeps the line.
+    kernel.run_action(paperpaw_platform::Instant(2_000), actions::CONFIRM);
+    assert!(!asks(&kernel));
     // Read again by a save: not told twice in one start; the line stays.
     kernel.set_secret(SecretChange::keep("wifi.Home", "Home", "two"));
     kernel.tick(paperpaw_platform::Instant(11_000));
-    assert!(kernel.notice.is_none());
+    assert!(!asks(&kernel));
     assert!(file(&kernel).contains(theirs.lines().next().unwrap()));
+}
+
+/// Whether the dialog of passwords that do not open here is on top.
+fn asks(kernel: &Kernel) -> bool {
+    kernel.active_screen() == Some(&super::SCREEN)
+}
+
+/// #466: the dialog's *Remove them* removes the lines that did not open here
+/// and nothing else.
+#[test]
+fn remove_them_drops_only_the_lines_that_do_not_open_here() {
+    let ours = seal_text(&veiled(&[("mail.pw", "mine")]), "", &Fake::new(9)).unwrap();
+    let theirs = seal_text(&veiled(&[("wifi.Home", "one")]), "", &Fake::new(3)).unwrap();
+    let mut kernel = told_kernel(&(ours.clone() + &theirs), Fake::new(9));
+    kernel.tick(paperpaw_platform::Instant(1_000));
+    assert!(asks(&kernel));
+    kernel.run_action(paperpaw_platform::Instant(2_000), actions::LEFT);
+    kernel.run_action(paperpaw_platform::Instant(2_100), actions::CONFIRM);
+    assert!(!asks(&kernel));
+    assert_eq!(file(&kernel), ours, "only the line that did not open went");
+    assert_eq!(kernel.secrets().get("mail.pw"), Some("mine"));
 }
 
 /// A kernel with interface 6's notice plugin whose card holds `text`, the
@@ -356,8 +379,8 @@ fn a_busy_flash_is_not_told_as_another_device() {
         busy.open_fault.set(Some(fault));
         let mut kernel = told_kernel(&mine, busy);
         assert_eq!(kernel.secrets().get("mail.pw"), None, "absent for now");
-        kernel.finish();
-        assert!(kernel.notice.is_none(), "not told: the values are ours");
+        kernel.tick(paperpaw_platform::Instant(1_000));
+        assert!(!asks(&kernel), "not told: the values are ours");
         assert!(file(&kernel).contains(mine.lines().next().unwrap()), "kept");
     }
 }
@@ -399,9 +422,8 @@ fn values_that_do_not_open_are_told_once_and_again_only_for_a_new_one() {
     // The card's file and what the start told, after one start on `card`.
     let start = |card: MemoryStorage| {
         let mut kernel = started(card, Fake::new(9));
-        kernel.finish();
-        let told = kernel.notice.is_some();
-        kernel.tick(paperpaw_platform::Instant(10_000));
+        kernel.tick(paperpaw_platform::Instant(1_000));
+        let told = asks(&kernel);
         let storage = kernel.shared.storage.as_ref();
         let read = |path| paperpaw_sdk::files::load_for_update(storage, path, 65_536).unwrap();
         (told, read(FILE).unwrap(), read(TOLD_FILE))

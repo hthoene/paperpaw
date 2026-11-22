@@ -19,7 +19,9 @@ impl crate::Kernel {
     /// Sends `event.tick` where a minute has passed since the last one. The
     /// first call only starts the minute.
     pub(crate) fn native_tick(&mut self) {
-        self.offer_literata_notice();
+        if !self.offer_literata_notice() {
+            self.offer_secrets_notice();
+        }
         let now = self.shared.now;
         let due = match self.native_tick_at {
             None => {
