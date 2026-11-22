@@ -178,7 +178,7 @@ impl HostSource {
         let dots = on(DOTS, true)?;
         let tool_labels = on(TOOL_LABELS, true)?;
         let focus_at_once = on(FOCUS_AT_ONCE, false)?;
-        let arrows_stay = on(ARROWS_STAY, false)?;
+        let arrows_stay = on(ARROWS_STAY, true)?;
         let registry = Registry::open(host)?;
         let found = Self::registry(host, &registry);
         let released = registry.release(host);

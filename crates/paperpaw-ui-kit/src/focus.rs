@@ -140,8 +140,8 @@ impl ListFocus {
 /// Keeps in `kept` the reader's choice that the arrow keys stay on the page of
 /// a list (`core.arrows-stay-on-page`): read once, at the first key the list
 /// takes, not at every one, and kept as long as the list (a screen builds its
-/// list anew where it opens). A refused read reads as off and is tried again
-/// at the next key.
+/// list anew where it opens). A value that is no switch reads as on, the
+/// setting's default; a refused read is tried again at the next key.
 #[inline(never)]
 pub(crate) fn keep_arrows_stay(host: &Host<'_>, kept: &mut Option<bool>, input: &Input<'_>) {
     if kept.is_some() || !matches!(input, Input::Action { .. }) {
@@ -151,7 +151,7 @@ pub(crate) fn keep_arrows_stay(host: &Host<'_>, kept: &mut Option<bool>, input: 
     let key = paperpaw_sdk::builtin::settings::ARROWS_STAY_ON_PAGE.static_str();
     *kept = match settings::read_setting(host, key, &mut scratch) {
         Ok(SettingValue::Bool(on)) => Some(on),
-        Ok(_) => Some(false),
+        Ok(_) => Some(true),
         Err(_) => None,
     };
 }

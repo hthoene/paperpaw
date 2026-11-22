@@ -1858,6 +1858,8 @@ change the plugin SDK.
 
 ### Changed
 
+- *Arrow keys stay on the page* is on by default (#465): at a list's or the home page's first or last entry the arrow keys go round on that page, and the page buttons turn pages. A reader who set it keeps their choice.
+
 - Interface-7 slot 6 `i18n.copy` returns `ERR_NOT_FOUND` for a missing translation key,
   leaving output unchanged, instead of copying the key (D5, #228).
 

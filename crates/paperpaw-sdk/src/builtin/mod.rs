@@ -551,8 +551,9 @@ pub mod settings {
     pub const SWAP_PAGE_BUTTONS: Setting<bool> = Setting::new("core.swap-page-buttons");
     /// Whether the arrow keys stay on the page of a list: a step past the
     /// first or last entry of a page goes round to the other end of that
-    /// page, and only the page keys turn pages. Off (as it was before), it
-    /// goes round to the other end of the whole list. Lists follow it
+    /// page, and only the page keys turn pages (on unless the reader turned
+    /// it off). Off, it goes round to the other end of the whole list.
+    /// Lists follow it
     /// through `ListView::navigate_in`
     /// and `step_focus_in`.
     pub const ARROWS_STAY_ON_PAGE: Setting<bool> = Setting::new("core.arrows-stay-on-page");

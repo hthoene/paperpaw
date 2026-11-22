@@ -380,7 +380,7 @@ static DEVICE: [SettingSpec; 19] = [
     SettingSpec::switch(
         settings::ARROWS_STAY_ON_PAGE.static_str(),
         "core.setting.arrows-stay-on-page",
-        false,
+        true,
         groups::CONTROLS,
     )
     .description("core.setting.arrows-stay-on-page.help"),
