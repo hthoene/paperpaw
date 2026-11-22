@@ -632,6 +632,7 @@ const NEED_THEIR_PARAMETERS: &[&str] = &[
     "home.status-items",
     "keyboard.ask",
     "keyboard.screen",
+    "reader.status-edit",
     "settings.secret",
     "store.plugin",
     "store.shots",

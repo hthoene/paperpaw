@@ -298,6 +298,31 @@ pub const WAYS: &[Way] = &[
         ],
     },
     Way {
+        screen: "store.shots",
+        needs: "the store's list of the fixtures and a plugin of it with screenshots \
+                (Reading aids): since the settings' pages of #472 the search ends at \
+                its bound before it",
+        settings: &[],
+        files: &[],
+        network: Network::Fixtures,
+        steps: &[
+            "long:confirm",
+            "to:Tools",
+            "confirm",
+            "to:Plugin store",
+            "confirm",
+            "wait:3000",
+            "to:Reading",
+            "confirm",
+            "wait:1000",
+            "to:Reading aids",
+            "confirm",
+            "wait:1000",
+            "to:Screenshots",
+            "confirm",
+        ],
+    },
+    Way {
         screen: "files.info",
         needs: "a book's sheet in the library (Select held on it), which the library does \
                 not describe as a part",
