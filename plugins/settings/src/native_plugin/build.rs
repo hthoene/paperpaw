@@ -598,7 +598,14 @@ pub(super) fn build_group(
     };
     // Everything is made aside; the view changes once it is whole, so a
     // refusal leaves the rows and the items they belong to as they were.
-    let items = view.items_for(host, (&rows, &entries), view.shown_editing())?;
+    // A number being changed stays on its setting's row, wherever it is now.
+    let editing = view.editing.as_ref().and_then(|e| {
+        let row = rows.iter().position(|r| {
+            matches!(r, Row::Setting(at) if entries.get(*at).is_some_and(|en| en.setting.key == e.key))
+        })?;
+        Some((row, e.now))
+    });
+    let items = view.items_for(host, (&rows, &entries), editing)?;
     let focus = rows.iter().position(|r| match r {
         Row::Setting(at) => entries
             .get(*at)
@@ -614,6 +621,16 @@ pub(super) fn build_group(
     view.rows = rows;
     view.entries = entries;
     view.list.replace(items);
+    match (editing, view.editing.as_mut()) {
+        (Some((row, _)), Some(kept)) => kept.row = row,
+        // Its setting is no longer on the page: the value kept stays.
+        (None, Some(_)) => {
+            view.editing = None;
+            CommandSender::new(host, &mut [0; 64]).end_preview()?;
+            super::edit_hints(host, false);
+        }
+        _ => {}
+    }
     if view.preview.is_some() {
         view.list
             .set_head(&messages.copy(host, "settings.preview")?)?;
