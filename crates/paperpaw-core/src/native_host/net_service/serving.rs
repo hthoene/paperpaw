@@ -770,6 +770,11 @@ pub(super) fn respond(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
     let id = inner.serving.served[at].id;
     if let Err(error) = host.transport().reply(id, &reply) {
         inner.release(host, held);
+        // No room on the way out now (the cable's answers wait to be sent):
+        // the request stays open, the plugin answers again (5.2).
+        if error == ERR_BUSY {
+            return Err(error);
+        }
         let s = inner.serving.served.remove(at);
         host.remove_received(s.owner, s.token, s.id);
         return Err(error);
