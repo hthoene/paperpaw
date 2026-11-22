@@ -53,6 +53,13 @@ pub(crate) use file::XFile;
 /// Directories noted at a time (see `Dir::note`).
 const NOTES: usize = 8;
 
+/// How far into the root directory the bitmap's entry is looked for:
+/// 8,192 entries. Formatters write it among the first few; the bound in
+/// bytes (not in clusters) keeps a damaged root, whose FAT runs in a loop
+/// or whose clusters are large, from being read 32 bytes at a time for
+/// long.
+const BITMAP_WITHIN: u64 = 256 << 10;
+
 /// A run of clusters: one after the other on the disk, or linked in the FAT.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Chain {
@@ -115,37 +122,39 @@ impl<IO: ReadWriteSeek> ExFat<IO> {
         Ok(fs)
     }
 
-    /// The first allocation bitmap, from its entry in the root directory.
+    /// The first allocation bitmap, from its entry in the root directory:
+    /// looked for in the root's first [`BITMAP_WITHIN`] bytes.
     fn find_bitmap(&self) -> Res<Chain, IO> {
         let mut cluster = self.geo.root;
-        // The root's clusters, bounded: a FAT that runs in a loop ends.
-        for _ in 0..self.geo.clusters.min(4096) {
-            let base = self.cluster_offset(cluster)?;
-            let mut at = 0;
-            while at < self.cluster_size() {
-                let mut entry = [0u8; layout::ENTRY];
-                self.read_at(base + at, &mut entry)?;
-                match entry[0] {
-                    0 => return Err(Error::CorruptedFileSystem),
-                    layout::ENTRY_BITMAP if entry[1] & 1 == 0 => {
-                        return self.bitmap_chain(u32_at(&entry, 20), u64_at(&entry, 24));
-                    }
-                    _ => {}
-                }
-                at += layout::ENTRY as u64;
+        for read in (0..BITMAP_WITHIN).step_by(layout::ENTRY) {
+            let at = read & (self.cluster_size() - 1);
+            if read > 0 && at == 0 {
+                cluster = self.fat_next(cluster)?.ok_or(Error::CorruptedFileSystem)?;
             }
-            cluster = self.fat_next(cluster)?.ok_or(Error::CorruptedFileSystem)?;
+            let mut entry = [0u8; layout::ENTRY];
+            self.read_at(self.cluster_offset(cluster)? + at, &mut entry)?;
+            match entry[0] {
+                0 => return Err(Error::CorruptedFileSystem),
+                layout::ENTRY_BITMAP if entry[1] & 1 == 0 => {
+                    return self.bitmap_chain(u32_at(&entry, 20), u64_at(&entry, 24));
+                }
+                _ => {}
+            }
         }
         Err(Error::CorruptedFileSystem)
     }
 
     /// The bitmap at `first`, `len` bytes: checked to cover every cluster,
-    /// and whether its clusters lie one after the other.
+    /// and whether its clusters lie one after the other. Only the clusters
+    /// that hold a bit of the volume's are walked: a longer `len` (up to
+    /// `u64::MAX` on a damaged card) is not followed round a FAT that runs
+    /// in a loop, and nothing past them is read.
     fn bitmap_chain(&self, first: u32, len: u64) -> Res<Chain, IO> {
-        if !self.is_cluster(first) || len < u64::from(self.geo.clusters).div_ceil(8) {
+        let bytes = u64::from(self.geo.clusters).div_ceil(8);
+        if !self.is_cluster(first) || len < bytes {
             return Err(Error::CorruptedFileSystem);
         }
-        let count = len.div_ceil(self.cluster_size());
+        let count = bytes.div_ceil(self.cluster_size());
         let mut contiguous = true;
         let mut cluster = first;
         for _ in 1..count {

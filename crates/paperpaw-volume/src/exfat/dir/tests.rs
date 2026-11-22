@@ -3,7 +3,7 @@
 //! hold each file whole (as before the operation or as after it), name no
 //! cluster twice or one marked free, and take further writes.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::io::{self, SeekFrom as StdSeek};
 use std::rc::Rc;
@@ -15,15 +15,17 @@ use crate::io::StdIoWrapper;
 
 type Log = Rc<RefCell<Vec<(u64, Vec<u8>)>>>;
 
-/// A disk in memory that remembers every write.
+/// A disk in memory that remembers every write and counts the reads.
 struct Rec {
     data: Rc<RefCell<Vec<u8>>>,
     pos: u64,
     log: Log,
+    reads: Rc<Cell<u64>>,
 }
 
 impl io::Read for Rec {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.reads.set(self.reads.get() + 1);
         let data = self.data.borrow();
         let at = (self.pos as usize).min(data.len());
         let n = buf.len().min(data.len() - at);
@@ -67,6 +69,7 @@ type Fs = ExFat<Disk>;
 struct Card {
     data: Rc<RefCell<Vec<u8>>>,
     log: Log,
+    reads: Rc<Cell<u64>>,
 }
 
 impl Card {
@@ -81,6 +84,7 @@ impl Card {
         Self {
             data: Rc::new(RefCell::new(image)),
             log: Rc::default(),
+            reads: Rc::default(),
         }
     }
 
@@ -89,6 +93,7 @@ impl Card {
             data: self.data.clone(),
             pos: 0,
             log: self.log.clone(),
+            reads: self.reads.clone(),
         })
     }
 
@@ -605,6 +610,49 @@ fn a_set_with_a_wrong_checksum_is_left_alone() {
     let head = fs.entry_pos(&entry.loc, 0).unwrap() as usize;
     assert_eq!(image[head..head + 96], before[head..head + 96]);
     assert!(fs.is_taken(entry.first).unwrap());
+}
+
+#[test]
+fn the_bitmap_is_looked_for_and_walked_only_as_far_as_the_volume_needs() {
+    // A bitmap entry whose length is far past what the volume's clusters need: the clusters
+    // that hold their bits are walked, no more.
+    let card = filled(4096);
+    let root_slots = |fs: &Fs| {
+        let base = fs.cluster_offset(fs.root()).unwrap();
+        (base..base + fs.cluster_size()).step_by(ENTRY)
+    };
+    let kind_at = |fs: &Fs, at: u64| {
+        let mut kind = [0u8; 1];
+        fs.read_at(at, &mut kind).unwrap();
+        kind[0]
+    };
+    {
+        let fs = card.mount();
+        let at = root_slots(&fs)
+            .find(|&at| kind_at(&fs, at) == layout::ENTRY_BITMAP)
+            .unwrap();
+        fs.write_at(at + 24, &u64::MAX.to_le_bytes()).unwrap();
+        fs.flush().unwrap();
+    }
+    assert_eq!(tree(&card.mount())["first.txt"], data(700, 1));
+    // A root with no bitmap entry and no end, whose FAT runs in a loop: read as far as the
+    // bound, not through every cluster of the volume.
+    {
+        let fs = card.mount();
+        for at in root_slots(&fs) {
+            if matches!(kind_at(&fs, at), 0 | layout::ENTRY_BITMAP) {
+                fs.write_at(at, &[ENTRY_UNUSED]).unwrap();
+            }
+        }
+        fs.fat_set(fs.root(), fs.root()).unwrap();
+        fs.flush().unwrap();
+    }
+    card.reads.set(0);
+    assert!(matches!(
+        ExFat::mount(card.disk()),
+        Err(Error::CorruptedFileSystem)
+    ));
+    assert!(card.reads.get() < 9_000, "{} reads", card.reads.get());
 }
 
 #[test]
