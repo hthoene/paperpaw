@@ -878,6 +878,28 @@ fn blocks_a_filter_inserts_follow_the_block_without_places() {
     assert!(!big.insert_after(block_of(&"z".repeat(MAX_INSERTED_TEXT + 1))));
 }
 
+/// An inserted line that breaks a word says so, as the book's lines do.
+#[test]
+fn an_inserted_line_broken_with_a_hyphen_says_so() {
+    let anywhere: Hyphenate<'_> = &|word: &str, at: &mut dyn FnMut(usize)| {
+        (1..word.len()).for_each(at);
+    };
+    let mut block = block_of("aaaa");
+    block.end = 4;
+    assert!(block.insert_after(block_of(&"x".repeat(60))));
+    let doc = Blocks::new(move |at: Locator| (at.offset < 4).then(|| block.clone()));
+    let storage = paperpaw_document::NoStorage;
+    let cx = LayoutContext::new(&doc, &storage, 40.0, &STYLE, &Units).hyphenate(Some(anywhere));
+    let page = layout_page(&cx, Locator::START, 100.0).unwrap();
+    let broken = &page.lines[1];
+    assert!(
+        broken.inserted && broken.text.ends_with('-'),
+        "{:?}",
+        texts(&page)
+    );
+    assert!(broken.hyphen);
+}
+
 #[test]
 fn the_last_line_of_a_block_goes_with_what_was_inserted_after_it() {
     // Two lines of 10 px fit in 25, the translation's third does not:
