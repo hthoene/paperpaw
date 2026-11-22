@@ -96,6 +96,27 @@ fn confirm_shows_and_hides_and_the_focus_follows_the_buttons() {
 }
 
 #[test]
+fn a_focus_step_draws_its_two_rows_and_one_that_stays_put_nothing() {
+    let ok = |_: &Step| Ok(());
+    let press = |action| Input::Action { now_ms: 0, action };
+    let mut v = view("clock, wifi");
+    // The focus alone moves: the rows stay, two of them are drawn again.
+    let rows = v.list().items().to_vec();
+    assert_eq!(
+        v.run(&press("core.down"), ok).unwrap(),
+        Some((Step::Redraw, Some((0, 1))))
+    );
+    assert_eq!(v.list().items(), rows.as_slice());
+    // At the top it stays: nothing to draw.
+    act(&mut v, "core.up");
+    assert_eq!(act(&mut v, "core.up"), Step::Taken);
+    // Held at the first place, up cannot move it.
+    assert_eq!(act(&mut v, "core.menu"), Step::Redraw);
+    assert_eq!(act(&mut v, "core.up"), Step::Taken);
+    assert!(v.chooser().moving());
+}
+
+#[test]
 fn menu_picks_up_a_shown_item_and_the_buttons_move_it() {
     let mut v = view("clock, wifi, battery");
     // A hidden item cannot be picked up.
@@ -334,7 +355,7 @@ fn what_the_host_refuses_leaves_the_view_as_it_was() {
     // The same input goes through when the host takes it.
     let ok = |_: &Step| Ok(());
     assert_eq!(
-        v.run(&tap(2), ok).unwrap(),
+        v.run(&tap(2), ok).unwrap().map(|(step, _)| step),
         Some(Step::Changed("clock, wifi, battery".to_string()))
     );
     assert_eq!(v.list().focus(), 2);
