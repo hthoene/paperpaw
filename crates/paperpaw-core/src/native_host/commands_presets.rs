@@ -430,8 +430,10 @@ impl Kernel {
                     self.warn_runtime("native preset not applied: no memory");
                     break;
                 };
+                // As the batch's own commands: the guard's plugin's change
+                // the setup while its screen guards, another's are held.
                 for command in commands {
-                    self.apply(command);
+                    self.drain_native_command(owner, command);
                 }
                 if !more {
                     break;
