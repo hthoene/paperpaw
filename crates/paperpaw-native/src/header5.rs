@@ -1,8 +1,9 @@
 //! The X4's plugin file for interface 7 (format 5), as `abi/ppn5.md` proposes
 //! it: a reader of the 96-byte header and every refusal that needs no more
 //! than the header, the file's length and the entry the loader has
-//! relocated. Nothing here loads, relocates or runs a plugin, and no
-//! firmware calls it yet (slice 1 of #787).
+//! relocated. Nothing here loads, relocates or runs a plugin: the X4's
+//! loader (`shells/xteink/src/native/ppn5.rs`) and the core's checks of a
+//! plugin file (`plugin_check`, `plugin_install`, `code_plugin`) call it.
 //!
 //! The order is the loader's (ADR 0034 section 6, steps 1 to 7 of the
 //! note): magic and length, format, chip, interface major, needed minor,
@@ -21,6 +22,7 @@ use paperpaw_digest::sha256::Sha256;
 
 use crate::header::{CODE_OFFSET, Chip, MAGIC, MAX_IMAGE_LEN};
 use crate::index::HOT_MAX;
+use crate::profile::PREFIX_SIZE;
 use crate::signature::SIGNATURE_LEN;
 
 /// The format this module reads.
@@ -29,8 +31,10 @@ pub const FORMAT: u16 = 5;
 pub const HEADER_LEN: usize = 96;
 /// The bytes of the header its digest covers (all before the digest).
 const DIGESTED_LEN: usize = 64;
-/// The most the metadata record may be (`max_bytes` of its descriptor).
+/// The most the metadata record may be (`max_bytes` of its descriptor):
+/// the generated reader's bound, [`crate::metadata::MAX_BYTES`].
 pub const META_MAX: u32 = 2048;
+const _: () = assert!(META_MAX as usize == crate::metadata::MAX_BYTES);
 
 /// Bit 0 of the header's `flags`: the plugin has `PAPERPAW_HEAP`, the host
 /// heap word (`abi/heap-word.md`); `heap_at` then says where it lies. Every
@@ -186,9 +190,8 @@ impl RecordFacts {
     /// shell's profile again; this one makes step 9 refuse a file built for
     /// the other chip's profile even where that reader is not run.
     pub fn target(record: &[u8]) -> Option<&[u8]> {
-        const PREFIX_BYTES: usize = 32;
         let len = usize::from(u16::from_le_bytes([*record.get(24)?, *record.get(25)?]));
-        record.get(PREFIX_BYTES..PREFIX_BYTES.checked_add(len)?)
+        record.get(PREFIX_SIZE..PREFIX_SIZE.checked_add(len)?)
     }
 
     /// The facts of the metadata record `record` (the bytes at `meta_at`),
@@ -206,13 +209,12 @@ impl RecordFacts {
     pub fn read(record: &[u8]) -> Option<RecordFacts> {
         const MAGIC: [u8; 4] = *b"PPAM";
         const LAYOUT: u16 = 2;
-        const PREFIX_BYTES: u16 = 32;
-        if record.len() < PREFIX_BYTES as usize || record.len() > META_MAX as usize {
+        if record.len() < PREFIX_SIZE || record.len() > META_MAX as usize {
             return None;
         }
         let ok = record[..4] == MAGIC
             && le16(record, 4) == LAYOUT
-            && le16(record, 6) == PREFIX_BYTES
+            && usize::from(le16(record, 6)) == PREFIX_SIZE
             && le32(record, 8) as usize == record.len()
             && le16(record, 16) == ENTRY_LAYOUT
             && le32(record, 20) == 0;
