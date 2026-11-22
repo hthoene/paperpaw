@@ -197,6 +197,10 @@ pub struct Phone {
     active: u64,
     /// Whether a phone joined and the step went on by itself: once only.
     moved_on: bool,
+    /// The host would not serve the page when asked (the screen was not the
+    /// one showing to it): asked again with the next change of the radio or
+    /// key, so that the second code still comes.
+    serve_again: bool,
 }
 
 impl core::fmt::Debug for Phone {
@@ -215,6 +219,7 @@ impl core::fmt::Debug for Phone {
             .field("step", &self.step)
             .field("active", &self.active)
             .field("moved_on", &self.moved_on)
+            .field("serve_again", &self.serve_again)
             .finish_non_exhaustive()
     }
 }
@@ -235,6 +240,7 @@ impl Phone {
             token: String::new(),
             active: now,
             moved_on: false,
+            serve_again: false,
         }
     }
 
@@ -349,6 +355,8 @@ impl Phone {
                 out.push(Effect::Redraw);
                 self.stage = Stage::Hosting { page: None };
                 self.active = now;
+                // Asked to serve here: a refusal of an earlier network is over.
+                self.serve_again = false;
                 if radio.guests > 0 {
                     self.moved_on = true;
                     self.step = Step::Open;
@@ -372,7 +380,27 @@ impl Phone {
             }
             _ => {}
         }
+        if radio.hosting {
+            self.serve_pending(&mut out);
+        }
         Ok(out)
+    }
+
+    /// The host would not serve the page now ([`Effect::Serve`] refused with
+    /// `ERR_STATE`): it is asked again with the next change of the radio (a
+    /// phone joining) or key, instead of the step waiting for it forever.
+    pub fn not_served(&mut self) {
+        if matches!(self.stage, Stage::Hosting { page: None }) {
+            self.serve_again = true;
+        }
+    }
+
+    /// Serving the page again where the host would not before.
+    fn serve_pending(&mut self, out: &mut Vec<Effect>) {
+        if self.serve_again && matches!(self.stage, Stage::Hosting { page: None }) {
+            out.push(Effect::Serve);
+            self.serve_again = false;
+        }
     }
 
     /// A join or the own network failed; `problem` says why in words.
@@ -541,6 +569,7 @@ impl Phone {
             out.push(Effect::Redraw);
             self.step = to;
         }
+        self.serve_pending(&mut out);
         Ok(Some(out))
     }
 

@@ -410,7 +410,7 @@ impl Device {
         #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
         self.linked
             .view
-            .set(now.0, !self.profile.wifi || self.wifi.is_online());
+            .set(now.0, !self.profile.wifi || self.wifi.network_up());
         now
     }
 

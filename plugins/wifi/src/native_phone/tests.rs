@@ -190,6 +190,52 @@ fn a_phone_there_when_the_network_opens_shows_the_page_at_once() {
 }
 
 #[test]
+fn a_page_the_host_would_not_serve_is_asked_again_when_the_phone_joins() {
+    // The two scans of Beta 3: the code to join, then the page's code once a
+    // phone joined. The host refused to serve when the own network opened
+    // (`ERR_STATE`): the phone joining asks again, so the second code comes
+    // without a key, instead of "Opening…" for ever.
+    let mut p = drawn("tok3n", false, 100).unwrap();
+    assert_eq!(
+        p.radio_changed(200, &hosting(0)).unwrap(),
+        [Effect::Serve, Effect::WakeAt(200 + IDLE_MS), Effect::Redraw]
+    );
+    p.not_served();
+    assert_eq!(
+        p.radio_changed(300, &hosting(1)).unwrap(),
+        [Effect::WakeAt(300 + IDLE_MS), Effect::Redraw, Effect::Serve]
+    );
+    assert_eq!(p.step(), Step::Open);
+    assert_eq!(p.server_started("192.168.4.1").unwrap(), [Effect::Redraw]);
+    assert_eq!(p.page_address(), Some("http://192.168.4.1/"));
+    // Once: served, nothing asked again.
+    assert!(p.radio_changed(400, &hosting(2)).unwrap().is_empty());
+}
+
+#[test]
+fn a_page_not_served_is_asked_again_with_a_key_and_not_once_served() {
+    let mut p = drawn("tok3n", false, 100).unwrap();
+    p.radio_changed(200, &hosting(0)).unwrap();
+    p.not_served();
+    let radio = hosting(0);
+    assert_eq!(
+        p.action(Action::Confirm, &radio).unwrap(),
+        Some(vec![Effect::Redraw, Effect::Serve])
+    );
+    assert_eq!(
+        p.action(Action::Confirm, &radio).unwrap(),
+        Some(vec![Effect::Redraw])
+    );
+    // Served: a refusal that comes late changes nothing.
+    p.server_started("192.168.4.1").unwrap();
+    p.not_served();
+    assert_eq!(
+        p.action(Action::Confirm, &radio).unwrap(),
+        Some(vec![Effect::Redraw])
+    );
+}
+
+#[test]
 fn a_password_not_taken_opens_the_own_network_again() {
     let mut p = open();
     let form = "t=tok3n&ssid=Home&password=wrong";

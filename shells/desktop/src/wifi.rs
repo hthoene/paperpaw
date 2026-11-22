@@ -72,6 +72,14 @@ impl Wifi {
         matches!(self.state, WifiState::Online { .. })
     }
 
+    /// A network is up: joined, or the device's own one open. The X4's
+    /// bridge counts both (`Bridge::track`, #467): the setup with a phone
+    /// serves its page in the device's own network.
+    #[must_use]
+    pub fn network_up(&self) -> bool {
+        self.is_online() || self.state.is_hosting()
+    }
+
     fn networks(&self) -> Vec<WifiNetwork> {
         pretend_networks(self.workshop)
     }

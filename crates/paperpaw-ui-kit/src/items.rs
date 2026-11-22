@@ -102,6 +102,9 @@ struct Head {
     /// The room's height in pixels, under the heading; 0 takes no room, heading
     /// included.
     height: u16,
+    /// The room gives way to all the rows, not only the first
+    /// ([`ItemList::set_head_keeps_rows`]).
+    keeps_rows: bool,
 }
 
 /// An entry of an [`ItemList`].
@@ -399,8 +402,18 @@ impl ItemList {
         self.head = Some(Head {
             title: text::copy(title)?,
             height: 0,
+            keeps_rows: false,
         });
         Ok(())
+    }
+
+    /// The room above the rows gives way to all of them, not only the first:
+    /// they stay on its page with it, where they fit a page (a code above the
+    /// few rows that go with it, drawn as large as the rest leaves).
+    pub fn set_head_keeps_rows(&mut self) {
+        if let Some(head) = &mut self.head {
+            head.keeps_rows = true;
+        }
     }
 
     /// Gives the room above the rows `height` pixels (0: none, no heading);
@@ -651,10 +664,23 @@ impl ItemList {
         self.draw_with(host, frame, title, shown, Footer::None)
     }
 
-    /// The height of the head on the first page, kept to the page.
-    fn head_high(&self, style: &Style, room: u16, first_row: Option<u16>) -> u16 {
-        let high = self.head.as_ref().map_or(0, |h| head_height(style, h));
-        head_fit(high, room, first_row)
+    /// The height of the head on the first page, kept to the page: the first
+    /// row stays on it, or all the rows where the head keeps them and they fit.
+    #[inline(never)]
+    fn head_high(&self, style: &Style, room: u16, heights: &[u16]) -> u16 {
+        let Some(head) = &self.head else {
+            return 0;
+        };
+        let first = heights.first().copied();
+        let all = heights
+            .iter()
+            .fold(0_u16, |sum, high| sum.saturating_add(*high));
+        let below = if head.keeps_rows && all <= room {
+            Some(all)
+        } else {
+            first
+        };
+        head_fit(head_height(style, head), room, below)
     }
 
     /// Draws the head's heading in `room` (none: nothing) and gives the room under
@@ -741,7 +767,7 @@ impl ItemList {
             area.height = area.height.saturating_sub(rect.height);
         }
         let (heights, under) = self.take_heights(&font, style, width)?;
-        let head_high = self.head_high(style, area.height, heights.first().copied());
+        let head_high = self.head_high(style, area.height, &heights);
         let starts = paginate_with(&self.items, &heights, area.height, head_high)?;
         let page = starts
             .iter()
