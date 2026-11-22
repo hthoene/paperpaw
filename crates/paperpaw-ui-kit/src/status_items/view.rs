@@ -17,7 +17,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind, PointerPhase},
         commands::{CommandSender, RedrawMode},
-        registry::{PageCursor, Registry, StatusScope},
+        registry::{PageCursor, Registry, RegistryStatus, StatusScope},
     },
 };
 
@@ -509,37 +509,62 @@ impl StatusItemsView {
 /// Registry, allocation and decoding errors; a page whose generation went
 /// stale is read again from the start.
 pub fn read_entries(host: &Host<'_>, scope: StatusScope) -> Result<Vec<Entry>, Error> {
+    read_status(host, scope, MAX_ENTRIES, |row| {
+        Ok(Some(Entry {
+            id: text::copy(row.id())?,
+            title: text::copy(row.title())?,
+            also: None,
+        }))
+    })
+}
+
+/// The rows of the registry's `scope` that `each` makes into a `T` (`None`
+/// leaves a row out), in its order, `most` at most (the pages after are not
+/// read). A page whose generation went stale is read again from the start,
+/// three times at most; the editor and the status line read it so.
+///
+/// # Errors
+/// Registry and allocation errors, what `each` says; [`Error::State`] where
+/// the registry changed at every reading.
+pub(crate) fn read_status<T>(
+    host: &Host<'_>,
+    scope: StatusScope,
+    most: usize,
+    mut each: impl FnMut(RegistryStatus<'_>) -> Result<Option<T>, Error>,
+) -> Result<Vec<T>, Error> {
     let registry = Registry::open(host)?;
-    let found = read_pages(&registry, host, scope);
+    let found = read_pages(&registry, host, scope, most, &mut each);
     let released = registry.release(host);
     let found = found?;
     released?;
     Ok(found)
 }
 
-fn read_pages(
+fn read_pages<T>(
     registry: &Registry,
     host: &Host<'_>,
     scope: StatusScope,
-) -> Result<Vec<Entry>, Error> {
+    most: usize,
+    each: &mut impl FnMut(RegistryStatus<'_>) -> Result<Option<T>, Error>,
+) -> Result<Vec<T>, Error> {
     let mut input = mem::buffer(256)?;
     let mut out = mem::buffer(mem::SERVICE_BUFFER)?;
     for _ in 0..3 {
-        let mut entries = Vec::new();
+        let mut found = Vec::new();
         let mut cursor = PageCursor::start();
         let result = loop {
             match registry.status(host, scope, cursor, &mut input, &mut out) {
                 Ok(page) => {
-                    for row in page.rows().take(MAX_ENTRIES.saturating_sub(entries.len())) {
-                        let entry = Entry {
-                            id: text::copy(row.id())?,
-                            title: text::copy(row.title())?,
-                            also: None,
-                        };
-                        mem::push(&mut entries, entry)?;
+                    for row in page.rows() {
+                        if found.len() >= most {
+                            break;
+                        }
+                        if let Some(made) = each(row)? {
+                            mem::push(&mut found, made)?;
+                        }
                     }
                     match page.end().next_cursor() {
-                        Some(next) if entries.len() < MAX_ENTRIES => cursor = next,
+                        Some(next) if found.len() < most => cursor = next,
                         _ => break Ok(()),
                     }
                 }
@@ -547,7 +572,7 @@ fn read_pages(
             }
         };
         match result {
-            Ok(()) => return Ok(entries),
+            Ok(()) => return Ok(found),
             // The registry changed while it was read: again from the start.
             Err(Error::State) => {}
             Err(error) => return Err(error),
