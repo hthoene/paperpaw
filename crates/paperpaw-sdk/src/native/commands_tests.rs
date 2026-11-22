@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
 use super::*;
 use crate::native::ui::Open;
+use crate::native::wire::settings_wire::SettingValueRef;
 use alloc::{string::String, vec::Vec};
 use core::{
     cell::{Cell, RefCell},

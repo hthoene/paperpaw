@@ -5,11 +5,11 @@ use super::{
 };
 use crate::native::device::PowerLevel;
 use crate::native::{
-    declare::settings_value as settings,
+    declare::settings_value,
     document::{DocClosedReason, DocId},
     image::ImageReady,
     net::{HttpDone, HttpProgress, ServedRequest, ServerEvent},
-    settings::SettingValue,
+    settings::{self, SettingValue},
     sockets::{BroadcastEvent, SocketEvent},
     work::{WorkDue, WorkRefused},
 };
@@ -241,11 +241,6 @@ fn old_value(bytes: &[u8]) -> Result<Option<SettingValue<'_>>, Error> {
         return Ok(None);
     }
     // A present malformed value must not masquerade as a missing previous value.
-    let value = settings::settings_decode(bytes).map_err(|_| Error::Invalid)?;
-    Ok(Some(match value {
-        settings::SettingValueRef::Absent => SettingValue::Absent,
-        settings::SettingValueRef::Bool(value) => SettingValue::Bool(value),
-        settings::SettingValueRef::Int(value) => SettingValue::Int(value),
-        settings::SettingValueRef::Text(value) => SettingValue::Text(value),
-    }))
+    let value = settings_value::settings_decode(bytes).map_err(|_| Error::Invalid)?;
+    Ok(Some(settings::from_wire(value)))
 }
