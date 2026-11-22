@@ -179,7 +179,7 @@ fn break_words(
 }
 
 /// The distance between lines of `size`: text, or a closer heading.
-fn step(font: &Font<'_>, size: f32, heading: bool) -> Result<u16, Error> {
+pub(crate) fn step(font: &Font<'_>, size: f32, heading: bool) -> Result<u16, Error> {
     let line = crate::geometry::line_px(font, size)?;
     Ok(if heading {
         crate::geometry::clamp_u16((f32::from(line) * 0.9) as i64)
@@ -188,7 +188,12 @@ fn step(font: &Font<'_>, size: f32, heading: bool) -> Result<u16, Error> {
     })
 }
 
-fn lines_height(font: &Font<'_>, size: f32, heading: bool, count: usize) -> Result<u16, Error> {
+pub(crate) fn lines_height(
+    font: &Font<'_>,
+    size: f32,
+    heading: bool,
+    count: usize,
+) -> Result<u16, Error> {
     if count == 0 {
         return Ok(0);
     }
