@@ -4894,6 +4894,8 @@ change the plugin SDK.
 
 - **Book styles from plugins did nothing to EPUB books** (#463). A plugin's `styles.css` (a style pack from the store, a theme) applies after the book's own styles and before one's own beside the book again, as in Beta 3 (EPUB 1.0.8). The kernel serves the stylesheets it read at start; nothing more is read from the card. A book converts once more after such a plugin is added, changed or removed. For plugin authors: interface 7 draft 39 adds root 7 of `core.format` calls, the plugins' stylesheets as one file (SDK `storage::Root::PluginCss`, `docs/abi/document.md` section 3); plugins built for draft 38 run unchanged.
 
+- **Wi-Fi setup with a phone serves its page again on the Xteink readers** (#467). The setup screen said "The page could not be served: There is no network." as soon as the device's own network opened: the Wi-Fi plugin asks for its page in answer to the radio's news that the network is up, and the firmware's network bridge still went by the step before, when there was none. The bridge now takes the radio's network before the plugins hear of it, so the page is served and its address shown.
+
 - **paperpaw-dev: the pseudo-language has every text of the app again** (#4511). It now comes as one compiled catalog (`i18n/pseudo.ppcat`), as a language pack does: its split text catalogs had grown past what a data plugin's text catalogs may take together, so the last ones were left out.
 
 ## [0.6.0-beta.3] - 2026-11-05

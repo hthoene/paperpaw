@@ -252,7 +252,15 @@ impl Network {
         self.calls.settle_idle(self.radio.net(), now.0);
         #[cfg(feature = "ppn5")]
         let mut scanned = false;
-        for event in self.radio.poll() {
+        let events = self.radio.poll();
+        // The kernel's plugins answer these events at once: the bridge knows
+        // the network they announce before (the setup with a phone serves
+        // its page as soon as the device's own network is up, #467).
+        #[cfg(feature = "ppn5")]
+        if let Some(host) = &self.host {
+            host.track(&mut self.radio);
+        }
+        for event in events {
             #[cfg(feature = "remote")]
             self.answer_asked(kernel, &event);
             #[cfg(feature = "ppn5")]

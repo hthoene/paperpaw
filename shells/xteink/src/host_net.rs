@@ -139,7 +139,8 @@ struct Inner {
 /// with it) and the network (which runs it).
 pub struct Bridge {
     inner: RefCell<Inner>,
-    /// A network is up (set by every step).
+    /// A network is up (set by every step, and before the radio's events go
+    /// to the kernel: [`Bridge::track`]).
     up: Cell<bool>,
 }
 
@@ -829,6 +830,23 @@ impl ShellNetwork for Bridge {
 }
 
 impl Bridge {
+    /// Takes the radio's network as it is now, before the kernel hears what
+    /// the radio reported: whether one is up and its address, which core's
+    /// `serve` and the shell's `listen` go by. Without it they lagged a step
+    /// behind, and a server asked for in answer to the event that announced
+    /// the network was refused as having none (#467). What is open on the
+    /// network still changes in the step itself ([`Self::run`]).
+    pub fn track(&self, radio: &mut crate::wifi::Radio) {
+        let address = radio
+            .online()
+            .and_then(|net| net.address())
+            .map(|cidr| cidr.address());
+        self.up.set(address.is_some());
+        if let Ok(mut inner) = self.inner.try_borrow_mut() {
+            inner.address = address;
+        }
+    }
+
     /// One step of the interface-7 sockets over `radio`: what core asked, what
     /// the connections did, the reports, and the kernel's tick after them.
     pub fn run(
