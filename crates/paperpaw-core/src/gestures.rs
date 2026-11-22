@@ -117,6 +117,13 @@ impl Kernel {
         // Held still there, it becomes a long press all the same.
         if let Some(touch) = self.input.edge_touch.filter(|t| t.id == event.id) {
             match event.phase {
+                // The finger came down again: the lift of the touch at the
+                // edge was lost (a filter took it, a sleep came between).
+                // That touch is over; this one is new (#483).
+                PointerPhase::Down => {
+                    self.input.edge_touch = None;
+                    self.input.recognizer.forget_pointer(event.id);
+                }
                 PointerPhase::Up => {
                     self.input.edge_touch = None;
                     let thresholds = self.thresholds();
@@ -140,7 +147,9 @@ impl Kernel {
                 }
                 _ => {}
             }
-            return;
+            if event.phase != PointerPhase::Down {
+                return;
+            }
         }
         // A screen may take a finger before the edges do: what it takes
         // is meant for it (a grip that moves a row, a handle), as apps on
