@@ -113,6 +113,21 @@ pub enum Failure {
     /// The device had no memory for the connection (or the file was over its
     /// limit, which the host tells the same way).
     Memory,
+    /// The files are here, but the host refused to install them.
+    Refused,
+}
+
+impl Failure {
+    /// The text that says so, with the plugin's name for its `{name}`.
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Network | Self::Damaged => "store.failed",
+            Self::Card => "store.failed.card",
+            Self::Memory => "store.failed.memory",
+            Self::Refused => "store.refused.other",
+        }
+    }
 }
 
 /// Where a plugin's installation is.

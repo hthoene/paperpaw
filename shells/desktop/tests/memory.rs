@@ -679,7 +679,11 @@ const INSTALL_GROWTH_KIB: f64 = 13.8;
 /// to what was measured.
 // `install` is 2.8 KiB since #4384: the kit's row is 8 B smaller (its slider's
 // track is a thin pointer) and the store's lists grow to other allocator sizes.
-const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 2.8), ("install2", 0.9)];
+// 3.0 KiB since #486, with the live heap after the install the same: the
+// store's queue goes on when the store opens, so the reader's request for a
+// plugin the library lacks (`hyphenation-de`) is answered before the install,
+// not during it, and the page step before it ends 0.2 KiB lower.
+const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 3.0), ("install2", 0.9)];
 
 /// The run prints tenths of a KiB, and the difference of two of them is not
 /// exact as a float (137.3 - 123.7 is 13.600000000000009): half a tenth is

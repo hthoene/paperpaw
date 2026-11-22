@@ -308,6 +308,9 @@ pub struct Activity {
     pub origins: crate::native_sources::Origins,
     /// Whose list is shown: PaperPaw's library or a community source.
     pub listed: crate::native_sources::Trust,
+    /// Counts the reads of what the device has installed (anew after a plugin
+    /// came, went or was switched on).
+    pub reads: u32,
 }
 
 /// The bytes free on the medium of the plugin's data folder (the card), if the
@@ -645,6 +648,10 @@ impl Installs for HostInstalls<'_> {
 
     fn restart_needed(&self, id: &str) -> bool {
         listed(&self.activity.restart_needed, id)
+    }
+
+    fn reads(&self) -> u32 {
+        self.activity.reads
     }
 }
 
