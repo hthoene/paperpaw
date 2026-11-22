@@ -7,8 +7,8 @@ use super::{COMMANDS, NativeUpdate, PAGE, Running, View, fetch::Fetch};
 use crate::{
     native_card::{MAX_NAME, UPDATE_DIR, coarse, joins, percent},
     native_online::{
-        self, Build, FIRST, Firmware, LAST, MAX_OFFER, OFFER, Offer, QUESTION, Reader, Trouble,
-        counting, date_text, parse_date,
+        self, Build, FIRST, Firmware, Keep, LAST, MAX_OFFER, OFFER, Offer, QUESTION, Reader,
+        Trouble, counting, date_text, parse_date,
     },
     native_update::wait,
 };
@@ -174,6 +174,16 @@ pub fn tolerate(result: Result<(), Error>) -> Result<(), Error> {
     }
 }
 
+/// Keeps the dates of a check that was asked (`native_online::counting`).
+fn keep_dates(host: &Host<'_>, keep: Keep) -> Result<(), Error> {
+    for (name, days) in [(LAST, keep.last), (FIRST, keep.first)] {
+        if let Some(days) = days {
+            replace(host, Root::Data, name, date_text(days)?.as_bytes())?;
+        }
+    }
+    Ok(())
+}
+
 /// Says `text` where the reader is.
 fn tell(host: &Host<'_>, text: &str) -> Result<(), Error> {
     let mut commands = buffer(COMMANDS)?;
@@ -210,7 +220,7 @@ impl NativeUpdate {
     }
 
     fn ask(&mut self, host: &Host<'_>, running: &Running, quiet: bool) -> Result<(), Error> {
-        let body = self.question(host, running, quiet)?;
+        let (body, dates) = self.question(host, running, quiet)?;
         replace(host, Root::Data, QUESTION, body.as_bytes())?;
         drop(body);
         let server = setting(host, SERVER)?;
@@ -226,19 +236,21 @@ impl NativeUpdate {
             .net(host)?
             .request(host, &request, &mut input, &mut out)?;
         self.online.asking = Some((id, quiet));
+        // The check counts once it is asked: a request refused uses up no day.
+        tolerate(keep_dates(host, dates))?;
         // An update that waits is asked for again not before a day.
         tolerate(self.waiting_tried(host))
     }
 
     /// The question: what runs, what is built in, the code plugins installed, the
-    /// interface they are built for, and the counting. The check counts when it
-    /// is asked, whatever its answer.
+    /// interface they are built for, and the counting; with the dates to keep
+    /// once it is asked (whatever its answer).
     fn question(
         &mut self,
         host: &Host<'_>,
         running: &Running,
         quiet: bool,
-    ) -> Result<String, Error> {
+    ) -> Result<(String, Keep), Error> {
         let device = Firmware {
             project: &running.project,
             chip: running.chip,
@@ -277,12 +289,7 @@ impl NativeUpdate {
             Ok(read_all(host, Root::Data, name, 64)?.and_then(|bytes| parse_date(&bytes)))
         };
         let (counted, keep) = counting(quiet, today, date(LAST)?, date(FIRST)?);
-        for (name, days) in [(LAST, keep.last), (FIRST, keep.first)] {
-            if let Some(days) = days {
-                replace(host, Root::Data, name, date_text(days)?.as_bytes())?;
-            }
-        }
-        question.finish(interface, betas, &counted)
+        Ok((question.finish(interface, betas, &counted)?, keep))
     }
 
     /// Calls `each` with the id and the version of every code plugin installed.
@@ -383,12 +390,17 @@ impl NativeUpdate {
         let Some(bytes) = read_all(host, Root::Data, OFFER, MAX_OFFER)? else {
             return Ok(None);
         };
-        let Ok(text) = core::str::from_utf8(&bytes) else {
-            return Ok(None);
-        };
-        Ok(Offer::from_text(text)?.filter(|offer| {
-            paperpaw_sdk::firmware::compare_versions(&offer.version, running).is_gt()
-        }))
+        native_online::kept_offer(&bytes, running)
+    }
+
+    /// Lets the update the server named go where it is no longer newer than
+    /// `running`: installed since, whichever way it came (a file on the card
+    /// too), so neither the page nor the *New* mark offers it again.
+    pub(super) fn forget_reached_offer(host: &Host<'_>, running: &str) -> Result<(), Error> {
+        if Self::offer(host, running)?.is_none() {
+            storage::remove(host, Root::Data, OFFER).ok();
+        }
+        Ok(())
     }
 
     /// Downloads the update `offer` names into `updates`, where the card flow

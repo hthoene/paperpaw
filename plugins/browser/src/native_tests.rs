@@ -521,7 +521,8 @@ fn the_history_keeps_the_latest_pages_as_before() {
 #[test]
 fn the_bookmarks_start_with_a_few_places_in_the_language() {
     let storage = MemoryStorage::new();
-    for (language, host) in [("de", "de"), ("de-AT", "de"), ("en_GB", "en"), ("", "")] {
+    // No language set is English, never an address without one.
+    for (language, host) in [("de", "de"), ("de-AT", "de"), ("en_GB", "en"), ("", "en")] {
         let list = native::bookmarks(&storage, language).unwrap().unwrap();
         assert_eq!(list.len(), 3);
         assert_eq!(list[0].url, format!("https://{host}.m.wikipedia.org/"));

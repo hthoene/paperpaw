@@ -116,6 +116,12 @@ pub struct Task {
     pub seen: bool,
     /// Not sent in this run any more (it failed, or changed meanwhile).
     pub skip: bool,
+    /// Sent in this run, but the server did not tell its version (an answer
+    /// without one, or a sending whose answer never came, which the server
+    /// had when it was made again): what is there is the reader's own, so the
+    /// list's reading at the end of the run takes the version without a
+    /// conflict. Never kept in the file.
+    pub untold: bool,
     /// Counts the changes made on the reader, so that a change made while the
     /// task was being sent is not taken for sent.
     pub touch: u8,
@@ -138,6 +144,7 @@ impl Task {
             done_at: 0,
             seen: false,
             skip: false,
+            untold: false,
             touch: 0,
             text: String::new(),
         };

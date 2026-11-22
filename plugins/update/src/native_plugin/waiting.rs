@@ -218,7 +218,8 @@ impl NativeUpdate {
             let leaves = self.left_by_offer(host, &offer, true)?;
             return Ok(View::Offer(offer, leaves));
         }
-        let leaves = self.left_by_offer(host, &offer, false)?;
+        // Not known: the crates the answer names stand in for them.
+        let leaves = self.left_by_offer(host, &offer, false)?.unwrap_or_default();
         let plugins: Vec<(&str, &str)> = {
             let mut list = Vec::new();
             list.try_reserve_exact(holding.plugins.len())

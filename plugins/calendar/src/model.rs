@@ -28,6 +28,10 @@ pub const URL_MAX: usize = 240;
 pub const USER_MAX: usize = 64;
 /// The most days of exceptions a repeating event keeps.
 pub const SKIP_MAX: usize = 16;
+/// [`Entry::cal`] of an event whose source is one calendar (a subscription, a
+/// file, an address book read whole), or one kept before the calendars of an
+/// account were told apart.
+pub const WHOLE_SOURCE: u32 = 0;
 /// The most occurrences expanded for one view.
 pub const OCCURRENCES_MAX: usize = 400;
 /// How far from today events are kept, both ways, in days.
@@ -155,6 +159,10 @@ pub struct Entry {
     pub known: bool,
     /// A hash of its `UID`, to tell which event a changed time belongs to.
     pub uid: u32,
+    /// The calendar of the source it came from (a hash of its address), so
+    /// that one calendar's answer replaces that calendar's events alone;
+    /// [`WHOLE_SOURCE`] for none of its own.
+    pub cal: u32,
     /// The day of the repeat this one stands in for (until it is linked).
     pub over: Option<i32>,
     /// The rule it repeats by, as written; empty for none.
@@ -566,7 +574,7 @@ impl Store {
                 }
                 let _ = write!(line, "{day}");
             }
-            let _ = writeln!(line, "\t{}\t{}", entry.title, entry.place);
+            let _ = writeln!(line, "\t{}\t{}\t{}", entry.title, entry.place, entry.cal);
             put(&line)?;
         }
         line.clear();
@@ -649,6 +657,11 @@ fn read_entry<'a>(parts: &mut impl Iterator<Item = &'a str>) -> Result<Option<En
     let rule = parts.next().unwrap_or("-");
     let skip = parts.next().unwrap_or("-");
     let (title, place) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    // A file written before the calendars were told apart has no column.
+    let cal = parts
+        .next()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(WHOLE_SOURCE);
     let mut days = Vec::new();
     for day in skip.split(',').filter_map(|day| day.parse::<i32>().ok()) {
         if days.len() < SKIP_MAX {
@@ -663,6 +676,7 @@ fn read_entry<'a>(parts: &mut impl Iterator<Item = &'a str>) -> Result<Option<En
         span,
         known: known == "1",
         uid,
+        cal,
         over: None,
         rule: if rule == "-" {
             String::new()
@@ -694,6 +708,7 @@ mod tests {
             span,
             known: false,
             uid: hash(title),
+            cal: WHOLE_SOURCE,
             over: None,
             rule: rule.to_string(),
             skip: Vec::new(),
@@ -833,6 +848,7 @@ mod tests {
             "FREQ=WEEKLY;BYDAY=MO",
         );
         e.place = "Room 4".into();
+        e.cal = hash("/dav/calendars/anna/work/");
         e.skip = alloc::vec![day(2026, 11, 23)];
         store.entries.push(Entry {
             title: clean(&e.title, 56).unwrap(),
@@ -857,5 +873,11 @@ mod tests {
         assert_eq!(last, Some(true));
         assert_eq!(back.sources, store.sources);
         assert_eq!(back.entries, store.entries);
+        // A line of a file written before the calendars were told apart.
+        let mut old = Store::default();
+        old.read_line("E\t1\tE\t20800\t-\t1\t0\t7\t-\t-\tDay off\t")
+            .unwrap();
+        assert_eq!(old.entries[0].cal, WHOLE_SOURCE);
+        assert_eq!(old.entries[0].title, "Day off");
     }
 }

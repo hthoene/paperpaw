@@ -670,6 +670,30 @@ impl NativeBrowser {
             Reason::Cancelled | Reason::Replaced => return Ok(()),
             _ => return self.say(host, "browser.failed", &host_arg),
         }
+        match self.arrived(host, done, &loading, &name) {
+            Ok(()) => Ok(()),
+            // What arrived could not be read, kept or opened (memory short, the
+            // host refused): said, so the screen never stays at *Loading*.
+            Err(_) => {
+                let _ = DataStorage::new(host).remove(store::DOWNLOAD);
+                self.say(host, "browser.cannot-open", &[])
+            }
+        }
+    }
+
+    /// The answer to `loading` is there (`name` its host): a page shown, a
+    /// file kept, an error said.
+    fn arrived(
+        &mut self,
+        host: &Host<'_>,
+        done: &HttpDone,
+        loading: &Loading,
+        name: &str,
+    ) -> Result<(), Error> {
+        let host_arg = [Arg::Text {
+            name: "host",
+            value: name,
+        }];
         let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
         let net = self.net.as_ref().ok_or(Error::State)?;
         let answer = net.answer(host, done.id(), &mut input, &mut out)?;
@@ -707,7 +731,7 @@ impl NativeBrowser {
                 &[
                     Arg::Text {
                         name: "host",
-                        value: &name,
+                        value: name,
                     },
                     Arg::Int {
                         name: "status",
@@ -717,7 +741,7 @@ impl NativeBrowser {
             );
         }
         match kind {
-            Kind::Page => self.keep_page(host, &storage, &url, &name),
+            Kind::Page => self.keep_page(host, &storage, &url, name),
             Kind::Book | Kind::Font | Kind::Other => self.keep_download(host, kind, &url),
         }
     }
@@ -852,9 +876,10 @@ impl NativeBrowser {
             Err(web::KeepError::NoMemory) => return Err(Error::NoMemory),
             Err(_) => return self.say(host, "browser.cannot-save", &[]),
         }
-        let title = match web::title(storage, &path)? {
-            Some(title) => title,
-            None => copy(name)?,
+        // Without a title, or the memory to read it: named by its host.
+        let title = match web::title(storage, &path) {
+            Ok(Some(title)) => title,
+            Ok(None) | Err(_) => copy(name)?,
         };
         self.show(host, Entry::new(&title, url)?)
     }
@@ -872,11 +897,20 @@ impl NativeBrowser {
             Err(StoreError::NoMemory) => return Err(Error::NoMemory),
         }
         push(&mut self.pages, entry)?;
+        if let Err(error) = self.open_page(host, &path) {
+            self.pages.pop();
+            return Err(error);
+        }
         if let Some(view) = self.screens.top(SCREEN) {
             view.showing = true;
             view.message = String::new();
         }
-        let params = [Param::new("root", "0")?, Param::new("path", &path)?];
+        Ok(())
+    }
+
+    /// Opens the kept page at `path` in the reader.
+    fn open_page(&self, host: &Host<'_>, path: &str) -> Result<(), Error> {
+        let params = [Param::new("root", "0")?, Param::new("path", path)?];
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let handover = self.ui()?.handover(host, &params, &mut input, &mut out)?;
         let mut scratch = [0; 256];
