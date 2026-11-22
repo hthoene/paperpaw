@@ -7,3 +7,7 @@
 - **A faint row or small print with the focus is readable** (#484). Where
   the focus rested on one (a page with nothing to choose), it was drawn on
   the black focus bar in grey or invisible ink; now it is drawn as it is.
+- **The page keys turn to a page of text alone again** (#484). A page of a
+  list with nothing to choose on it (only text, such as the start of a
+  message) was skipped by the next and previous page keys; it is shown
+  again, as in Beta 3.

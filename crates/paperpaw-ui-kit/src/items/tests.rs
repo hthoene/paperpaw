@@ -330,6 +330,25 @@ fn small_print_is_no_row_to_choose() {
 }
 
 #[test]
+fn a_page_of_text_alone_is_turned_to() {
+    // Page 0 is text a page reads out; page 1 has a button.
+    let mut spec = items("rrr");
+    for item in &mut spec[..2] {
+        if let Item::Row(row) = item {
+            row.plain = true;
+        }
+    }
+    let mut list = ItemList::new(spec);
+    list.starts = Vec::from([0, 2]);
+    assert_eq!(list.focus(), 2);
+    assert_eq!(list.decide(&action("core.prev-page")), ItemStep::Focus(0));
+    assert_eq!(list.decide(&action("core.next-page")), ItemStep::Focus(2));
+    list.focus = 0;
+    assert_eq!(list.decide(&action("core.next-page")), ItemStep::Focus(2));
+    assert_eq!(list.decide(&action("core.confirm")), ItemStep::Ignored);
+}
+
+#[test]
 fn replacing_keeps_the_focus_near_where_it_was() {
     let mut list = ItemList::new(items("hrrrr"));
     list.set_focus(4);
