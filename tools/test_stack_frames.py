@@ -1,4 +1,5 @@
-"""tools/stack-frames.py: a frame built with `slli` is read whole, and a frame that is not a multiple of 16 is refused."""
+"""tools/stack-frames.py: a frame built with `slli` is read whole, a frame that is not a multiple of 16 is refused,
+and what lies past a function's end is not read as its code."""
 
 import importlib.util
 import os
@@ -47,6 +48,27 @@ class Refused(unittest.TestCase):
         label = tool.Function(".Lpcrel_hi5", 0)
         label.frame = 4
         self.assertEqual(tool.odd_frames(funcs + [label]), [])
+
+
+# A function of 8 bytes, then bytes no symbol names that read as a call (#466, X4 Pro).
+PAST_END = """\
+42000000 <small>:
+42000000:	addi	sp,sp,-16
+42000004:	ret
+42000008:	jal	ra,42000100
+42000100 <far>:
+42000100:	ret
+"""
+
+
+class PastTheEnd(unittest.TestCase):
+    def test_a_call_past_the_functions_end_is_not_its_own(self):
+        funcs = tool.parse(PAST_END.splitlines(), tool.EM_RISCV, None, {0x42000000: 8})
+        self.assertEqual(funcs[0].calls, set())
+
+    def test_without_sizes_it_is_read_as_before(self):
+        funcs = tool.parse(PAST_END.splitlines(), tool.EM_RISCV, None)
+        self.assertEqual(funcs[0].calls, {0x42000100})
 
 
 if __name__ == "__main__":
