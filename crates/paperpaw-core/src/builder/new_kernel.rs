@@ -81,6 +81,8 @@ impl BuilderParts {
             storage_kept: false,
             secrets_unreadable: false,
             secrets_opened: false,
+            secrets_unopened: Vec::new(),
+            secrets_unopened_changed: false,
             secrets_wired: None,
             secrets_left: false,
             #[cfg(feature = "bluetooth")]

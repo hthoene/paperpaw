@@ -197,7 +197,8 @@ fn a_secret_setting_s_value_the_start_could_not_seal_moves_once_a_radio_is_on() 
     );
     assert!(!sealed.contains("abc"), "{sealed}");
     let sealer: Rc<dyn SecretsHost> = host.clone();
-    let kept = Kernel::decode_secrets(&sealed, Some(&sealer));
+    let (kept, unopened) = Kernel::decode_secrets(&sealed, Some(&sealer));
+    assert!(unopened.is_empty());
     assert_eq!(kept.get("mail.password"), Some("abc"));
     // Nothing is left to move: the next change of the radio reads no file.
     assert!(!kernel.secrets_left);
@@ -319,9 +320,14 @@ fn a_card_from_another_device_is_told_once_per_start() {
 /// A kernel with interface 6's notice plugin whose card holds `text`, the
 /// shell's `core.secrets` wired with `sealer` (no native plugin runs).
 fn told_kernel(text: &str, sealer: Fake) -> Kernel {
+    started(MemoryStorage::new().with(FILE, text.as_bytes()), sealer)
+}
+
+/// [`told_kernel`] on the card `card`.
+fn started(card: MemoryStorage, sealer: Fake) -> Kernel {
     use crate::native_host::shell_wiring::{SecretsInputs, SecretsLifecycle};
     let mut kernel = Kernel::builder(crate::tests::DEVICE)
-        .storage(MemoryStorage::new().with(FILE, text.as_bytes()))
+        .storage(card)
         .items(
             crate::tests::notice_plugin_manifest(),
             crate::tests::notice_plugin(crate::tests::NoticePlugin {
@@ -382,4 +388,52 @@ fn the_same_key_saved_anew_replaces_a_line_that_did_not_open() {
         &Fake::new(9),
     ));
     assert_eq!(reread.get("wifi.Home"), Some("two"));
+}
+
+/// #466: what does not open is told once, not at every start; a line that did
+/// not open and was not told yet is told again, once; one entered again (the
+/// set grows smaller) is not.
+#[test]
+fn values_that_do_not_open_are_told_once_and_again_only_for_a_new_one() {
+    use super::TOLD_FILE;
+    // The card's file and what the start told, after one start on `card`.
+    let start = |card: MemoryStorage| {
+        let mut kernel = started(card, Fake::new(9));
+        kernel.finish();
+        let told = kernel.notice.is_some();
+        kernel.tick(paperpaw_platform::Instant(10_000));
+        let storage = kernel.shared.storage.as_ref();
+        let read = |path| paperpaw_sdk::files::load_for_update(storage, path, 65_536).unwrap();
+        (told, read(FILE).unwrap(), read(TOLD_FILE))
+    };
+    let card = |secrets: &[u8], told: Option<&[u8]>| {
+        let card = MemoryStorage::new().with(FILE, secrets);
+        match told {
+            Some(told) => card.with(TOLD_FILE, told),
+            None => card,
+        }
+    };
+    let theirs = seal_text(&veiled(&[("mail.pw", "one")]), "", &Fake::new(3)).unwrap();
+    let (told, secrets, mark) = start(card(theirs.as_bytes(), None));
+    assert!(told, "first start: told");
+    let mark = mark.expect("the told lines are kept");
+    // The next start on the same card says nothing and writes nothing.
+    let (told, _, again) = start(card(&secrets, Some(&mark)));
+    assert!(!told, "second start: not told again");
+    assert_eq!(again.as_deref(), Some(&*mark));
+    // Another device's line comes to the card: told once more.
+    let more = seal_text(&veiled(&[("wifi.Home", "two")]), "", &Fake::new(4)).unwrap();
+    let mut grown = secrets.clone();
+    grown.extend_from_slice(more.as_bytes());
+    let (told, _, mark) = start(card(&grown, Some(&mark)));
+    assert!(told, "a new line that does not open: told");
+    let mark = mark.unwrap();
+    let (told, _, _) = start(card(&grown, Some(&mark)));
+    assert!(!told, "and only once");
+    // One entered again here: the rest was told, so nothing is said.
+    let mut kernel = started(card(&grown, Some(&mark)), Fake::new(9));
+    kernel.set_secret(SecretChange::keep("wifi.Home", "Home", "three"));
+    let entered = file(&kernel).into_bytes();
+    let (told, _, _) = start(card(&entered, Some(&mark)));
+    assert!(!told, "fewer lines that do not open: not told");
 }

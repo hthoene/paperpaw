@@ -227,7 +227,6 @@ struct Host {
     source: Source,
     has_source: bool,
     notices: Cell<u32>,
-    unopened: Cell<u32>,
 }
 impl SecretsHost for Host {
     fn storage(&self) -> &dyn Storage {
@@ -241,9 +240,6 @@ impl SecretsHost for Host {
     }
     fn unreadable(&self) {
         self.notices.set(self.notices.get() + 1);
-    }
-    fn unopened(&self) {
-        self.unopened.set(self.unopened.get() + 1);
     }
 }
 
@@ -421,7 +417,6 @@ fn host(seal: Seal) -> Rc<Host> {
         },
         has_source: true,
         notices: Cell::new(0),
-        unopened: Cell::new(0),
     })
 }
 
@@ -767,31 +762,6 @@ fn a_device_that_does_not_seal_refuses_keep_and_writes_nothing_but_still_reads_v
         file.extend_from_slice(b"mail.sealed\t\t\ts1:00aa\n");
         v.host.card.put(file::FILE, &file);
         assert_eq!(v.get("mail", "sealed").err(), Some(ERR_NOT_FOUND));
-    });
-}
-
-#[test]
-fn a_sealed_line_that_does_not_open_tells_the_host_and_a_veiled_or_good_one_does_not() {
-    with_view(|v| {
-        v.keep("mail", "password", "", "pw").unwrap();
-        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
-        assert_eq!(v.host.unopened.get(), 0, "it opened");
-        // Interface 6's veiled values open everywhere.
-        let mut file = interface6(&[("stats.webdav", "stats.webdav", false, "d")]);
-        file.extend_from_slice(&v.host.card.file());
-        v.host.card.put(file::FILE, &file);
-        assert_eq!(v.get("stats", "webdav").unwrap().0, "d");
-        assert_eq!(v.host.unopened.get(), 0);
-        // A line sealed on another device (here: bytes no key here opens).
-        file.extend_from_slice(b"mail.other\t\t\ts1:");
-        file.extend_from_slice(&[b'0'; 2 * 30]);
-        file.push(b'\n');
-        v.host.card.put(file::FILE, &file);
-        assert_eq!(v.get("mail", "other").err(), Some(ERR_NOT_FOUND));
-        assert_eq!(v.host.unopened.get(), 1, "told once for the call");
-        // Each call that meets it says so; the kernel tells the user once.
-        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
-        assert!(v.host.unopened.get() >= 1);
     });
 }
 
@@ -1454,17 +1424,16 @@ fn a_secret_after_an_over_long_line_is_still_read_and_the_long_line_kept() {
     });
 }
 
-/// Senior R1 (#254): only the sealer's `ERR_NOT_FOUND` is "another device". A
-/// busy flash (an update holds it) or one that does not read is absent for
-/// the call, and nobody is told the values came from elsewhere.
+/// Senior R1 (#254): a busy flash (an update holds it) or one that does not
+/// read is absent for the call only (who is told of values from elsewhere:
+/// `secrets_i6_tests.rs`).
 #[test]
-fn a_busy_or_unreadable_flash_is_not_another_device() {
+fn a_busy_or_unreadable_flash_is_absent_for_the_call_only() {
     with_view(|v| {
         v.keep("mail", "password", "", "pw").unwrap();
         for fault in [ERR_BUSY, ERR_IO] {
             v.host.seal.open_fault.set(Some(fault));
             assert_eq!(v.get("mail", "password").err(), Some(ERR_NOT_FOUND));
-            assert_eq!(v.host.unopened.get(), 0, "not another device");
         }
         // A value too short to be sealed is damaged, not another device's.
         v.host.seal.open_fault.set(None);
@@ -1472,7 +1441,6 @@ fn a_busy_or_unreadable_flash_is_not_another_device() {
         file.extend_from_slice(b"mail.short\t\t\ts1:00aa\n");
         v.host.card.put(file::FILE, &file);
         assert_eq!(v.get("mail", "short").err(), Some(ERR_NOT_FOUND));
-        assert_eq!(v.host.unopened.get(), 0);
         // The flash is back: the value opens again.
         assert_eq!(v.get("mail", "password").unwrap().0, "pw");
     });
