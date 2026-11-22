@@ -699,14 +699,16 @@ impl NativeWifi {
     /// nothing where no row does. Rows are assumed to keep their height.
     fn reread_as(&mut self, host: &Host<'_>, whole: bool) -> Result<(), Error> {
         let mut change = RowsChange::None;
+        // The focus stays where it was: `free_rows` keeps it and `swap_rows`
+        // puts it on the nearest new row (set on the freed, empty list it
+        // would fall back to the first row).
         if let Some(View::Page(old)) = self.screens.top(PAGE_TOKEN) {
-            let (focus, keys) = (old.list.focus(), old.list.row_keys());
+            let keys = old.list.row_keys();
             old.rows = Vec::new();
             old.list.free_rows();
             let fresh = self.read_page(host)?;
             if let Some(View::Page(view)) = self.screens.top(PAGE_TOKEN) {
                 view.rows = fresh.rows;
-                view.list.set_focus(focus);
                 change = view.list.swap_rows(fresh.list, keys.as_deref());
             }
         }
@@ -718,9 +720,8 @@ impl NativeWifi {
                 let mut scratch = [0; 64];
                 return CommandSender::new(host, &mut scratch).back();
             }
-            let (mut focus, mut keys) = (0, None);
+            let mut keys = None;
             if let Some(View::Networks(old)) = self.screens.top(NETWORKS_TOKEN) {
-                focus = old.list.focus();
                 keys = old.list.row_keys();
                 old.marks = Vec::new();
                 old.list.free_rows();
@@ -728,7 +729,6 @@ impl NativeWifi {
             let fresh = self.read_networks_view(host, &info)?;
             if let Some(View::Networks(view)) = self.screens.top(NETWORKS_TOKEN) {
                 view.marks = fresh.marks;
-                view.list.set_focus(focus);
                 // Both screens open at once (the page under the list): the
                 // whole of what shows is drawn.
                 let rows = view.list.swap_rows(fresh.list, keys.as_deref());

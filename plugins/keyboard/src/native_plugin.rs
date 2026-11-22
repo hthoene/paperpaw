@@ -370,9 +370,10 @@ impl NativeKeyboard {
             &|text| covered(Some(&font), text),
         )?;
         // *Phone* where there is a network and a screen to type on another
-        // device, *Paste* when the clipboard has text.
+        // device (a password too: typing one there is what it is handy for),
+        // *Paste* when the clipboard has text.
         let mut kinds: Vec<(FieldButton, f32)> = Vec::new();
-        if !asked.secret && self.has_network(host)? && self.remote_keyboard(host)? {
+        if self.has_network(host)? && self.remote_keyboard(host)? {
             let label = messages.copy(host, FieldButton::Phone.label())?;
             push(
                 &mut kinds,
@@ -671,19 +672,26 @@ impl NativeKeyboard {
     }
 
     /// Asks for the text on another device: the text so far goes along, but
-    /// never a password.
+    /// never a password (asked for as a secret there, masked and from empty).
     fn ask_phone(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let Some(d) = self.dialog_mut() else {
             return Ok(());
         };
-        if d.board.asked.secret || d.nested.is_some() {
+        if d.nested.is_some() {
             return Ok(());
         }
+        let secret = d.board.asked.secret;
         let title = copy(&d.board.title)?;
-        let text = copy(&d.board.text)?;
+        let text = if secret {
+            String::new()
+        } else {
+            copy(&d.board.text)?
+        };
         let multiline = d.board.asked.multiline;
         let mut question = Question::text(&title, "")?.remote()?;
-        if multiline {
+        if secret {
+            question = question.secret()?;
+        } else if multiline {
             question = question.multiline()?;
         }
         let mut input = buffer(SERVICE_BUFFER)?;
@@ -838,9 +846,11 @@ impl NativeKeyboard {
         let Some(d) = self.dialog_mut() else {
             return Ok(());
         };
-        // The text so far stays until the new one is in.
-        let pressed = d.board.replace_pasted(&text)?;
-        self.typed(host, pressed)
+        // The text so far stays until the new one is in. The copy may be a
+        // password: it is zeroed, not just freed.
+        let pressed = d.board.replace_pasted(&text);
+        wipe_text(text);
+        self.typed(host, pressed?)
     }
 
     fn choose_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {

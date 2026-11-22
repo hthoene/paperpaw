@@ -11,6 +11,7 @@ use paperpaw_sdk::native::{
     commands::{CommandSender, RedrawMode},
     fonts::{Font, FontRole, TextOrigin},
     snapshot,
+    ui::ButtonHint,
 };
 use paperpaw_sdk::{Color, Handled, Point, Rect};
 
@@ -101,6 +102,23 @@ impl NativeView {
         }
         font.release()?;
         Ok(Self { pages, page: 0 })
+    }
+
+    /// The row of button hints, as in Beta 3: Select does nothing here, and
+    /// the arrows only turn pages where there is more than one; what does
+    /// nothing is not named. A refused hint leaves the row as it was.
+    pub(crate) fn hints(&self, host: &Host<'_>) {
+        let paged = self.pages.len() > 1;
+        for action in ["core.confirm", "core.left", "core.right"] {
+            let hint = if paged && action != "core.confirm" {
+                ButtonHint::usual(action)
+            } else {
+                ButtonHint::hidden(action)
+            };
+            if let Ok(hint) = hint {
+                let _ = CommandSender::new(host, &mut [0; 256]).set_hint(hint);
+            }
+        }
     }
 
     pub(crate) fn draw(&mut self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {

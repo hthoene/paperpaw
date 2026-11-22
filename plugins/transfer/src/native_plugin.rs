@@ -393,6 +393,7 @@ impl NativeTransfer {
             return Ok(());
         }
         page.started = true;
+        Self::hints(host, &View::Starting)?;
         // What an earlier time of serving left staged goes.
         if token == SCREEN {
             self.clean_staging(host)?;
@@ -486,6 +487,7 @@ impl NativeTransfer {
         } else {
             alloc::vec::Vec::new()
         };
+        Self::hints(host, &view)?;
         if let Some(page) = self.screens.top(token) {
             page.router = None;
             page.view = view;
