@@ -125,7 +125,9 @@ const SCRIPTS: [Script; 14] = [
 ];
 
 impl Script {
-    /// The script of `ch`, if it is one shaped here.
+    /// The script of `ch`, if it is one shaped here. Line breaking
+    /// (`shaped` in paperpaw-layout's `breaking.rs`) measures these blocks
+    /// shaped: a script added here is added there.
     pub(crate) fn of(ch: char) -> Option<Script> {
         match ch {
             '\u{980}'..='\u{9FF}' => Some(Script::Bengali),
