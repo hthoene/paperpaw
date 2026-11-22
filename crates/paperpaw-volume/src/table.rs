@@ -468,12 +468,14 @@ where
 
 /// Marks free, in `block` (the block of the FAT that holds the entry of `start`, as `fat` has
 /// it), the clusters of the chain from `start` as far as their entries lie in it. How many, and
-/// where the chain goes on in another block. A cluster that is free already ends it.
+/// where the chain goes on in another block, or out of the volume of `total_clusters` (a damaged
+/// link, not followed: the caller fails there). A cluster that is free already ends it.
 pub(crate) fn free_in_block<S, E>(
     fat: &mut S,
     fat_type: FatType,
     block: &mut [u8; BLOCK],
     start: u32,
+    total_clusters: u32,
 ) -> Result<(u32, Option<u32>), Error<E>>
 where
     S: Read + Seek,
@@ -497,8 +499,14 @@ where
         }
         set_in_block(block, fat_type, cluster, FatValue::Free);
         freed += 1;
+        let on_volume =
+            |next| (RESERVED_FAT_ENTRIES..total_clusters + RESERVED_FAT_ENTRIES).contains(&next);
         match value {
-            FatValue::Data(next) if block_of(fat_type, next) == begin => cluster = next,
+            // Entry 1 (the volume's clean-shutdown bits) and the entries past the last cluster
+            // lie in blocks of the FAT too: they are not freed.
+            FatValue::Data(next) if on_volume(next) && block_of(fat_type, next) == begin => {
+                cluster = next;
+            }
             FatValue::Data(next) => return Ok((freed, Some(next))),
             _ => return Ok((freed, None)),
         }
