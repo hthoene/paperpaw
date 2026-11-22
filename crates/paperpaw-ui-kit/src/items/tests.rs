@@ -640,3 +640,35 @@ fn a_wrapped_value_is_the_flag_and_no_other_change() {
         Item::Heading(_)
     ));
 }
+
+#[test]
+fn a_section_going_on_repeats_its_heading_and_it_takes_room() {
+    // A heading and five rows; the heading and one row fit a page.
+    let list = items("hrrrrr");
+    let heights = [5, 10, 10, 10, 10, 10];
+    let starts = paginate(&list, &heights, 24).unwrap();
+    // Without the heading again the second page held two rows: [0, 2, 4].
+    assert_eq!(starts, [0, 2, 3, 4, 5]);
+    for &start in &starts[1..] {
+        assert_eq!(carried_heading(&list, start), Some(0), "page at {start}");
+    }
+    // Every row is on exactly one page, in order.
+    assert!(starts.windows(2).all(|w| w[0] < w[1]));
+}
+
+#[test]
+fn a_page_that_starts_with_a_heading_or_before_any_carries_none() {
+    let list = items("rrhrrhr");
+    assert_eq!(carried_heading(&list, 0), None);
+    assert_eq!(carried_heading(&list, 1), None, "no heading before it");
+    assert_eq!(carried_heading(&list, 2), None, "its own heading");
+    assert_eq!(carried_heading(&list, 4), Some(2));
+    assert_eq!(carried_heading(&list, 6), Some(5));
+    // A page that starts at a heading takes no heading again.
+    let starts = paginate(&list, &[10; 7], 30).unwrap();
+    assert_eq!(starts, [0, 2, 5]);
+    // The second page: the first section's heading again and its last row; the
+    // next heading would end it alone, so it goes to the third page.
+    let starts = paginate(&items("hrrrhr"), &[10; 6], 30).unwrap();
+    assert_eq!(starts, [0, 3, 4]);
+}

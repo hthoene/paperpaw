@@ -35,6 +35,8 @@ use empty::{draw_empty, draw_progress};
 pub use extra::RowExtra;
 use grip::{draw_drag, draw_row_with_grip};
 use head::Head;
+pub use pages::carried_heading;
+pub(crate) use pages::draw_carried;
 use row::{note_line_count, title_lines};
 use stepper::{draw_stepper, stepper_width};
 use track::Stepped;
@@ -693,6 +695,9 @@ impl ItemList {
         let on_page = if page == 0 { head_high } else { 0 };
         let head_at = self.draw_head(&mut body, (&font, style), Rect::new(0, y, width, on_page))?;
         y = y.saturating_add(on_page);
+        let lists = (self.items.as_slice(), heights.as_slice());
+        let full = Rect::new(0, y, width, area.height);
+        y = pages::draw_carried(&mut body, (&font, style), lists, starts[page], full)?;
         let drawn = row::paint_rows(
             self,
             &mut body,
@@ -932,7 +937,9 @@ fn draw_caption(
 }
 
 /// Where each page starts: items are placed one after the other and a page
-/// ends where the next does not fit. A heading never ends a page alone.
+/// ends where the next does not fit. A heading never ends a page alone, and a
+/// section that goes on over a page break has its heading again at the top of
+/// the next page ([`carried_heading`]), which takes room there.
 ///
 /// # Errors
 /// [`Error::Invalid`] when `heights` and `items` differ in length;
@@ -967,7 +974,12 @@ pub fn paginate_with(
             let start = if orphan { index - 1 } else { index };
             starts.try_reserve(1).map_err(|_| Error::NoMemory)?;
             starts.push(start);
-            used = heights[start..index].iter().map(|h| u32::from(*h)).sum();
+            let carried = carried_heading(items, start).map_or(0, |h| u32::from(heights[h]));
+            used = carried
+                + heights[start..index]
+                    .iter()
+                    .map(|h| u32::from(*h))
+                    .sum::<u32>();
         }
         used += u32::from(*high);
     }
