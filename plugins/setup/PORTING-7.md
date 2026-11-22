@@ -83,3 +83,13 @@ restored (the row comes back after *Updates*) and compared against Beta 3.
 The words copied at `opened` (Next, Back, Skip, the end page, On/Off, the sample) are read again when
 `core.language` changes (or several settings at once, the empty key: `event.setting_changed`, token 4),
 with the page shown, and the guide is drawn again, as interface 6 did on `SETTING_CHANGED`.
+
+## Numbers and choices as in Beta 3 (#471)
+
+Select on a number's card starts changing it with the buttons (`Guide::editing`, interface 6's
+`NumberEdit`): the arrows move it on the page only, Select keeps it (one `set_setting`), Back goes
+back to the value before and stays on the page, the page buttons keep it and turn the page; the key
+bar says *Cancel*, *Keep*, − and +. Outside it the arrows move the focus. A choice of more than two
+opens the slot `core.choose-value` (with `id`, as the settings do) instead of stepping through its
+options; once the guide shows again the page's setting is read anew. The size of book text steps
+over sizes the reading font draws alike (`paperpaw_ui_kit::font_sizes`, interface 6's `shown_step`).

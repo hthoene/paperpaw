@@ -28,7 +28,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
-    Item, ItemList, ItemStep, Messages, Screens,
+    Item, ItemList, ItemStep, Messages, Screens, font_sizes,
     mem::{SERVICE_BUFFER, buffer, push},
     text::{concat, copy},
 };
@@ -720,7 +720,7 @@ impl NativeMenu {
             view.editing = None;
             return Ok(None);
         };
-        if let Some(Value::Int(next)) = model::stepped(info, direction) {
+        if let Some(Value::Int(next)) = next_value(host, info, direction)? {
             let mut scratch = buffer(256)?;
             CommandSender::new(host, &mut scratch)
                 .set_setting(&info.key, SettingValue::Int(next))?;
@@ -730,8 +730,9 @@ impl NativeMenu {
 }
 
 /// The value of `info` `direction` steps on: a switch toggles, a number stops
-/// at its ends, a choice takes another of its values (round the ends); `None`
-/// where nothing changes.
+/// at its ends (the size of book text goes on to the next size that looks
+/// different, [`font_sizes`]), a choice takes another of its values (round the
+/// ends); `None` where nothing changes.
 ///
 /// # Errors
 /// [`Error::NoMemory`] and the registry's refusals.
@@ -741,7 +742,13 @@ pub(crate) fn next_value(
     direction: i64,
 ) -> Result<Option<Value>, Error> {
     if !matches!(info.kind, SettingKind::Choice | SettingKind::Language) {
-        return Ok(model::stepped(info, direction));
+        return match (model::stepped(info, direction), &info.value) {
+            (Some(Value::Int(to)), Some(Value::Int(from))) => {
+                let next = font_sizes::step(host, &info.key, (*from, to), (info.min, info.max))?;
+                Ok((next != *from).then_some(Value::Int(next)))
+            }
+            (stepped, _) => Ok(stepped),
+        };
     }
     let Some(Value::Text(now)) = &info.value else {
         return Ok(None);

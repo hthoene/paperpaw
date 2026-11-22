@@ -24,7 +24,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages, Screens, Track,
+    Footer, Item, ItemList, ItemStep, Messages, Screens, Track, font_sizes,
     mem::{SERVICE_BUFFER, buffer, push},
     text::{concat, copy},
     uitext,
@@ -1016,14 +1016,17 @@ impl NativeSettings {
             return Ok(());
         };
         if let Some(entry) = v.entry(index)
-            && let Some(Val::Int(now)) = entry.setting.value
+            && let Some(Val::Int(before)) = entry.setting.value
         {
+            // A size of book text drawn as a smaller one starts as that one.
+            let range = (entry.detail.min, entry.detail.max);
+            let now = font_sizes::shown(host, &entry.setting.key, before, range)?;
             // Everything that can be refused first; then the state changes.
             let items = v.items_for(host, (&v.rows, &v.entries), Some((index, now)))?;
             Self::redraw(host)?;
             v.editing = Some(Editing {
                 row: index,
-                before: now,
+                before,
                 now,
             });
             v.list.replace(items);
@@ -1065,7 +1068,18 @@ impl NativeSettings {
                     None => None,
                 }
             }
-            (kind, Some(value)) => model::stepped(kind, value, &entry.detail, direction),
+            (kind, Some(value)) => match model::stepped(kind, value, &entry.detail, direction) {
+                // The size of book text: to the next size that looks different.
+                Some(Val::Int(to)) => {
+                    let Val::Int(from) = *value else {
+                        return Ok(());
+                    };
+                    let range = (entry.detail.min, entry.detail.max);
+                    let next = font_sizes::step(host, &entry.setting.key, (from, to), range)?;
+                    (next != from).then_some(Val::Int(next))
+                }
+                other => other,
+            },
             _ => None,
         };
         let key = copy(&entry.setting.key)?;
@@ -1118,9 +1132,11 @@ impl NativeSettings {
             v.list.replace(items);
             return Ok(Some(Handled::Yes));
         }
-        let next = now
+        let to = now
             .saturating_add(direction * unit)
             .clamp(min, max.max(min));
+        // The size of book text: to the next size that looks different.
+        let next = font_sizes::step(host, &key, (now, to), (min, max))?;
         if next != now {
             let items = v.items_for(host, (&v.rows, &v.entries), Some((row, next)))?;
             let mut values = buffer(64)?;
