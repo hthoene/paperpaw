@@ -738,6 +738,10 @@ impl Kernel {
         if *event == events::CATALOG_CHANGED {
             self.native_library_catalog_changed();
         }
+        // So does the status the kernel notes of a book closed or finished.
+        if *event == events::BOOK_CLOSED || *event == events::BOOK_FINISHED {
+            self.native_library_status_noted();
+        }
         self.tasks_follow_books(event, params);
         let guarded = self.guarded_screens();
         if let Some(screens) = guarded {

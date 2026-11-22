@@ -20,7 +20,7 @@ use paperpaw_sdk::{
         fonts::{Font, FontRole},
         library::Library,
         snapshot::{self, Snapshot},
-        ui::Ui,
+        ui::{ButtonHint, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -399,6 +399,7 @@ impl Marking {
             .is_ok()
         {
             self.layer = want;
+            name_select(host, !want);
         }
     }
 
@@ -880,6 +881,32 @@ fn frame_words(
 /// `NoMemory`.
 pub fn text_of(words: &[Word], lo: usize, hi: usize) -> Result<String, Error> {
     act::text_of(words, lo, hi)
+}
+
+/// Names Select in the key bar of the reading screen: *Menu*, which it opens
+/// there (as in Beta 3), or its usual name while text is chosen, where it
+/// widens the choice. A hint the host refuses leaves the bar as it was. For a
+/// callback that may send commands (an input or a show); its own frame.
+#[inline(never)]
+pub fn name_select(host: &Host<'_>, menu: bool) {
+    const SELECT: &str = "core.confirm";
+    let word = if menu {
+        match Messages::new().and_then(|mut say| say.copy(host, "core.hint.core.menu")) {
+            Ok(word) => Some(word),
+            Err(_) => return,
+        }
+    } else {
+        None
+    };
+    let hint = match &word {
+        Some(word) => ButtonHint::words(SELECT, word),
+        None => ButtonHint::usual(SELECT),
+    };
+    if let Ok(hint) = hint {
+        match CommandSender::new(host, &mut [0; 256]).set_hint(hint) {
+            Ok(()) | Err(_) => {}
+        }
+    }
 }
 
 #[cfg(test)]

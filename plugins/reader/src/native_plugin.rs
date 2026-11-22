@@ -966,6 +966,7 @@ impl NativeReader {
         now_ms: u64,
     ) -> Result<(), Error> {
         self.screens.shown(SCREEN, instance)?;
+        crate::native_marking::name_select(host, true);
         View::scope_book(host, self.screens.get(instance).map(|view| &*view));
         self.wake(host, instance)?;
         Self::set_grays(host, instance, false);

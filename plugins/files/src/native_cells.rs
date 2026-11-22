@@ -40,7 +40,8 @@ pub struct Built {
 }
 
 /// Whether the first book of a library's first window is shown as the card:
-/// the library in the order of reading, its first book begun and not finished.
+/// the library (all books, or those begun) in the order of reading, its first
+/// book opened, also still at 0 %, and not finished (as in Beta 3).
 #[must_use]
 pub fn card_first(
     selection: &Selection,
@@ -48,10 +49,10 @@ pub fn card_first(
     first: Option<&BookLine>,
 ) -> bool {
     selection.scope == Scope::Library
-        && selection.filter == Filter::All
+        && matches!(selection.filter, Filter::All | Filter::Reading)
         && selection.order == Order::Recent
         && starts.is_empty()
-        && first.is_some_and(|book| !book.finished && book.progress.is_some_and(|p| p > 0))
+        && first.is_some_and(|book| !book.finished && book.progress.is_some())
 }
 
 /// The rough bar of a walk: its share in per cent, from 1 to 99 (a walk
@@ -314,6 +315,17 @@ mod tests {
         assert_eq!(begun.chips, ["On loan"]);
         // The filter row keeps its name alone for the chip of a touch screen.
         assert_eq!(built.cells[0].note, "files.list.show.all");
+    }
+
+    #[test]
+    fn a_book_just_opened_is_the_card_also_among_the_books_begun() {
+        let w = window(vec![book(1, Some(0)), book(2, None)], false);
+        let mut selection = Selection::default();
+        assert!(made(&selection, &w, &[], Condition::Ready, false).cells[1].card);
+        selection.filter = Filter::Reading;
+        assert!(made(&selection, &w, &[], Condition::Ready, false).cells[1].card);
+        selection.filter = Filter::Unread;
+        assert!(!made(&selection, &w, &[], Condition::Ready, false).cells[1].card);
     }
 
     #[test]

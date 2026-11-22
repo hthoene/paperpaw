@@ -242,8 +242,8 @@ impl NativeFiles {
         })
     }
 
-    /// Shows the filters as a list to choose from (the chip on a touch
-    /// screen): every filter, then the search.
+    /// Shows the filters as a list to choose from: every filter, then the
+    /// search.
     fn ask_filter(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
         let mut say = Messages::new()?;
         let title = say.copy(host, "files.list.show")?;
@@ -312,12 +312,9 @@ impl NativeFiles {
         };
         match row {
             ListRow::Note | ListRow::Field => Ok(()),
-            // On a touch screen the row is a chip: one tap shows every filter.
-            ListRow::Filter if view.list.touch() => self.ask_filter(host, token, index),
-            ListRow::Filter => {
-                let next = view.selection.filter.next();
-                self.set_filter(host, token, index, next)
-            }
+            // The row (a chip on a touch screen) shows every filter to choose
+            // from, by touch and with the buttons alike (as in Beta 3).
+            ListRow::Filter => self.ask_filter(host, token, index),
             ListRow::More => self.slide_on(host, token),
             ListRow::Previous => self.slide_back(host, token),
             ListRow::Book(at) => {
