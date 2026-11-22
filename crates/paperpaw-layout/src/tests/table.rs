@@ -107,6 +107,41 @@ fn a_table_too_wide_for_the_page_is_set_as_its_text() {
     assert!(tall.rules.is_empty());
 }
 
+/// A table right after another starts as one: apart from it, with a rule
+/// above its first row.
+#[test]
+fn a_table_after_a_table_is_set_apart_with_its_own_rule() {
+    let first = |mut block: Block| {
+        if let Some(table) = block.table.as_mut() {
+            table.first = true;
+        }
+        block
+    };
+    let one = first(row(&["a", "b"], &[1, 1], 0));
+    let other = first(row(&["c", "d"], &[1, 1], one.end));
+    let spaced = Style::new(5.0, 0.0, 10.0, false);
+    let blocks = [one, other];
+    let doc = Blocks::new(move |at: Locator| {
+        blocks
+            .iter()
+            .find(|b| at.offset < b.end && b.start <= at.offset)
+            .cloned()
+    });
+    let storage = paperpaw_document::NoStorage;
+    let cx = LayoutContext::new(&doc, &storage, 60.0, &spaced, &Units);
+    let page = layout_page(&cx, Locator::START, 100.0).unwrap();
+    let across: Vec<f32> = page
+        .rules
+        .iter()
+        .filter(|r| r.width == 60.0)
+        .map(|r| r.y)
+        .collect();
+    // Above and below the first table's row, and above the other's, the
+    // book's 5 below the first's rule (one high).
+    assert_eq!(across.len(), 4, "{across:?}");
+    assert_eq!(across[2] - across[1], 6.0);
+}
+
 /// A row of empty cells has only its rules on the page: the page has
 /// something on it, and a paragraph after it that does not fit below it
 /// goes to the next page.
