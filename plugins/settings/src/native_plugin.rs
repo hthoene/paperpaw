@@ -446,10 +446,11 @@ impl Plugin for NativeSettings {
             View::Secrets(v) => {
                 let title = messages.copy(host, "settings.secrets")?;
                 let none = messages.copy(host, "settings.secrets.none")?;
+                // A sentence, wrapped: as a title it would be cut to a line.
                 let footer = if v.kept.is_empty() {
                     Footer::Empty {
-                        title: &none,
-                        text: "",
+                        title: "",
+                        text: &none,
                     }
                 } else {
                     Footer::None

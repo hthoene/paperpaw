@@ -18,12 +18,25 @@ use paperpaw_sdk::native::{
     device::{PowerLevel, WifiState},
     events::{WifiDone, WifiFailure},
     net::{MAX_SERVED_BODY, Server},
+    ui::ButtonHint,
     work::{Work, WorkSpec},
 };
 use paperpaw_ui_kit::{
     Item, Messages,
     mem::{SERVICE_BUFFER, buffer, wipe_text},
 };
+
+/// The actions whose hints follow the view ([`NativeTransfer::hints`]).
+const CONFIRM: &str = "core.confirm";
+const LEFT: &str = "core.left";
+const RIGHT: &str = "core.right";
+
+/// Sets one button hint, best effort.
+fn hint(host: &Host<'_>, hint: Result<ButtonHint<'_>, Error>) {
+    if let Ok(hint) = hint {
+        let _ = CommandSender::new(host, &mut [0; 256]).set_hint(hint);
+    }
+}
 
 /// How long the network of the plugin's own is asked for when the reader
 /// chooses to go online (the most the host takes).
@@ -86,6 +99,35 @@ impl NativeTransfer {
             )?);
         }
         Ok(items)
+    }
+
+    /// The row of button hints for `view`, as in Beta 3: Select and the
+    /// arrows keep their names on the offer's rows, Select says *Without a
+    /// router* where it opens the own network, and elsewhere (the code, the
+    /// phone's page, a failure) only Back does something, so only Back is
+    /// named. A refused hint leaves the row as it was.
+    pub(super) fn hints(host: &Host<'_>, view: &View) -> Result<(), Error> {
+        let router = match view {
+            View::Offline => {
+                for action in [CONFIRM, LEFT, RIGHT] {
+                    hint(host, ButtonHint::usual(action));
+                }
+                return Ok(());
+            }
+            View::NoNetwork(true) => Some(Messages::new()?.copy(host, "transfer.without-router")?),
+            _ => None,
+        };
+        hint(
+            host,
+            router.as_deref().map_or_else(
+                || ButtonHint::hidden(CONFIRM),
+                |words| ButtonHint::words(CONFIRM, words),
+            ),
+        );
+        for action in [LEFT, RIGHT] {
+            hint(host, ButtonHint::hidden(action));
+        }
+        Ok(())
     }
 
     /// The reader chose a row on the offer (`index` 0 *Go online*, 1 *Not now*)

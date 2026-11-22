@@ -104,10 +104,11 @@ impl BooksView {
     }
 
     pub(crate) fn draw(&mut self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+        // Two sentences, wrapped: as a title they would be cut to a line.
         let footer = if self.ids.is_empty() {
             Footer::Empty {
-                title: &self.empty,
-                text: "",
+                title: "",
+                text: &self.empty,
             }
         } else {
             Footer::None
