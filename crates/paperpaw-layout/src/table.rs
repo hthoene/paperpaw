@@ -293,7 +293,8 @@ fn cell_text(text: &str, mut range: Range<usize>) -> Option<Range<usize>> {
 /// cells span. `None` for a row without cells or of too many columns.
 fn grid(table: &TableRow) -> Option<Vec<f32>> {
     let spans: usize = table.cells.iter().map(|c| usize::from(c.span.max(1))).sum();
-    if spans == 0 {
+    // Told before the weights are made, so that they are never longer.
+    if spans == 0 || spans > MAX_GRID || table.columns.len() > MAX_GRID {
         return None;
     }
     let weights = match spans <= table.columns.len() {
@@ -304,7 +305,7 @@ fn grid(table: &TableRow) -> Option<Vec<f32>> {
             .collect(),
         false => vec![1.0; spans],
     };
-    (spans <= MAX_GRID && table.columns.len() <= MAX_GRID).then_some(weights)
+    Some(weights)
 }
 
 /// The widths of columns of `weights` sharing `room`, each at least
