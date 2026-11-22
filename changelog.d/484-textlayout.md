@@ -4,3 +4,4 @@
 - **Ruby and glosses that do not fit on a page's last line are cut there** instead of disappearing: a gloss does not go on over a page break, as on a paragraph's last line (#484).
 - **A position inside a table row too wide for its columns opens on its own page again** (a bookmark, a search hit or the place kept after a font change), not on the row's first page (#484).
 - **A gloss or ruby of a paragraph's first word is shown where the paragraph starts with a drop capital**, on the line beside the capital (#484).
+- **A damaged or crafted font pack with deflated bitmaps can no longer make the reader ask for a gigabyte of memory** for one glyph: a glyph larger than its size allows is drawn as nothing, as in packed strikes (#484).

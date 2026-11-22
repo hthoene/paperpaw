@@ -586,6 +586,34 @@ mod tests {
         }
     }
 
+    /// A cold glyph whose record says it is larger than a glyph of its
+    /// strike may be is not read (inflated, it would take as much memory as
+    /// the record says), as a packed glyph is not.
+    #[test]
+    fn a_cold_glyph_larger_than_its_strike_allows_is_drawn_as_nothing() {
+        let flat = pack(false, false, false);
+        let mut blocks = deflate_bitmaps(&flat, &deflate, &cold).unwrap();
+        let plain = BitmapFont::new(flat).unwrap();
+        let b = plain.glyph('B', 10.0);
+        assert!(cold('B', 10.0) && b.width > 0);
+        // B's record at 10 px: its code, its size, a cold offset.
+        let record = (0..blocks.len() - RECORD)
+            .find(|&at| {
+                u32_at(&blocks, at) == Some(u32::from('B'))
+                    && u16_at(&blocks, at + 12) == Some(b.width)
+                    && u16_at(&blocks, at + 14) == Some(b.height)
+                    && u32_at(&blocks, at + 16).is_some_and(|at| at & COLD != 0)
+            })
+            .unwrap();
+        // Wider than the 80 pixels a glyph at 10 px may be, one row: what it
+        // says lies in the cold stream.
+        blocks[record + 12..record + 16].copy_from_slice(&[81, 0, 1, 0]);
+        let font = Font::Bitmap(BitmapFont::new(blocks).unwrap());
+        let mut cache = GlyphCache::new(4096);
+        let glyph = cache.glyph(0, &font, 'B', 10.0);
+        assert_eq!((glyph.width, glyph.height), (0, 0));
+    }
+
     #[test]
     fn a_pack_that_is_not_the_builders_or_is_deflated_already_is_not_deflated() {
         let flat = pack(false, false, false);
