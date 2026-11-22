@@ -4829,6 +4829,8 @@ change the plugin SDK.
 
 - **Bluetooth on the X4 Pro pairs again** (#456). Since the move to interface 7 the device refused every Bluetooth command of the Bluetooth page, so nothing could be found, paired, forgotten or switched, and remotes did not reconnect. The page's search, pairing, keys, giving and forgetting now reach the radio again, and what the radio answers comes back to the page. The emulator's X4 Pro does the same.
 
+- **The X4 Pro and X4 Classic no longer crash on the second USB drive** (#456). Showing the card to a computer a second time without a restart in between stopped the reader with a crash (`assertion left == right failed`, in the USB driver's start), because the driver kept the first drive's endpoints. `patches/embassy-usb-synopsys-otg` is embassy-usb-synopsys-otg 0.4.0 with embassy's unreleased fix (4371e1d4c5) backported: a drive now starts afresh each time.
+
 - **Update trial and safe mode run the built-in plugins** (#457). On the X4s an update's 30-second trial now starts Home, the reader, Wi-Fi, the update and the other plugins built into the firmware, so a crash in one of them during the trial rolls the update back (also for the update from Beta 3). Safe mode runs them too, except the one the crash was in: Wi-Fi and the update stay to fetch a fixed firmware without a computer. Code plugins from the card still wait for a normal start.
 
 - **Holding Power while the reader goes to sleep switches it off again** (#458).
