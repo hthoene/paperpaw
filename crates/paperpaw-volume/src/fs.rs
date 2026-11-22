@@ -454,7 +454,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         let root_dir_sectors = bpb.root_dir_sectors();
         let first_data_sector = bpb.first_data_sector();
         let total_clusters = bpb.total_clusters();
-        let fat_type = FatType::from_clusters(total_clusters);
+        let fat_type = FatType::from_clusters(bpb.data_clusters());
         // Modified for PaperPaw: FAT12 and FAT16 volumes only where built in (feature `fat16`).
         if !cfg!(feature = "fat16") && fat_type != FatType::Fat32 {
             return Err(Error::CorruptedFileSystem);
