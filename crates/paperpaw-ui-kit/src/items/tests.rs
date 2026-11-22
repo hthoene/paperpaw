@@ -1,3 +1,4 @@
+use super::head::head_fit;
 use super::*;
 use alloc::vec;
 use paperpaw_sdk::native::callbacks::FrameRect;
