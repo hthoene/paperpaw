@@ -312,6 +312,36 @@ fn a_pass_on_names_the_own_top_and_why() {
 }
 
 #[test]
+fn show_again_under_a_minute_is_invalid_and_never_becomes_a_cancel() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 64];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    for (after, every) in [
+        (0, 0),
+        (0, SHOW_AGAIN_MIN_MS),
+        (SHOW_AGAIN_MIN_MS - 1, 0),
+        (SHOW_AGAIN_MIN_MS, SHOW_AGAIN_MIN_MS - 1),
+    ] {
+        assert_eq!(
+            sender.show_again(after, every),
+            Err(Error::Invalid),
+            "{after} {every}"
+        );
+    }
+    sender.show_again(SHOW_AGAIN_MIN_MS, 0).unwrap();
+    sender
+        .show_again(SHOW_AGAIN_MIN_MS, SHOW_AGAIN_MIN_MS)
+        .unwrap();
+    // Only the two valid requests reached the host.
+    assert_eq!(ctx.batches.borrow().len(), 2);
+}
+
+#[test]
 fn empty_and_overlong_screen_action_ids_are_invalid_without_effects() {
     let table = table();
     let mut ctx = Context::default();

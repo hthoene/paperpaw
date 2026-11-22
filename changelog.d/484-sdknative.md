@@ -6,3 +6,7 @@
 - **A screen's last word on the row of button hints counts** (#484):
   `ScreenDecl::hints_hidden()` followed by `.hints(..)` (or the other way round)
   declared both, which the host refuses; the later call now replaces the earlier.
+- **`show_again` refuses a time under a minute** (#484): as documented,
+  `CommandSender::show_again` now returns `Invalid` for `after_ms` (or a non-zero
+  `every_ms`) under `SHOW_AGAIN_MIN_MS`; `after_ms` 0 no longer quietly cancels
+  the request that waits.
