@@ -129,9 +129,13 @@ impl NativeDictionary {
     ) -> Result<(), Error> {
         let mut source = Dictionaries::new(folders, storage, folder)?;
         let answered = Self::answer(&mut source, ask, reply);
+        // Never at the cost of the answer: indexing that cannot start now is
+        // tried again at the next ask.
         if !self.gave_up && self.index.pending.is_empty() {
-            let pending = source.pending()?;
-            self.start(host, pending)?;
+            source
+                .pending()
+                .and_then(|pending| self.start(host, pending))
+                .ok();
         }
         answered
     }
@@ -233,12 +237,20 @@ impl NativeDictionary {
                 }
             }
         }
+        // The next step; where it cannot be declared the indexing is not kept
+        // either, so the panels stop waiting and the next ask starts it again.
+        let mut scheduled = Ok(());
+        if !self.index.pending.is_empty() {
+            scheduled = Self::schedule(host);
+            if scheduled.is_err() {
+                self.index.clear();
+            }
+        }
         self.tell_panels(host);
         self.time_answers(host)?;
-        if self.index.pending.is_empty() {
-            Ok(())
-        } else {
-            Self::schedule(host)
+        match scheduled {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Ok(()) | Err(_) => Ok(()),
         }
     }
 
