@@ -64,10 +64,12 @@ fn the_steps_of_the_screen_survive_refused_allocations() {
         setup.choose_kind("pattern", &mut fx);
         fx.take().for_each(drop);
         fx.take().for_each(drop);
-        for dot in [4, 0, 8] {
+        // The pattern is drawn by the finger that went down on its first dot.
+        setup.finger_down(1, paperpaw_sdk::Point::new(0, 0), Some(4), &mut fx)?;
+        for dot in [0, 8] {
             setup.finger_moved(1, paperpaw_sdk::Point::new(0, 0), Some(dot), &mut fx)?;
         }
-        setup.finger_up(&mut lock, &room, &mut fx)?;
+        setup.finger_up(1, &mut lock, &room, &mut fx)?;
         fx.take().for_each(drop);
         setup.submit(model::Code::new(copy("12")?), &mut lock, &room, &mut fx)?;
         fx.take().for_each(drop);
