@@ -498,10 +498,6 @@ impl<'a, IO: ReadWriteSeek> XDir<'a, IO> {
         }
     }
 
-    pub(crate) fn first_cluster(&self) -> u32 {
-        self.first
-    }
-
     /// Its clusters and its size in bytes (0 for the root: as far as the
     /// FAT links its clusters).
     fn extent(&self) -> Res<(Chain, u64), IO> {

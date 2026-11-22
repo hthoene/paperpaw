@@ -142,7 +142,9 @@ where
 }
 
 // Modified for PaperPaw: `taken` added, counted as soon as the cluster is marked taken (see
-// `FileSystem::cluster_changes`), so one left taken by a failed link is counted too.
+// `FileSystem::cluster_changes`), so one left taken by a failed link is counted too. For
+// formatting and tests only: the file system takes clusters through `alloc_run`.
+#[cfg(any(feature = "format", test))]
 pub(crate) fn alloc_cluster<S, E>(
     fat: &mut S,
     fat_type: FatType,
@@ -580,18 +582,13 @@ where
     // block (`MAX_RUN` + 1 of them), so there is one boundary at most: three points.
     debug_assert!(bytes.len() as u64 <= BLOCK);
     let mut parts = [0usize; 3];
-    let mut n = 0;
-    let mut at = 0usize;
-    parts[n] = 0;
-    n += 1;
+    let mut n = 1;
     let mut next_boundary = (begin / BLOCK + 1) * BLOCK;
     while next_boundary < end {
-        at = (next_boundary - begin) as usize;
-        parts[n] = at;
+        parts[n] = (next_boundary - begin) as usize;
         n += 1;
         next_boundary += BLOCK;
     }
-    let _ = at;
     parts[n] = bytes.len();
     for k in 0..n {
         let k = if later_first { n - 1 - k } else { k };
