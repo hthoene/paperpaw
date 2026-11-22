@@ -372,28 +372,25 @@ impl<'a> CommandStage<'a> {
             return ERR_NO_MEMORY;
         }
         let start_hints = self.staged_hints.len();
-        if let Err(error) = self.reserve_hints(batch) {
-            return error;
-        }
         let start_widgets = self.staged_widgets.len();
-        if let Err(error) = self.reserve_widgets(batch) {
-            return error;
-        }
         let start_policies = self.staged_policies.len();
-        if let Err(error) = self.reserve_policies(batch) {
-            return error;
-        }
-        if let Err(error) = self
-            .dev_reserve(batch)
+        // Everything fallible is reserved, then the opens' hand-overs are
+        // claimed. The hints are listed as they are checked: a refusal after
+        // them takes them back (#483).
+        let claims = match self
+            .reserve_hints(batch)
+            .and_then(|()| self.reserve_widgets(batch))
+            .and_then(|()| self.reserve_policies(batch))
+            .and_then(|()| self.dev_reserve(batch))
             .and_then(|()| self.reserve_opens(batch))
             .and_then(|()| self.reserve_areas(batch))
+            .and_then(|()| self.claim_handovers(batch))
         {
-            return error;
-        }
-        // Everything fallible is reserved: the opens' hand-overs are claimed.
-        let claims = match self.claim_handovers(batch) {
             Ok(claims) => claims,
-            Err(error) => return error,
+            Err(error) => {
+                self.staged_hints.truncate(start_hints);
+                return error;
+            }
         };
         let (start, dev_start) = (self.staged.len(), self.dev_len());
         let opens = self.opens.at.len();
