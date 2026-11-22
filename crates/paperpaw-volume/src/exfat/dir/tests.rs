@@ -508,6 +508,33 @@ fn folders_grow_at_every_cut() {
 }
 
 #[test]
+fn a_folder_whose_size_is_not_whole_clusters_is_damaged_and_left_alone() {
+    let card = filled(512);
+    for len in [32, 512 + 32] {
+        let fs = card.mount();
+        let root = fs.root_dir();
+        let books = root.find("books").unwrap().unwrap();
+        fs.update(&books.loc, |set| {
+            set_stream(set, books.first, len, len, books.contiguous);
+        })
+        .unwrap();
+        fs.flush().unwrap();
+        let before = card.image();
+        let dir = root.find("books").unwrap().unwrap().to_dir();
+        assert!(
+            matches!(dir.iter().next(), Some(Err(Error::CorruptedFileSystem))),
+            "{len}"
+        );
+        assert!(
+            matches!(dir.create_file("more.txt"), Err(Error::CorruptedFileSystem)),
+            "{len}"
+        );
+        fs.flush().unwrap();
+        assert!(card.image() == before, "{len}: the card was written");
+    }
+}
+
+#[test]
 fn a_file_cut_short_is_old_or_new() {
     let card = filled(512);
     every_cut(
