@@ -71,7 +71,8 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The setup's step that offers a few plugins (`store.offer`), after the
+/// The setup's step that offers a few plugins (`store.offer`; its help is
+/// `store.setup.help`, as the guide reads a step's help as `<id>.help`), after the
 /// keyboard's and before Wi-Fi's. It applies until the plugin says it does not
 /// (`command.set_item_state`, where no plugin of the offer can be added here;
 /// `native_screen_offer::applies`), and the item state carries the badge of
@@ -85,7 +86,7 @@ pub fn setup<F: FnMut(&[u8]) -> Result<(), i32>>(
         "store.offer.title",
         SetupPage::Screen("store.offer"),
     );
-    step.help = "store.offer.help";
+    step.help = "store.setup.help";
     step.order = 55;
     d.setup_step(step)?;
     // The templates come before the single plugins: a connection is there (the

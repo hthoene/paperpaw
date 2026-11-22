@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.16"
+version = "1.0.17"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
