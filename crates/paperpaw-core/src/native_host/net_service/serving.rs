@@ -96,6 +96,8 @@ impl Tables {
             || self.served.iter().any(|s| s.owner == owner)
             || self.events.iter().any(|e| e.owner == owner)
     }
+    /// Whether any server listens, the cable's included.
+    #[cfg(test)]
     pub(super) fn any(&self) -> bool {
         !self.servers.is_empty()
     }
