@@ -144,8 +144,8 @@ impl SockHost for SockDevice {
     fn current_run(&self, owner: u64) -> Option<u64> {
         self.paths.owners().current_run(owner)
     }
-    fn showing_screen(&self, owner: u64) -> Option<u64> {
-        self.paths.owners().showing_screen(owner)
+    fn calling_screen(&self, owner: u64) -> Option<u64> {
+        self.paths.owners().calling_screen(owner)
     }
 
     fn root_access(&self, who: &Caller<'_>, root: u32, path: &str) -> Result<(), i32> {
