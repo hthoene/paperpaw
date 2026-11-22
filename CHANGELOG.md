@@ -4904,6 +4904,8 @@ change the plugin SDK.
 
 - **paperpaw-dev: the pseudo-language has every text of the app again** (#4511). It now comes as one compiled catalog (`i18n/pseudo.ppcat`), as a language pack does: its split text catalogs had grown past what a data plugin's text catalogs may take together, so the last ones were left out.
 
+- **A plugin can start its web server from an event callback again** (#469). Before, a plugin that started its server outside its screen's own callback (for example after Wi-Fi came up) was refused until it had used background work once; now it serves from its showing screen as documented, which the phone setup of Wi-Fi needs.
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
