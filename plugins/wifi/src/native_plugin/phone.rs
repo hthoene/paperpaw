@@ -118,6 +118,16 @@ fn decimal(value: u32, digits: &mut [u8; 10]) -> &str {
     core::str::from_utf8(digits.get(at..).unwrap_or(&[])).unwrap_or("0")
 }
 
+/// A line that says something: shown whole, wrapped instead of cut, and not
+/// to be chosen.
+fn said(text: &str) -> Result<Item, Error> {
+    let mut item = Item::whole(text, "", "")?;
+    if let Item::Row(row) = &mut item {
+        row.plain = true;
+    }
+    Ok(item)
+}
+
 /// What a server's failure is in words, for `wifi.phone.failed`.
 fn reason_key(reason: Reason) -> &'static str {
     match reason {
@@ -128,9 +138,23 @@ fn reason_key(reason: Reason) -> &'static str {
 }
 
 impl NativeWifi {
-    /// The setup screen is opened: the own network is made (from a fully
-    /// random draw, or not at all) and the rows are laid out.
-    pub(super) fn phone_view(&mut self, host: &Host<'_>, now: u64) -> Result<PhoneView, Error> {
+    /// The setup screen is opened: the rows are laid out. The own network
+    /// is made once the radio is on ([`Effect::Draw`]).
+    pub(super) fn phone_view(&self, host: &Host<'_>, now: u64) -> Result<PhoneView, Error> {
+        let mut view = PhoneView {
+            list: ItemList::default(),
+            phone: Phone::new(self.policy.manual, now),
+            own: None,
+            join_qr: None,
+            page_qr: None,
+        };
+        Self::phone_build(host, &mut view)?;
+        Ok(view)
+    }
+
+    /// The own network, from a fully random draw or not at all, and the code
+    /// that joins it; the setup is told and says what to do next.
+    fn phone_draw(&mut self, host: &Host<'_>) -> Result<Vec<Effect>, Error> {
         let name = {
             let device = self.device.as_ref().ok_or(Error::State)?;
             let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
@@ -152,7 +176,7 @@ impl NativeWifi {
             }
             None => None,
         };
-        let join_qr = match &own {
+        let mut join_qr = match &own {
             Some(own) => {
                 let code = native_own::join_code(own.ssid(), own.password().as_str())?;
                 let qr = QrCode::try_new(code.as_bytes());
@@ -167,21 +191,26 @@ impl NativeWifi {
             }
             None => None,
         };
-        let phone = Phone::new(
-            own.as_ref().map(Own::ssid),
-            own.as_ref().map_or("", |own| own.token().as_str()),
-            self.policy.manual,
-            now,
-        )?;
-        let mut view = PhoneView {
-            list: ItemList::default(),
-            phone,
-            own,
-            join_qr,
-            page_qr: None,
+        let Some(View::Phone(view)) = self.screens.top(PHONE_TOKEN) else {
+            return Ok(Vec::new());
         };
-        Self::phone_build(host, &mut view)?;
-        Ok(view)
+        let drawn = view
+            .phone
+            .drawn(own.as_ref().map(|own| (own.ssid(), own.token().as_str())));
+        match drawn {
+            Ok(effects) => {
+                view.own = own;
+                view.join_qr = join_qr;
+                Ok(effects)
+            }
+            Err(error) => {
+                // The code carries the password.
+                if let Some(code) = &mut join_qr {
+                    code.wipe();
+                }
+                Err(error)
+            }
+        }
     }
 
     /// The rows of the two setup steps (join the own network, then open the
@@ -194,7 +223,7 @@ impl NativeWifi {
         items: &mut Vec<Item>,
     ) -> Result<usize, Error> {
         if let Some(problem) = phone.problem() {
-            push(items, Item::noted(problem, "", "")?)?;
+            push(items, said(problem)?)?;
         }
         let (number, title, note, button) = match phone.step() {
             Step::Join => (
@@ -212,8 +241,7 @@ impl NativeWifi {
         };
         let heading = concat(&[number, &say.copy(host, title)?])?;
         push(items, Item::heading(&heading)?)?;
-        let text = say.copy(host, note)?;
-        push(items, Item::noted(&text, "", "")?)?;
+        push(items, said(&say.copy(host, note)?)?)?;
         match phone.step() {
             Step::Join => {
                 let title = say.copy(host, "wifi.phone.name")?;
@@ -225,15 +253,14 @@ impl NativeWifi {
                 push(items, item?)?;
             }
             Step::Open if phone.page_address().is_none() => {
-                let text = say.copy(host, "wifi.phone.opening")?;
-                push(items, Item::noted(&text, "", "")?)?;
+                push(items, said(&say.copy(host, "wifi.phone.opening")?)?)?;
             }
             // The address in words, whether or not a code is drawn for it (none
             // where it could not be made, or the rows take several pages).
             Step::Open => {
                 if let Some(url) = phone.page_address() {
                     let text = concat(&[&say.copy(host, "wifi.phone.type-address")?, " ", url])?;
-                    push(items, Item::noted(&text, "", "")?)?;
+                    push(items, said(&text)?)?;
                 }
             }
         }
@@ -249,59 +276,47 @@ impl NativeWifi {
         let mut items = Vec::new();
         let phone = &view.phone;
         let mut next = None;
-        match (phone.stage(), &view.own) {
-            (_, None) => {
-                let text = say.copy(host, "wifi.phone.no-random")?;
-                push(&mut items, Item::noted(&text, "", "")?)?;
-            }
-            (Stage::Searching, _) => {
-                let text = say.copy(host, "wifi.state.searching")?;
-                push(&mut items, Item::noted(&text, "", "")?)?;
-            }
+        let text = match (phone.stage(), &view.own) {
+            (Stage::Searching, _) => Some(say.copy(host, "wifi.state.searching")?),
             (Stage::Opening, Some(_)) if phone.problem().is_none() => {
-                let text = say.copy(host, "wifi.phone.opening")?;
-                push(&mut items, Item::noted(&text, "", "")?)?;
+                Some(say.copy(host, "wifi.phone.opening")?)
             }
             (Stage::Opening | Stage::Hosting { .. }, Some(own)) => {
                 next = Some(Self::setup_rows(host, &mut say, phone, own, &mut items)?);
+                None
             }
-            (Stage::Leaving { ssid, .. } | Stage::Joining(ssid), _) => {
-                let text = say.format(
-                    host,
-                    "wifi.state.joining",
-                    &[Arg::Text {
-                        name: "ssid",
-                        value: ssid,
-                    }],
-                )?;
-                push(&mut items, Item::noted(&text, "", "")?)?;
-            }
-            (Stage::Joined(ssid), _) => {
-                let text = say.format(
-                    host,
-                    "wifi.phone.joined",
-                    &[Arg::Text {
-                        name: "ssid",
-                        value: ssid,
-                    }],
-                )?;
-                push(&mut items, Item::noted(&text, "", "")?)?;
-            }
-            (Stage::Failed(Failed::NotOpened), _) => {
-                let text = say.copy(host, "wifi.phone.not-opened")?;
-                push(&mut items, Item::noted(&text, "", "")?)?;
-            }
-            (Stage::Failed(Failed::Server(reason)), _) => {
-                let text = say.format(
-                    host,
-                    "wifi.phone.failed",
-                    &[Arg::Text {
-                        name: "reason",
-                        value: reason,
-                    }],
-                )?;
-                push(&mut items, Item::noted(&text, "", "")?)?;
-            }
+            // No own network without a password drawn from fully random
+            // numbers.
+            (Stage::Opening | Stage::Hosting { .. }, None)
+            | (Stage::Failed(Failed::NoRandom), _) => Some(say.copy(host, "wifi.phone.no-random")?),
+            (Stage::Leaving { ssid, .. } | Stage::Joining(ssid), _) => Some(say.format(
+                host,
+                "wifi.state.joining",
+                &[Arg::Text {
+                    name: "ssid",
+                    value: ssid,
+                }],
+            )?),
+            (Stage::Joined(ssid), _) => Some(say.format(
+                host,
+                "wifi.phone.joined",
+                &[Arg::Text {
+                    name: "ssid",
+                    value: ssid,
+                }],
+            )?),
+            (Stage::Failed(Failed::NotOpened), _) => Some(say.copy(host, "wifi.phone.not-opened")?),
+            (Stage::Failed(Failed::Server(reason)), _) => Some(say.format(
+                host,
+                "wifi.phone.failed",
+                &[Arg::Text {
+                    name: "reason",
+                    value: reason,
+                }],
+            )?),
+        };
+        if let Some(text) = text {
+            push(&mut items, said(&text)?)?;
         }
         view.list.wipe();
         view.list = ItemList::new(items);
@@ -485,6 +500,19 @@ impl NativeWifi {
                 }
                 Effect::RadioOn => CommandSender::new(host, &mut [0; 64]).wifi_on()?,
                 Effect::Scan => CommandSender::new(host, &mut [0; 64]).wifi_scan()?,
+                Effect::Draw => match self.phone_draw(host) {
+                    Ok(effects) => self.phone_run(host, effects)?,
+                    Err(_) => {
+                        // The own network could not be made (no memory, no
+                        // device): said, and the screen closed, not a failed
+                        // callback.
+                        crate::native_model::best_effort(Self::notice(
+                            host,
+                            "wifi.phone.not-opened",
+                        ));
+                        CommandSender::new(host, &mut [0; 64]).back()?;
+                    }
+                },
                 Effect::Leave => CommandSender::new(host, &mut [0; 64]).wifi_leave()?,
                 Effect::Host => self.phone_host(host)?,
                 Effect::Serve => server_failed |= self.phone_serve(host)? == Serving::Busy,
@@ -750,5 +778,24 @@ impl NativeWifi {
             Ok(()) | Err(Error::NotFound) => Ok(()),
             Err(error) => Err(error),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::said;
+    use paperpaw_ui_kit::Item;
+
+    #[test]
+    fn a_long_message_is_wrapped_whole_not_cut_to_one_line() {
+        let text = "The page could not be served: There is no network.";
+        let Item::Row(row) = said(text).unwrap() else {
+            panic!("a message is a row");
+        };
+        // Whole and plain: the ui-kit wraps it to as many as four lines
+        // (`WHOLE_BODY_LINES`) where a noted row cuts it with "…".
+        assert!(row.whole && row.plain, "{row:?}");
+        assert_eq!(row.title, text);
+        assert!(!Item::Row(row).selectable());
     }
 }

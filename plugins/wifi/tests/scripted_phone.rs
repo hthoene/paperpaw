@@ -1,6 +1,7 @@
 //! The setup with a phone through the production loader with a scripted host:
-//! the own network is made from a strong random draw (a weak one makes none),
-//! the radio is asked to scan and to host, the page is served when the own
+//! the radio is switched on where it is off, the own network is made from a
+//! strong random draw once a scan came back (a weak one makes none), the
+//! radio is asked to scan and to host, the page is served when the own
 //! network is open, a request for it is answered with the networks in reach
 //! and the page's token, a form without the token chooses nothing, a path that
 //! is none is 404, a device that serves a page already is told, and closing
@@ -68,7 +69,8 @@ fn last_page(rows: usize, generation: u32) -> Record<'static> {
 #[derive(Default)]
 struct World {
     radio: Cell<u32>,
-    /// Whether the draw of the own network is fully random.
+    /// Whether the draw of the own network is fully random; random only
+    /// while the radio is on, as on the X4.
     strong: Cell<bool>,
     /// The server is refused as busy.
     busy: Cell<bool>,
@@ -170,7 +172,7 @@ fn script_secrets(host: &ScriptedHost, world: &Rc<World>) {
                 .map(|i| u8::try_from((i * 37 + 11) % 256).unwrap())
                 .collect();
             Ok(stream(&[Record::ServiceSecBytes(ServiceSecBytes {
-                flags: u32::from(w.strong.get()),
+                flags: u32::from(w.strong.get() && w.radio.get() != OFF),
                 data: &data,
             })]))
         }
@@ -440,14 +442,35 @@ fn a_device_that_serves_a_page_already_is_told_and_nothing_is_lost() {
 }
 
 #[test]
-fn a_weak_draw_makes_no_own_network_and_nothing_is_asked_of_the_radio() {
+fn a_weak_draw_makes_no_own_network() {
     let (host, world) = world(false);
     let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
     let (status, _) = send(&plugin, PHONE, &opened());
     assert_eq!(status, 0);
-    let (status, sent) = send(&plugin, PHONE, &shown());
+    send(&plugin, PHONE, &shown());
+    // Drawn once the scan came back, and weak: nothing is opened or served.
+    let (status, sent) = send(&plugin, WIFI_SCANNED, &scanned());
     only_redraws(status, &sent);
     assert!(world.net.borrow().is_empty());
+}
+
+#[test]
+fn the_radio_off_is_switched_on_and_the_own_network_made_once_it_is_on() {
+    let (host, world) = world(true);
+    world.radio.set(OFF);
+    let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
+    let (status, _) = send(&plugin, PHONE, &opened());
+    assert_eq!(status, 0);
+    // Off, so the chip's numbers are not random yet: nothing is refused, the
+    // radio is switched on first (the stage takes no command after it).
+    let (status, sent) = send(&plugin, PHONE, &shown());
+    assert_eq!(status, DEV_REFUSED, "{sent:?}");
+    assert_eq!(sent, ["WifiOn"]);
+    // On for the scan: the draw is strong and the own network asked for.
+    world.radio.set(ON);
+    let (status, sent) = send(&plugin, WIFI_SCANNED, &scanned());
+    assert_eq!(status, DEV_REFUSED, "{sent:?}");
+    assert!(sent.iter().any(|c| c.contains("Host")), "{sent:?}");
 }
 
 #[test]

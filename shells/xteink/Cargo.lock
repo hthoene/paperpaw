@@ -2720,7 +2720,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wifi"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",
