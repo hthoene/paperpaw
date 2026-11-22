@@ -149,6 +149,7 @@ impl NativeNet {
             let _ = reports.network_lost();
         }
         let served = self.serving.pump(reports);
+        let progressed = self.report_progress(reports);
         let told = self.pump_with(
             wait,
             &|id, done| {
@@ -158,7 +159,29 @@ impl NativeNet {
             &|id| reports.redirected_to_https(id),
         );
         let _ = reports.tick();
-        lost || served || told
+        lost || served || progressed || told
+    }
+
+    /// Tells core how far the answers of its running requests have come
+    /// (`NetReports::progress`; `http` counts a successful answer's body
+    /// only). A parked or aborted request's is passed over, and so is a report
+    /// core is too busy for: the next one says more. `true` when one was told.
+    fn report_progress(&self, reports: &NetReports) -> bool {
+        let mut told = false;
+        loop {
+            let Some((id, received, total)) = self.http.borrow_mut().next_progress() else {
+                return told;
+            };
+            let running = self
+                .pending
+                .borrow()
+                .get(&id)
+                .is_some_and(|pending| !pending.parked);
+            if running {
+                told = true;
+                let _ = reports.progress(id, 200, received, total);
+            }
+        }
     }
 
     /// [`NativeNet::pump`] with what core is told through `finish` (a
@@ -309,7 +332,8 @@ impl ShellHttp for NativeNet {
             // The redirects are followed here, by their `Location`.
             want_headers: vec![String::from("location")],
             save_to: job.save_path.map(str::to_owned),
-            progress: false,
+            // As on the X4: core tells the plugins that asked.
+            progress: true,
         };
         self.begin(call, job.save_path, job.max_file)
     }

@@ -280,36 +280,49 @@ fn counting(
     use std::io::Read as _;
     let mut body = Vec::new();
     let mut piece = vec![0; 16 << 10];
-    let mut total = None;
+    let mut head = None;
     loop {
         let n = stdout.read(&mut piece)?;
         if n == 0 {
             break;
         }
         body.extend_from_slice(&piece[..n]);
-        if total.is_none() {
-            total = std::fs::read_to_string(headers)
+        if head.is_none() {
+            head = std::fs::read_to_string(headers)
                 .ok()
-                .and_then(|text| content_length(&text));
+                .and_then(|text| last_head(&text));
         }
-        let _ = progress.send((id, body.len() as u64, total));
+        // Only a successful answer's body is progress (a redirect's or an
+        // error's is not, as on the X4: `http::Calls::progress`).
+        if let Some((200..=299, total)) = head {
+            // What `curl` writes after the body (`-w`) is no part of it.
+            let received = body.len() as u64;
+            let received = total.map_or(received, |total| received.min(total));
+            let _ = progress.send((id, received, total));
+        }
     }
     let mut output = child.wait_with_output()?;
     output.stdout = body;
     Ok(output)
 }
 
-/// The size of the body that the last answer of `headers` names (after
-/// redirects, each answer's headers follow the one before).
+/// The status of the last answer in `headers` and the size of the body it
+/// names (after redirects, each answer's headers follow the one before);
+/// `None` until its status line is there.
 #[cfg(not(target_arch = "wasm32"))]
-fn content_length(headers: &str) -> Option<u64> {
-    let last = headers.rsplit("HTTP/").next()?;
-    last.lines().find_map(|line| {
-        let (name, value) = line.split_once(':')?;
-        name.trim()
-            .eq_ignore_ascii_case("content-length")
-            .then(|| value.trim().parse().ok())?
-    })
+fn last_head(headers: &str) -> Option<(u32, Option<u64>)> {
+    let mut head = None;
+    for line in headers.lines() {
+        if let Some(status_line) = line.strip_prefix("HTTP/") {
+            let status = status_line.split_whitespace().nth(1);
+            head = status.and_then(|s| s.parse().ok()).map(|s| (s, None));
+        } else if let (Some((_, length)), Some((name, value))) = (&mut head, line.split_once(':'))
+            && name.trim().eq_ignore_ascii_case("content-length")
+        {
+            *length = value.trim().parse().ok();
+        }
+    }
+    head
 }
 
 /// The answer to `call` from what `curl` wrote: the body, then lines with
@@ -400,11 +413,15 @@ mod tests {
     }
 
     #[test]
-    fn the_size_is_the_last_answers() {
+    fn the_status_and_size_are_the_last_answers() {
         let headers = "HTTP/1.1 302 Found\r\nContent-Length: 5\r\nLocation: /b\r\n\r\n\
-                       HTTP/2 200\r\ncontent-length: 1234\r\n\r\n";
-        assert_eq!(content_length(headers), Some(1234));
-        assert_eq!(content_length("HTTP/2 200\r\nserver: x\r\n\r\n"), None);
+                       HTTP/2 200\r\nvia: HTTP/1.1 proxy\r\ncontent-length: 1234\r\n\r\n";
+        assert_eq!(last_head(headers), Some((200, Some(1234))));
+        assert_eq!(
+            last_head("HTTP/2 404\r\nserver: x\r\n\r\n"),
+            Some((404, None))
+        );
+        assert_eq!(last_head(""), None);
     }
 
     /// An answer longer than wanted is cut, unless it is a file: then it
@@ -470,5 +487,45 @@ https://a.example/book.epub"
             )]
         );
         assert!(server.join().unwrap().starts_with("GET /a "));
+    }
+
+    /// Progress is told of a successful answer's body only, never past its
+    /// size; an error's body (or a redirect's) is no progress.
+    #[test]
+    fn progress_is_told_of_successful_answers_only() {
+        use std::io::{Read as _, Write as _};
+        if Command::new("curl").arg("--version").output().is_err() {
+            return;
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            for answer in [&b"404 Not Found"[..], b"200 OK"] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let _ = stream.read(&mut [0; 2048]).unwrap();
+                stream.write_all(b"HTTP/1.1 ").unwrap();
+                stream.write_all(answer).unwrap();
+                stream
+                    .write_all(b"\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello")
+                    .unwrap();
+            }
+        });
+        let mut http = Http::new();
+        for status in [404, 200] {
+            let mut call = call(None);
+            call.url = format!("http://127.0.0.1:{port}/a");
+            call.max_response = 100;
+            call.progress = true;
+            http.start_unfollowed(call);
+            let answer = http.next(Some(Duration::from_secs(10))).unwrap();
+            assert_eq!(answer.status, status, "{answer:?}");
+            let told: Vec<Progress> = std::iter::from_fn(|| http.next_progress()).collect();
+            if status == 200 {
+                assert_eq!(told.last(), Some(&(7, 5, Some(5))), "{told:?}");
+            } else {
+                assert_eq!(told, [], "an error's body is no progress");
+            }
+        }
+        server.join().unwrap();
     }
 }
