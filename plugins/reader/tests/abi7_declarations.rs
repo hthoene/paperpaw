@@ -62,15 +62,16 @@ fn all() -> Vec<Vec<u8>> {
 }
 
 /// Every field of every record, decoded and checked by the host's rules, is
-/// the pinned one (the status settings keep the lists' editors, the kernel's
-/// `core.status-lines` and `core.status-items`, out: `PORTING-7.md`, R2b-2).
+/// the pinned one (the status settings name the reader's own editor,
+/// `status-edit`, for the kernel's `core.status-lines` and `core.status-items`
+/// of interface 6: `PORTING-7.md`, R2b-2).
 #[test]
 fn the_decoded_batches_are_the_pinned_ones() {
     let native = declared::native("reader", &all());
     declared::assert_pinned("declarations", &native);
     assert_eq!(native.specs.len(), 20);
     assert_eq!(native.extras.len(), 2 + 10);
-    assert_eq!(native.screens.len(), 6);
+    assert_eq!(native.screens.len(), 7);
     // The instance policy, decoded: one for each set of parameters (flags 0),
     // the note and the skim bar overlays (bit 2): the page shows above them.
     // The reading page has its button-hint row only on a press (bits 13-14 =
@@ -88,7 +89,7 @@ fn the_decoded_batches_are_the_pinned_ones() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    assert_eq!(flags, [16384 | 4096, 0, 0, 4, 4, 0]);
+    assert_eq!(flags, [16384 | 4096, 0, 0, 4, 4, 0, 0]);
     assert_eq!(native.slots.len(), 6);
     assert_eq!(native.actions.len(), 35);
     assert_eq!(native.menu_entries.len(), 34);
