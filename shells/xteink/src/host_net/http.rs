@@ -45,6 +45,9 @@ pub(super) enum NetOut {
     Parked(u32),
     /// What a server's connections came to.
     Served(crate::serve7::Event),
+    /// The listener of a server opened at this address (`ip:port`), or could
+    /// not (`None`).
+    Listened(u32, Option<alloc::string::String>),
 }
 
 impl Inner {
@@ -113,6 +116,7 @@ impl Bridge {
                 NetOut::Progress(id, received, total),
             ),
             NetOut::Served(event) => self.report_served(net, event).map_err(NetOut::Served),
+            NetOut::Listened(server, address) => self.report_listened(net, server, address),
             NetOut::Parked(id) => match net.redirected_to_https(id) {
                 Err(ERR_BUSY) => Err(NetOut::Parked(id)),
                 // Core does not know it or does not run it: it is not left

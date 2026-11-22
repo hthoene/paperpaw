@@ -5,12 +5,13 @@
 //! verdicts at the next step. Nothing is reported from inside a transport
 //! method, and nothing here allocates without a way to say no.
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use paperpaw_core::native_host::shell_wiring::{
     NetReports, ServedDecision, ServedReply, ServerReason,
 };
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 
 use super::http::NetOut;
@@ -35,12 +36,23 @@ impl Inner {
             self.servers.stop(server, Some(&mut *net), &mut events);
         }
         while let Some((server, port)) = self.listens.pop() {
-            if !self.servers.listen(server, port, net) {
-                // Core was told the server started: the sockets it needed
-                // could not be had after all (the heap was checked at
-                // `listen`). Not told to core: it has no report for it.
+            let opened = self.servers.listen(server, port, net);
+            if !opened {
+                // The sockets could not be had after all (the heap was
+                // checked at `listen`).
                 log::warn!("serve: server {server} could not open its sockets");
             }
+            // Core tells the plugin `started` with the address, and gives the
+            // server requests, only once this is reported (#467).
+            let address = opened
+                .then_some(self.address)
+                .flatten()
+                .map(|ip| serve7::address_text(ip, port));
+            push_out(
+                out,
+                Out::Net(NetOut::Listened(server, address)),
+                &mut self.oom,
+            );
         }
         while !self.replies.is_empty() {
             let reply = self.replies.remove(0);
@@ -86,6 +98,30 @@ impl Inner {
 }
 
 impl Bridge {
+    /// Tells core whether the listener of `server` opened (at `address`):
+    /// `server_started`, or `server_failed`. `Err` with it where core was
+    /// busy.
+    pub(super) fn report_listened(
+        &self,
+        net: &NetReports,
+        server: u32,
+        address: Option<String>,
+    ) -> Result<(), NetOut> {
+        let told = match &address {
+            Some(address) => net.server_started(server, address),
+            None => net.server_failed(server, ServerReason::NoMemory),
+        };
+        match told {
+            Err(ERR_BUSY) => Err(NetOut::Listened(server, address)),
+            // The server stopped in core meanwhile: its listener goes too.
+            Err(ERR_NOT_FOUND) if address.is_some() => {
+                self.serve_unlisten(server);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// One report of a server event; `Err` with it where core was busy.
     pub(super) fn report_served(&self, net: &NetReports, event: Event) -> Result<(), Event> {
         match &event {
