@@ -737,6 +737,30 @@ fn the_focus_starts_on_the_first_book_so_one_press_of_the_menu_button_holds_it()
     assert!(!log_has(&world, "handover menu=files.menu"), "{log:?}");
 }
 
+/// With the buttons as by touch, the filter row shows every filter to choose
+/// from and the search (as in Beta 3), not only the next filter (#480).
+#[test]
+fn the_filter_row_shows_every_filter_to_choose_from_with_the_buttons() {
+    let world = World::default();
+    world.phase.set(2);
+    let host = setup(&world);
+    let plugin = open_browser(&host);
+    // From the first book a step back is the filter row.
+    plugin.input(BROWSER_TOKEN, &action("core.left")).unwrap();
+    plugin
+        .input(BROWSER_TOKEN, &action("core.confirm"))
+        .unwrap();
+    assert!(
+        log_has(
+            &world,
+            "ask kind 1 title Show text  choices \
+             All books|Reading|Unread|Finished|Shelves|Find a book"
+        ),
+        "{:?}",
+        log(&world)
+    );
+}
+
 #[test]
 fn no_refusal_of_a_service_makes_the_list_or_the_sheet_abort() {
     for slot in [Slot::ServiceCall, Slot::ServiceOpen] {
