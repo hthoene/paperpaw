@@ -670,6 +670,16 @@ pub(crate) fn read(storage: &dyn Storage, archive: &ZipArchive) -> Result<Packag
     })
 }
 
+/// The metadata of the package document at `opf_path`, as [`read`] finds
+/// it: for a book read otherwise (a fixed-layout book of pictures, `fixed`).
+pub(crate) fn read_book_metadata(
+    storage: &dyn Storage,
+    archive: &ZipArchive,
+    opf_path: &str,
+) -> Result<Metadata, DocumentError> {
+    Ok(read_metadata(storage, archive, opf_path)?.metadata)
+}
+
 /// Whether a package of some book is in the cache: of another book or
 /// version where [`load`] found none.
 pub(crate) fn cached(storage: &dyn Storage, cache: &str) -> bool {
