@@ -216,11 +216,23 @@ impl Writer<'_> {
             // A rule applies no contextual lookups.
             return record.filter(|r| !nested || !matches!(r[0], 4 | 5));
         }
-        // Not twice, also not while it is being written.
-        self.records.insert(index, None);
         let list = self.font.gsub().ok()?.lookup_list().ok()?;
         let lookup = list.lookups().get(usize::from(index)).ok()?;
-        let record = match lookup.subtables().ok()? {
+        let subtables = lookup.subtables().ok()?;
+        // Nor is one read for a rule (`with_nested` lists those a listed
+        // lookup applies on their own): contextual lookups a font nests in
+        // each other, as deep as it likes, are never followed down.
+        if nested
+            && matches!(
+                subtables,
+                SubstitutionSubtables::Contextual(_) | SubstitutionSubtables::ChainContextual(_)
+            )
+        {
+            return None;
+        }
+        // Not twice, also not while it is being written.
+        self.records.insert(index, None);
+        let record = match subtables {
             SubstitutionSubtables::Single(subtables) => {
                 self.singles(subtables.iter().flatten().collect())
             }
@@ -234,9 +246,7 @@ impl Writer<'_> {
                 let all: Vec<_> = subtables.iter().flatten().collect();
                 if let [SequenceContext::Format2(t)] = all.as_slice() {
                     let made = self.context_classes(t);
-                    return self
-                        .finish(index, made)
-                        .filter(|r| !nested || !matches!(r[0], 4 | 5));
+                    return self.finish(index, made);
                 }
                 let mut rules = Vec::new();
                 for t in subtables.iter().flatten() {
@@ -248,9 +258,7 @@ impl Writer<'_> {
                 let all: Vec<_> = subtables.iter().flatten().collect();
                 if let [ChainedSequenceContext::Format2(t)] = all.as_slice() {
                     let made = self.chained_classes(t);
-                    return self
-                        .finish(index, made)
-                        .filter(|r| !nested || !matches!(r[0], 4 | 5));
+                    return self.finish(index, made);
                 }
                 let mut rules = Vec::new();
                 for t in subtables.iter().flatten() {
@@ -261,7 +269,6 @@ impl Writer<'_> {
             _ => None,
         };
         self.finish(index, record)
-            .filter(|r| !nested || !matches!(r[0], 4 | 5))
     }
 
     fn singles(&mut self, subtables: Vec<SingleSubst<'_>>) -> Option<(u8, usize, usize)> {
@@ -930,9 +937,11 @@ fn members(of: &BTreeMap<u16, Vec<u16>>, class: u16) -> Option<Vec<u16>> {
     (class != 0).then(|| of.get(&class).cloned().unwrap_or_default())
 }
 
-/// Adds to `drawn` the glyphs lookup `index` (and those it applies) draws
-/// where its keys are among `reached`, the glyphs text of the pack's
-/// characters may come to; `seen` the lookups already read.
+/// Adds to `drawn` the glyphs lookup `index` (and those it applies, and
+/// those they apply) draws where its keys are among `reached`, the glyphs
+/// text of the pack's characters may come to; `seen` the lookups already
+/// read. One after the other, not by recursion: a font may nest contextual
+/// lookups as deep as it likes.
 fn outputs(
     font: &FontRef<'_>,
     index: u16,
@@ -940,16 +949,29 @@ fn outputs(
     drawn: &mut BTreeSet<u16>,
     seen: &mut BTreeSet<u16>,
 ) {
-    if !seen.insert(index) {
-        return;
+    let mut next = alloc::vec![index];
+    while let Some(index) = next.pop() {
+        if seen.insert(index) {
+            next.extend(drawn_by(font, index, reached, drawn));
+        }
     }
+}
+
+/// Adds to `drawn` the glyphs lookup `index` itself draws where its keys
+/// are among `reached`; the lookups it applies.
+fn drawn_by(
+    font: &FontRef<'_>,
+    index: u16,
+    reached: &BTreeSet<u16>,
+    drawn: &mut BTreeSet<u16>,
+) -> Vec<u16> {
     let Some(lookup) = font
         .gsub()
         .ok()
         .and_then(|g| g.lookup_list().ok())
         .and_then(|l| l.lookups().get(usize::from(index)).ok())
     else {
-        return;
+        return Vec::new();
     };
     let mut nested = Vec::new();
     match lookup.subtables() {
@@ -1019,9 +1041,7 @@ fn outputs(
         }
         _ => {}
     }
-    for index in nested {
-        outputs(font, index, reached, drawn, seen);
-    }
+    nested
 }
 
 /// The glyphs text of `cmap`'s characters may come to through the lookups
