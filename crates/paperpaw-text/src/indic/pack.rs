@@ -1,9 +1,10 @@
-//! The substitutions of a font's Indic scripts (Bengali, Devanagari,
-//! Gujarati, Oriya, Gurmukhi; Khmer, Lao, Tibetan and Myanmar) as a pack keeps them (slot 4, see `bitmap.rs`): what the shaper
-//! ([`super::Shaper`]) applies, read from the font's GSUB for the scripts'
-//! second version (`bng2`, `dev2`; else the first), feature by feature in the order the
-//! shaper applies them; the presentation features as one (`pres`), their
-//! lookups in the font's order, as OpenType applies them together.
+//! The substitutions of a font's scripts shaped by syllables (the Indic
+//! ones, Khmer, Lao, Tibetan and Myanmar: [`TAGS`]) as a pack keeps them
+//! (slot 4, see `bitmap.rs`): what the shaper ([`super::Shaper`]) applies,
+//! read from the font's GSUB for the scripts' second version (`bng2`,
+//! `dev2`; else the first), feature by feature in the order the shaper
+//! applies them; the presentation features as one (`pres`), their lookups
+//! in the font's order, as OpenType applies them together.
 //!
 //! Glyphs are keys: the character the pack draws them for, else
 //! [`GLYPHS`] or [`MARKS`] and their number. Contextual lookups (GSUB 5

@@ -174,8 +174,8 @@ impl OutlineFont {
             .collect()
     }
 
-    /// The substitutions of the Bengali and Devanagari among `chars`, as a
-    /// pack keeps them (see `crate::indic::pack`), and the keys of the
+    /// The substitutions of the scripts `crate::indic` shapes among `chars`,
+    /// as a pack keeps them (see `crate::indic::pack`), and the keys of the
     /// glyphs without code point they draw.
     pub(crate) fn indic_substitutions(&self, chars: &[char]) -> Option<crate::indic::pack::Made> {
         crate::indic::pack::make(self.font_ref()?, chars)

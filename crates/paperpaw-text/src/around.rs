@@ -5,9 +5,10 @@
 //! order they are shown (UAX #9: right-to-left letters and the numbers
 //! among them), give Arabic letters the form they take where they stand
 //! (joined to the letters around, also across the text's edges), draw
-//! mirrored brackets in right-to-left runs, shape Bengali and Devanagari
-//! syllables (`crate::indic`) and keep combining marks on their letters. Text in one direction with nothing around it draws as
-//! [`draw_text`](crate::draw_text) draws it.
+//! mirrored brackets in right-to-left runs, shape the syllables of the Indic
+//! scripts, Khmer, Lao, Tibetan and Burmese (`crate::indic`) and keep
+//! combining marks on their letters. Text in one direction with nothing
+//! around it draws as [`draw_text`](crate::draw_text) draws it.
 //!
 //! A text of up to [`STACK`] characters is set without the heap; a longer
 //! one takes a buffer of a few bytes per character while it is set.
@@ -284,8 +285,8 @@ fn with_shaper<R>(font: &Font, text: &str, f: impl FnOnce(&Shaper<'_, dyn Bytes 
     }
 }
 
-/// [`lay`] for a line left to right with Bengali or Devanagari in it: its
-/// syllables shaped (as wide as their glyphs, not kerned), the other
+/// [`lay`] for a line left to right with a script `crate::indic` shapes in
+/// it: its syllables shaped (as wide as their glyphs, not kerned), the other
 /// characters as they are, kerned among themselves.
 fn lay_indic(
     font: &Font,
