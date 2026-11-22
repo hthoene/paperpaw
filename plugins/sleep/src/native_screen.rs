@@ -170,16 +170,24 @@ impl Sleeping {
         crate::native_picker::remember(host, why.as_ref())
     }
 
-    /// Reads the parameters of the open, the settings and, for the picture
+    /// Whether the open's parameters say the device is off, not asleep (none:
+    /// asleep).
+    ///
+    /// # Errors
+    /// Allocation and the host's refusals.
+    pub fn is_off(host: &Host<'_>, ui: &Ui, handover: Option<HandoverId>) -> Result<bool, Error> {
+        match handover {
+            Some(handover) => off_param(host, ui, handover),
+            None => Ok(false),
+        }
+    }
+
+    /// Reads the settings of the screen asleep or `off` and, for the picture
     /// over the page, the screen below.
     ///
     /// # Errors
     /// Allocation and the host's refusals.
-    pub fn open(host: &Host<'_>, ui: &Ui, handover: Option<HandoverId>) -> Result<Self, Error> {
-        let off = match handover {
-            Some(handover) => off_param(host, ui, handover)?,
-            None => false,
-        };
+    pub fn open(host: &Host<'_>, ui: &Ui, off: bool) -> Result<Self, Error> {
         let mut view = Self::plain(off);
         view.setting = read_text(host, model::SHOW)?;
         if off {

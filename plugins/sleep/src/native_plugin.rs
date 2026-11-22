@@ -457,14 +457,19 @@ impl NativeSleep {
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         // What cannot be read shows the message: a device that cannot show what
         // was asked still shows that it sleeps.
-        let view = match Sleeping::open(host, ui, handover) {
+        // The message keeps whether the device is off: its hint to switch on.
+        let off = match Sleeping::is_off(host, ui, handover) {
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            found => found.unwrap_or(false),
+        };
+        let view = match Sleeping::open(host, ui, off) {
             Ok(mut view) => {
                 // The pictures it shows are asked for now: a draw cannot.
                 view.begin(host, &mut self.cookie)?;
                 view
             }
             Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(_) => Sleeping::plain(false),
+            Err(_) => Sleeping::plain(off),
         };
         // One opened again lets its pictures go first.
         if let Some(old) = self.screens.get(instance) {
@@ -544,10 +549,17 @@ impl NativeSleep {
         }
     }
 
-    /// The device woke: every open sleep screen goes.
+    /// The device woke: every open sleep screen goes. Without one open (the
+    /// device slept with another plugin's screen, or the shell draws none)
+    /// nothing is closed: the screen on top may be this plugin's editor.
     fn woke(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let mut open = false;
         for view in self.screens.all() {
             view.woke = true;
+            open = true;
+        }
+        if !open {
+            return Ok(());
         }
         // Only closed, as in interface 6: no redraw of what is going.
         close(host)
