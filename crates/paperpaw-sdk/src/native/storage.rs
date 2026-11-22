@@ -109,7 +109,13 @@ fn data(input: &[u8]) -> Result<PpBytes, Error> {
 /// # Errors
 /// Returns path validation errors or the host refusal, including missing files.
 pub fn size(host: &Host<'_>, root: Root, name: impl AsRef<str>) -> Result<u64, Error> {
-    let path = path(root, name.as_ref())?;
+    size_str(host, root, name.as_ref())
+}
+
+/// [`size`] for `&str` only: one copy of the host call in the image, however
+/// many name types and crates ask.
+fn size_str(host: &Host<'_>, root: Root, name: &str) -> Result<u64, Error> {
+    let path = path(root, name)?;
     let mut out = 0;
     // SAFETY: callback binding and input are live; output is local and disjoint.
     status(unsafe { (host.table.storage_size)(host.ctx, root.wire(), path, &mut out) })?;
@@ -129,7 +135,19 @@ pub fn read_at(
     offset: u64,
     out: &mut [u8],
 ) -> Result<usize, Error> {
-    let path = path(root, name.as_ref())?;
+    read_at_str(host, root, name.as_ref(), offset, out)
+}
+
+/// [`read_at`] for `&str` only: one copy of the host call in the image,
+/// however many name types and crates read.
+fn read_at_str(
+    host: &Host<'_>,
+    root: Root,
+    name: &str,
+    offset: u64,
+    out: &mut [u8],
+) -> Result<usize, Error> {
+    let path = path(root, name)?;
     if out.len() > MAX_DATA {
         return Err(Error::NoSpace);
     }
