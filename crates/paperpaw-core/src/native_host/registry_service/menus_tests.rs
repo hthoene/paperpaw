@@ -1091,7 +1091,7 @@ fn op_19_shown_follows_the_settings_a_place_lists() {
 }
 
 #[test]
-fn op_21_lists_the_kernels_items_between_the_declared_items_and_lines() {
+fn op_21_lists_the_kernels_items_between_the_declared_items_and_lines_and_its_line_last() {
     let kernel = kernel();
     // The kernel's own (todo 598): Beta 3's priorities, the battery with room
     // for its symbol and percentage. Staging: never the drawn bit (a line's).
@@ -1102,15 +1102,24 @@ fn op_21_lists_the_kernels_items_between_the_declared_items_and_lines() {
         "status core.status.battery core kind=0 flags=0 priority=192 size=4200 tap= Battery",
         "status core.status.battery-low core kind=0 flags=0 priority=128 size=4200 tap= Battery when low",
     ];
-    for scope in ["", "item"] {
-        assert_eq!(rows_of(&kernel, None, schema::OP_STATUS, scope, 0), kernels);
-    }
-    for scope in ["line", "other"] {
-        let (rows, end) = page(&kernel, schema::OP_STATUS, scope);
-        assert!(rows.is_empty(), "{scope}");
-        assert_eq!((end.flags, end.total, end.next), (1, 0, 0));
-        assert_ne!(end.generation, 0);
-    }
+    // Its line of items (#472): the line editors offer it, by its name.
+    let kernel_line = "status core.status-line.items core kind=1 flags=1 priority=0 size=1000 tap= Text and symbols";
+    assert_eq!(
+        rows_of(&kernel, None, schema::OP_STATUS, "", 0),
+        [&kernels[..], &[kernel_line]].concat()
+    );
+    assert_eq!(
+        rows_of(&kernel, None, schema::OP_STATUS, "item", 0),
+        kernels
+    );
+    assert_eq!(
+        rows_of(&kernel, None, schema::OP_STATUS, "line", 0),
+        [kernel_line]
+    );
+    let (rows, end) = page(&kernel, schema::OP_STATUS, "other");
+    assert!(rows.is_empty());
+    assert_eq!((end.flags, end.total, end.next), (1, 0, 0));
+    assert_ne!(end.generation, 0);
     let directory = declarations(&[
         Record::StatusItem(wire::StatusItem {
             name: "battery",
@@ -1134,10 +1143,10 @@ fn op_21_lists_the_kernels_items_between_the_declared_items_and_lines() {
         "status nat.battery nat kind=0 flags=2 priority=200 size=1500 tap=nat.go nat.status.battery",
         "status nat.reading nat kind=1 flags=1 priority=0 size=1000 tap= nat.status.reading",
     ];
-    assert_eq!(all.len(), 7);
+    assert_eq!(all.len(), 8);
     assert_eq!(
-        (all[0].as_str(), all[6].as_str()),
-        (declared[0], declared[1])
+        (all[0].as_str(), all[6].as_str(), all[7].as_str()),
+        (declared[0], declared[1], kernel_line)
     );
     assert_eq!(&all[1..6], kernels);
     let items = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "item", 0);
@@ -1172,7 +1181,7 @@ fn op_21_marks_lines_and_no_item_as_drawn_by_their_owner() {
         }),
     ]);
     let rows = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "", 0);
-    assert_eq!(rows.len(), 7);
+    assert_eq!(rows.len(), 8);
     for row in &rows {
         let flags = row
             .split(' ')

@@ -1,8 +1,9 @@
 //! Op 21 `status` (`registry.md` 2.2 and 3): the status items and lines
 //! natively declared (`status.item`, `status.line`; `ui.md` 5.3), then the
 //! kernel's own items (`host_status`, todo 598: plugin `core`, the drawn one
-//! with its least width), `scope` empty or `item` or `line`. A scope that
-//! names neither kind has an empty page (total 0, the last page).
+//! with its least width), then the declared lines and the kernel's own
+//! (`core.status-line.items`, #472), `scope` empty or `item` or `line`. A
+//! scope that names neither kind has an empty page (total 0, the last page).
 use super::{
     Row,
     fixed::{Fixed, caps, translated},
@@ -23,6 +24,8 @@ const PRIVATE: u32 = 1 << 1;
 /// `reg_status.kind`.
 const ITEM: u32 = 0;
 const LINE: u32 = 1;
+/// A kernel line's height in thousandths of the text size: one text line.
+const LINE_HEIGHT: u32 = 1000;
 
 pub(super) fn rows(
     sources: &Sources<'_>,
@@ -36,7 +39,7 @@ pub(super) fn rows(
         _ => return Ok(()),
     };
     let translator = sources.env.i18n();
-    // The declared items, the kernel's, then the declared lines.
+    // The declared items, the kernel's, the declared lines, the kernel's.
     if items {
         if let Some(directory) = sources.directory
             && declared(directory, translator, Kind::StatusItem, visit)?
@@ -47,10 +50,36 @@ pub(super) fn rows(
             return Ok(());
         }
     }
-    if lines && let Some(directory) = sources.directory {
-        declared(directory, translator, Kind::StatusLine, visit)?;
+    if lines {
+        if let Some(directory) = sources.directory
+            && declared(directory, translator, Kind::StatusLine, visit)?
+        {
+            return Ok(());
+        }
+        kernel_lines(sources, visit);
     }
     Ok(())
+}
+
+/// The kernel's own lines (`core.status-line.items`: the items of the place
+/// it is drawn in), one text line high, until `visit` stops.
+fn kernel_lines(sources: &Sources<'_>, visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>) {
+    let translator = sources.env.i18n();
+    for (id, title) in sources.env.status_items().lines() {
+        let row = Record::ServiceRegStatus(wire::ServiceRegStatus {
+            id: id.as_str(),
+            plugin: host_status::PLUGIN,
+            kind: LINE,
+            flags: DRAWN,
+            priority: 0,
+            size: LINE_HEIGHT,
+            tap: "",
+            title: translated(translator, title, caps::TITLE),
+        });
+        if visit(&row).is_break() {
+            return;
+        }
+    }
 }
 
 /// The kernel's own items (`host_status`); `true` when `visit` stopped. An
