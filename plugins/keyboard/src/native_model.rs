@@ -7,7 +7,7 @@ use crate::keys::{Key, Layer, Slot, button_scale, height_of, size_of, try_rows_f
 use crate::{SHAPE_ROUND, SHAPE_TALL, SHAPE_WIDE, SIZE_LARGE, SIZE_MEDIUM, SIZE_SMALL};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{Point, Rect, native::Error};
-use paperpaw_ui_kit::mem::wipe_text;
+use paperpaw_ui_kit::mem::{wipe, wipe_text};
 
 /// Longest text the keyboard takes, in characters: room for long web
 /// addresses and keys; a request takes at most 24,576 bytes (8,192 secret).
@@ -222,6 +222,35 @@ pub struct Board {
     pub buttons: Vec<(FieldButton, Rect)>,
 }
 
+/// What the keys show beside the text: while it stays, typing changes only
+/// the text field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeysShown {
+    layer: Layer,
+    current: usize,
+    shift: Shift,
+    focus: Option<(usize, usize)>,
+    popup: bool,
+}
+
+/// A password ends zeroed however the board ends: an error while the dialog
+/// opens drops one as well as closing it.
+impl Drop for Board {
+    fn drop(&mut self) {
+        self.forget_text();
+    }
+}
+
+/// `text`'s whole buffer zeroed: what was deleted from it too, which stays
+/// in its spare room until then.
+pub fn zeroed(text: String) -> Vec<u8> {
+    let mut bytes = text.into_bytes();
+    // Within its capacity a vector does not move.
+    bytes.resize(bytes.capacity(), 0);
+    wipe(&mut bytes);
+    bytes
+}
+
 /// What a press of a key came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pressed {
@@ -291,7 +320,7 @@ impl Board {
             )
         } else {
             let high = (u32::from(touch_row) * high / 100) as u16;
-            (high, edge_room(&look, high))
+            (high, edge_room(&look))
         };
         let status = look.status;
         let room_for_keys = look
@@ -509,6 +538,18 @@ impl Board {
         }
     }
 
+    /// What the keys show now.
+    #[must_use]
+    pub fn keys_shown(&self) -> KeysShown {
+        KeysShown {
+            layer: self.layer,
+            current: self.current,
+            shift: self.shift,
+            focus: self.focus,
+            popup: self.popup.is_some(),
+        }
+    }
+
     /// The most characters that may be typed.
     #[must_use]
     pub fn max_chars(&self) -> usize {
@@ -527,9 +568,7 @@ impl Board {
     pub fn insert(&mut self, text: &str, join: bool) -> Result<Pressed, Error> {
         let room = self.max_chars().saturating_sub(self.text.chars().count());
         for c in text.chars().take(room) {
-            self.text
-                .try_reserve(c.len_utf8() + 4)
-                .map_err(|_| Error::NoMemory)?;
+            self.reserve(c.len_utf8() + 4)?;
             if join && hangul::is_jamo(c) {
                 hangul::push(&mut self.text, c);
             } else {
@@ -568,7 +607,6 @@ impl Board {
         self.shift = self.auto_shift();
     }
 
-    #[allow(dead_code, reason = "the host's text_typed event (draft 22) feeds it")]
     /// Text typed from outside: as the keys would add it, without what is no
     /// text.
     ///
@@ -626,15 +664,69 @@ impl Board {
         let before = core::mem::take(&mut self.text);
         match self.pasted(text) {
             Ok(pressed) => {
-                wipe_text(before);
+                self.discard(before);
                 Ok(pressed)
             }
             Err(error) => {
-                self.text = before;
+                let pasted = core::mem::replace(&mut self.text, before);
+                self.discard(pasted);
                 self.shift = self.auto_shift();
                 Err(error)
             }
         }
+    }
+
+    /// Starts from `text`, the question's own: a password's is copied into
+    /// the board's text and zeroed.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the text cannot grow.
+    pub fn start_with(&mut self, text: String) -> Result<(), Error> {
+        if self.asked.secret {
+            let copied = self.reserve(text.len());
+            if copied.is_ok() {
+                self.text.push_str(&text);
+            }
+            wipe_text(text);
+            copied?;
+        } else {
+            self.text = text;
+        }
+        self.shift = self.auto_shift();
+        Ok(())
+    }
+
+    /// Frees the text; a password's is zeroed first, with what was deleted
+    /// from it.
+    pub fn forget_text(&mut self) {
+        let text = core::mem::take(&mut self.text);
+        self.discard(text);
+    }
+
+    /// Frees `text`, one of this board's; a password's is zeroed first.
+    fn discard(&self, text: String) {
+        if self.asked.secret {
+            drop(zeroed(text));
+        }
+    }
+
+    /// Makes room for `more` bytes of text. A password moves to a larger
+    /// buffer here, never in the allocator: the old one is zeroed whole
+    /// before it is freed (a moving `String` would free it as it was).
+    fn reserve(&mut self, more: usize) -> Result<(), Error> {
+        let spare = self.text.capacity() - self.text.len();
+        if !self.asked.secret || spare >= more {
+            return self.text.try_reserve(more).map_err(|_| Error::NoMemory);
+        }
+        let mut larger = String::new();
+        let least = self.text.len().saturating_add(more);
+        larger
+            .try_reserve_exact(least.max(self.text.capacity().saturating_mul(2)))
+            .map_err(|_| Error::NoMemory)?;
+        larger.push_str(&self.text);
+        let before = core::mem::replace(&mut self.text, larger);
+        self.discard(before);
+        Ok(())
     }
 
     /// Presses `key` at time `now` (milliseconds).
@@ -947,9 +1039,8 @@ fn held(look: &Look, high: u16, seam: u16) -> u32 {
     }
 }
 
-/// The room under keys chosen with buttons, `high` high.
-fn edge_room(look: &Look, high: u16) -> u16 {
-    let _ = high;
+/// The room under keys chosen with buttons.
+fn edge_room(look: &Look) -> u16 {
     look.gap / 2
 }
 

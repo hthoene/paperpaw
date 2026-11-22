@@ -4,11 +4,11 @@
 //! layouts. Drawing goes through owned [`Paint`](paperpaw_ui_kit::paint::Paint) operations.
 use crate::keys::Key;
 use crate::layouts::{AUTO, Added, LAYOUTS, all_drawn, chosen_drawn};
-use crate::native_ask::AskView;
+use crate::native_ask::{self, AskView};
 use crate::native_layouts;
 use crate::native_model::{
-    Asked, Board, FIELD_ROW, FieldButton, Look, Move, Own, Pressed, known_shape, known_size,
-    status_strip,
+    Asked, Board, FIELD_ROW, FieldButton, KeysShown, Look, Move, Own, Pressed, known_shape,
+    known_size, status_strip,
 };
 use crate::native_paint::{self, Words};
 use alloc::{string::String, vec::Vec};
@@ -16,7 +16,7 @@ use paperpaw_sdk::{
     Handled, Point,
     native::{
         Error, Host, Plugin,
-        callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
+        callbacks::{DrawFrame, DrawPurpose, FrameRect, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         device::{Device, DeviceCapability},
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
@@ -27,7 +27,8 @@ use paperpaw_sdk::{
         settings::SettingValue,
         snapshot,
         ui::{
-            Answer, Instance, Notify, Question, QuestionKind, RequestId, ScreenPolicy, TextMode, Ui,
+            Answer, HandoverId, Instance, Notify, Question, QuestionKind, RequestId, ScreenPolicy,
+            TextMode, Ui,
         },
     },
 };
@@ -53,6 +54,8 @@ pub const CHOOSE: u32 = 11;
 pub const ASK: u32 = 12;
 /// The action that finishes typing.
 pub const DONE: u32 = 1;
+/// Its full id: held Back runs it on the dialog.
+const DONE_ACTION: &str = "keyboard.done";
 
 const LAYOUTS_KEY: &str = "keyboard.layouts";
 const UMLAUT_KEY: &str = "keyboard.umlaut-keys";
@@ -85,16 +88,8 @@ struct Dialog {
     live: bool,
     /// Where the last frame's region began on the screen.
     origin: (i32, i32),
-}
-
-impl Dialog {
-    /// Zeroes a secret text before it is freed.
-    fn wipe(&mut self) {
-        let text = core::mem::take(&mut self.board.text);
-        if self.board.asked.secret {
-            wipe_text(text);
-        }
-    }
+    /// What the keys showed in the last frame.
+    drawn: Option<KeysShown>,
 }
 
 /// Choosing the layouts.
@@ -164,10 +159,8 @@ impl Plugin for NativeKeyboard {
                 instance: Some(instance),
                 ..
             } => self.screens.shown(token, instance),
+            // A dialog's board zeroes a password as it is dropped.
             Event::ScreenClosed { instance, .. } => {
-                if let Some(View::Dialog(dialog)) = self.screens.get(instance) {
-                    dialog.wipe();
-                }
                 self.screens.close(instance);
                 Ok(())
             }
@@ -186,6 +179,7 @@ impl Plugin for NativeKeyboard {
         match view {
             View::Dialog(d) => {
                 d.origin = (frame.rect.x, frame.rect.y);
+                d.drawn = Some(d.board.keys_shown());
                 // Nothing about the parts is queued where nobody asks.
                 d.style.describing = paint::asking(&mut frame);
                 let font = Font::acquire_role(host, FontRole::Ui)?;
@@ -247,7 +241,7 @@ impl NativeKeyboard {
         host: &Host<'_>,
         screen: &str,
         instance: Instance,
-        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+        handover: Option<HandoverId>,
     ) -> Result<(), Error> {
         let view = match screen {
             SCREEN_ID => View::Dialog(self.open_dialog(host, handover)?),
@@ -267,22 +261,10 @@ impl NativeKeyboard {
 
     /// Reads the question the host opened this dialog for, and its text.
     #[inline(never)]
-    fn open_dialog(
-        &self,
-        host: &Host<'_>,
-        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
-    ) -> Result<Dialog, Error> {
+    fn open_dialog(&self, host: &Host<'_>, handover: Option<HandoverId>) -> Result<Dialog, Error> {
         let ui = self.ui()?;
-        let handover = handover.ok_or(Error::Invalid)?;
+        let request = native_ask::request_of(ui, host, handover)?;
         let mut input = buffer(SERVICE_BUFFER)?;
-        let mut output = buffer(SERVICE_BUFFER)?;
-        let mut request = None;
-        for param in ui.params(host, handover, &mut input, &mut output)? {
-            if let Some(id) = param?.request()? {
-                request = Some(id);
-            }
-        }
-        let request = request.ok_or(Error::Invalid)?;
         let mut output = buffer(SERVICE_BUFFER)?;
         let question = ui.question(host, request, &mut input, &mut output)?;
         if question.kind() != QuestionKind::Text {
@@ -298,16 +280,16 @@ impl NativeKeyboard {
         };
         let title = copy(question.title())?;
         let limit = (question.max_bytes() as usize).min(TEXT_LIMIT);
-        // The text to start from; a question that never wrote one has none.
-        let text = match uitext::read_all(ui, host, request.text(), limit) {
-            Ok(text) => text,
-            Err(Error::State) => String::new(),
-            Err(error) => return Err(error),
-        };
-        let (mut dialog, ()) = (self.new_dialog(host, request, asked)?, ());
+        let mut dialog = self.new_dialog(host, request, asked)?;
         dialog.board.title = title;
-        dialog.board.text = text;
-        dialog.board.shift = dialog.board.auto_shift();
+        // The text to start from, read last: whatever fails after, the board
+        // holds it (and zeroes a password's). A question that never wrote
+        // one has none.
+        match uitext::read_all(ui, host, request.text(), limit) {
+            Ok(text) => dialog.board.start_with(text)?,
+            Err(Error::State) => {}
+            Err(error) => return Err(error),
+        }
         Ok(dialog)
     }
 
@@ -396,6 +378,7 @@ impl NativeKeyboard {
             nested: None,
             live: asked.live,
             origin: (0, 0),
+            drawn: None,
         })
     }
 
@@ -496,9 +479,13 @@ impl NativeKeyboard {
         let Some(d) = self.dialog_mut() else {
             return Ok(Handled::No);
         };
+        // Held Back finishes from anywhere, a password too.
+        if action == DONE_ACTION {
+            return self.finish_top(host).map(|()| Handled::Yes);
+        }
         let held = action == "core.long-confirm" || action == "core.menu";
         if d.board.popup.is_some() {
-            return self.variants_action(host, now, action, held);
+            return self.variants_action(host, action, held);
         }
         if action == "core.confirm" {
             return match d.board.focus {
@@ -517,7 +504,6 @@ impl NativeKeyboard {
                     Ok(Handled::Yes)
                 }
                 None => {
-                    d.board.move_focus(Move::Down);
                     d.board.focus = Some((0, 0));
                     Self::redraw(host)?;
                     Ok(Handled::Yes)
@@ -539,7 +525,7 @@ impl NativeKeyboard {
             return Ok(Handled::Yes);
         }
         if action == "core.back" {
-            return self.cancel(host).map(|()| Handled::Yes);
+            return Self::cancel(host, d).map(|()| Handled::Yes);
         }
         if let Some(go) = Move::of(action) {
             // The key the focus leaves and the one it reaches, as on
@@ -564,7 +550,6 @@ impl NativeKeyboard {
     fn variants_action(
         &mut self,
         host: &Host<'_>,
-        now: u64,
         action: &str,
         held: bool,
     ) -> Result<Handled, Error> {
@@ -588,7 +573,6 @@ impl NativeKeyboard {
         } else if let Some(go) = Move::of(action) {
             d.board.variants_move(go);
         }
-        let _ = now;
         Self::redraw(host)?;
         Ok(Handled::Yes)
     }
@@ -753,81 +737,103 @@ impl NativeKeyboard {
                     value: max as i64,
                 }],
             )?;
-            let mut scratch = buffer(1024)?;
-            CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)?;
+            notify(host, &text)?;
         }
-        Self::redraw(host)?;
+        self.show_typed(host, pressed)?;
         if matches!(pressed, Pressed::Changed | Pressed::Full) {
-            self.live(host)?;
+            self.live(host);
         }
         Ok(())
     }
 
-    /// The text so far, to an asker that listens.
-    fn live(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let ui = self.ui.take().ok_or(Error::State)?;
-        let result = (|| {
-            let Some(View::Dialog(d)) = self.screens.top(SCREEN) else {
-                return Ok(());
-            };
-            if !d.live {
-                return Ok(());
-            }
-            match answer_text(&ui, host, d.request, &d.board.text, Answer::Typing) {
-                // The live text stopped there (X4): the final answer is whole.
-                Err(Error::NoSpace | Error::State) => {
-                    d.live = false;
-                    Ok(())
-                }
-                other => other,
-            }
-        })();
-        self.ui = Some(ui);
-        result
+    /// Draws again what typing changed: the text field alone where the keys
+    /// show as they did, nothing where nothing changed.
+    fn show_typed(&mut self, host: &Host<'_>, pressed: Pressed) -> Result<(), Error> {
+        let Some(d) = self.dialog_mut() else {
+            return Ok(());
+        };
+        if d.drawn != Some(d.board.keys_shown()) {
+            return Self::redraw(host);
+        }
+        if pressed == Pressed::Nothing {
+            return Ok(());
+        }
+        let field = d.board.field;
+        let area = FrameRect::new(
+            i32::from(field.x).saturating_sub(d.origin.0),
+            i32::from(field.y).saturating_sub(d.origin.1),
+            u32::from(field.width),
+            u32::from(field.height),
+        );
+        let mut scratch = [0; 64];
+        let mut commands = CommandSender::new(host, &mut scratch);
+        // Where the host refuses an area, the whole screen.
+        if commands
+            .queue_redraw_area(RedrawMode::Partial, area)
+            .is_err()
+        {
+            commands.queue_redraw(RedrawMode::Partial)?;
+        }
+        Ok(())
     }
 
-    /// Closes the keyboard and sends the text.
+    /// The text so far, to an asker that listens. An update the host does not
+    /// take is left out, and typing goes on: the next one carries the whole
+    /// text again, and the final answer is whole.
+    fn live(&mut self, host: &Host<'_>) {
+        let Some(ui) = self.ui.take() else {
+            return;
+        };
+        if let Some(View::Dialog(d)) = self.screens.top(SCREEN)
+            && d.live
+        {
+            let sent = answer_text(&ui, host, d.request, &d.board.text, Answer::Typing);
+            // The live text stopped there (X4).
+            if let Err(Error::NoSpace | Error::State) = sent {
+                d.live = false;
+            }
+        }
+        self.ui = Some(ui);
+    }
+
+    /// Sends the text and closes the keyboard. An answer the host does not
+    /// take (no memory, the card) leaves the keyboard open with the text, and
+    /// says so: it can be sent again.
     fn finish_top(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let ui = self.ui.take().ok_or(Error::State)?;
         let result = (|| {
             let Some(View::Dialog(d)) = self.screens.top(SCREEN) else {
                 return Ok(());
             };
-            d.board.popup = None;
-            let sent = answer_text(&ui, host, d.request, &d.board.text, Answer::Accept);
-            // Closed whatever the answer: a request the host ended is not ours.
-            let mut scratch = [0; 64];
-            CommandSender::new(host, &mut scratch).back()?;
-            d.wipe();
-            match sent {
-                Err(Error::State) => Ok(()),
-                other => other,
+            let had_popup = d.board.popup.take().is_some();
+            match answer_text(&ui, host, d.request, &d.board.text, Answer::Accept) {
+                // A request the host ended is not ours: closed all the same.
+                Ok(()) | Err(Error::State) => {
+                    let mut scratch = [0; 64];
+                    CommandSender::new(host, &mut scratch).back()?;
+                    d.board.forget_text();
+                    Ok(())
+                }
+                Err(_) => {
+                    if had_popup {
+                        Self::redraw(host)?;
+                    }
+                    let mut messages = Messages::new()?;
+                    notify(host, &messages.copy(host, "keyboard.not-sent")?)
+                }
             }
         })();
         self.ui = Some(ui);
         result
     }
 
-    /// Closes the keyboard; nothing is answered with a text.
-    fn cancel(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let ui = self.ui.take().ok_or(Error::State)?;
-        let result = (|| {
-            let Some(View::Dialog(d)) = self.screens.top(SCREEN) else {
-                return Ok(());
-            };
-            let mut input = buffer(SERVICE_BUFFER)?;
-            let mut output = buffer(SERVICE_BUFFER)?;
-            let sent = ui.answer(host, d.request, Answer::Cancel, &mut input, &mut output);
-            let mut scratch = [0; 64];
-            CommandSender::new(host, &mut scratch).back()?;
-            d.wipe();
-            match sent {
-                Err(Error::State) => Ok(()),
-                other => other,
-            }
-        })();
-        self.ui = Some(ui);
-        result
+    /// Closes the keyboard with no answer, which cancels its request
+    /// (`docs/abi/ui.md` 3.1): no refused answer can keep it open.
+    fn cancel(host: &Host<'_>, d: &mut Dialog) -> Result<(), Error> {
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).back()?;
+        d.board.forget_text();
+        Ok(())
     }
 
     /// The text typed on the phone replaces the text so far.
@@ -896,6 +902,12 @@ fn read_bool(host: &Host<'_>, key: &str) -> Result<bool, Error> {
         paperpaw_sdk::native::settings::read_setting(host, key, &mut bytes)?,
         SettingValue::Bool(true)
     ))
+}
+
+/// Shows `text` as a notice.
+fn notify(host: &Host<'_>, text: &str) -> Result<(), Error> {
+    let mut scratch = buffer(1024)?;
+    CommandSender::new(host, &mut scratch).notify(Notify::new(text)?)
 }
 
 /// Writes the answer text and commits it with `how`.

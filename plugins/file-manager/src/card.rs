@@ -15,6 +15,8 @@ use paperpaw_sdk::native::storage::{self, MAX_DATA, Root};
 use paperpaw_sdk::native::{Error, Host};
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
 
+use crate::model::Disk;
+
 /// What the card says of one file or folder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Meta {
@@ -203,6 +205,16 @@ impl<C: Card> Storage for CardStorage<C> {
     }
 }
 
+impl<C: Card> Disk for CardStorage<C> {
+    /// One entry asked for, not the folder listed.
+    fn is_folder(&self, path: &str) -> Result<bool, StorageError> {
+        self.0
+            .stat(path)
+            .map(|meta| meta.is_dir)
+            .map_err(storage_error)
+    }
+}
+
 /// The card through `core.files` and the card root of the storage calls.
 /// Opened for a callback and closed with [`HostCard::close`].
 pub(crate) struct HostCard<'h, 'cb> {
@@ -210,7 +222,10 @@ pub(crate) struct HostCard<'h, 'cb> {
     files: Files,
     input: RefCell<Vec<u8>>,
     output: RefCell<Vec<u8>>,
-    ignores_case: bool,
+    /// Whether names that differ in case only are one: asked for when a name
+    /// is first compared (the card's free space comes with it, which can
+    /// take long to count), not for every page or focus step.
+    ignores_case: Cell<Option<bool>>,
 }
 
 impl<'h, 'cb> HostCard<'h, 'cb> {
@@ -231,20 +246,15 @@ impl<'h, 'cb> HostCard<'h, 'cb> {
                 .try_reserve_exact(files::OUTPUT_BYTES)
                 .map_err(|_| Error::NoMemory)?;
             output.resize(files::OUTPUT_BYTES, 0);
-            // The card is FAT unless it says: names that differ in case
-            // only are then one.
-            let ignores_case = files
-                .space(host, Root::Files, &mut input, &mut output)
-                .map_or(true, |space| space.ignores_case());
-            Ok((input, output, ignores_case))
+            Ok((input, output))
         })();
         match made {
-            Ok((input, output, ignores_case)) => Ok(Self {
+            Ok((input, output)) => Ok(Self {
                 host,
                 files,
                 input: RefCell::new(input),
                 output: RefCell::new(output),
-                ignores_case,
+                ignores_case: Cell::new(None),
             }),
             Err(error) => {
                 files.release(host).ok();
@@ -351,7 +361,7 @@ impl<C: Card> Card for Watch<C> {
 /// What opening, `work` or closing says; the first.
 pub(crate) fn with_card_noted<T>(
     host: &Host<'_>,
-    work: impl FnOnce(&dyn Storage) -> Result<T, Error>,
+    work: impl FnOnce(&dyn Disk) -> Result<T, Error>,
 ) -> Result<(T, bool), Error> {
     let card = CardStorage(Watch::new(HostCard::open(host)?));
     let done = work(&card);
@@ -372,7 +382,7 @@ pub(crate) fn with_card_noted<T>(
 /// As [`with_card_noted`].
 pub(crate) fn with_card<T>(
     host: &Host<'_>,
-    work: impl FnOnce(&dyn Storage) -> Result<T, Error>,
+    work: impl FnOnce(&dyn Disk) -> Result<T, Error>,
 ) -> Result<T, Error> {
     with_card_noted(host, work).map(|(value, _)| value)
 }
@@ -458,7 +468,20 @@ impl Card for HostCard<'_, '_> {
     }
 
     fn ignores_case(&self) -> bool {
-        self.ignores_case
+        if let Some(known) = self.ignores_case.get() {
+            return known;
+        }
+        // The card is FAT unless it says: names that differ in case only
+        // are then one.
+        let Ok((mut input, mut output)) = take_buffers(&self.input, &self.output) else {
+            return true;
+        };
+        let ignores = self
+            .files
+            .space(self.host, Root::Files, &mut input, &mut output)
+            .map_or(true, |space| space.ignores_case());
+        self.ignores_case.set(Some(ignores));
+        ignores
     }
 }
 

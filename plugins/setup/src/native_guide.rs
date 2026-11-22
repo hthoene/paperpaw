@@ -29,6 +29,40 @@ pub enum Target {
     Other,
 }
 
+/// Where the last frame drew each target, with the room of its focus ring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Drawn {
+    /// Where the frame's region began on the screen.
+    pub origin: (i32, i32),
+    card: Option<Rect>,
+    next: Rect,
+    other: Rect,
+}
+
+impl Drawn {
+    /// The targets of `layout`, drawn in the look `style` by the frame that
+    /// began at `origin`.
+    #[must_use]
+    pub fn new(origin: (i32, i32), layout: &Layout, style: &Style) -> Self {
+        Self {
+            origin,
+            card: layout.card,
+            next: ring_around(layout.next, style),
+            other: ring_around(layout.other, style),
+        }
+    }
+
+    /// Where `target` was drawn, if it was.
+    #[must_use]
+    pub fn area(&self, target: Target) -> Option<Rect> {
+        match target {
+            Target::Card => self.card,
+            Target::Next => Some(self.next),
+            Target::Other => Some(self.other),
+        }
+    }
+}
+
 /// The texts of the guide that no step brings, translated.
 #[derive(Debug, Default, Clone)]
 pub struct Texts {
@@ -101,6 +135,8 @@ pub struct Guide {
     pub texts: Texts,
     /// The screen's size in pixels and its dots per inch.
     pub display: (u16, u16, u16),
+    /// Where the last frame drew the targets; none before the first.
+    pub drawn: Option<Drawn>,
 }
 
 impl Guide {
@@ -117,6 +153,7 @@ impl Guide {
             away: false,
             texts,
             display,
+            drawn: None,
         }
     }
 
@@ -314,7 +351,8 @@ impl Guide {
                 kind: InputGestureKind::Tap,
                 ..
             } => self.on_tap(layout, position),
-            Input::Gesture { .. } => Act::Keep,
+            // Another gesture (a swipe, a long press) is not the guide's, as
+            // in Beta 3.
             _ => Act::Ignore,
         }
     }
@@ -346,6 +384,7 @@ impl Guide {
     /// The buttons while a number is changed, as in Beta 3: the arrows move
     /// it, Select keeps it, Back goes back to the value before (and only
     /// that: one key, one step); the page buttons keep it and turn the page.
+    /// Any other (*Power*, the menu) is not the guide's.
     fn on_edit_action(action: &str, page: usize) -> Act {
         match action {
             "core.right" | "core.up" | "core.next" => Act::Step(1),
@@ -354,7 +393,7 @@ impl Guide {
             "core.back" => Act::EndEdit(false),
             "core.next-page" => Act::Turn(page + 1),
             "core.prev-page" if page > 0 => Act::Turn(page - 1),
-            _ => Act::Keep,
+            _ => Act::Ignore,
         }
     }
 
@@ -760,22 +799,32 @@ fn button(
         // A ring round the filled button, as in Beta 3: where it has the focus
         // (not where it is only chosen) a button is seen to be the one Select
         // presses, with or without a fill.
-        let grow = style.line.max(1).saturating_mul(2);
-        let outer = Rect::new(
-            rect.x.saturating_sub(grow),
-            rect.y.saturating_sub(grow),
-            rect.width.saturating_add(grow.saturating_mul(2)),
-            rect.height.saturating_add(grow.saturating_mul(2)),
-        );
+        let outer = ring_around(rect, style);
         let radius = if style.pill {
             u32::from(outer.height) / 2
         } else {
-            style.corner.saturating_add(u32::from(grow))
+            style.corner.saturating_add(u32::from(ring_room(style)))
         };
         let line = u32::from(style.line).max(1);
         paint::push(ops, Paint::Focus(outer, radius, Some(line), style.ink))?;
     }
     Ok(())
+}
+
+/// How far the focus ring of a button lies outside it.
+fn ring_room(style: &Style) -> u16 {
+    style.line.max(1).saturating_mul(2)
+}
+
+/// The focus ring round the button `rect`.
+fn ring_around(rect: Rect, style: &Style) -> Rect {
+    let grow = ring_room(style);
+    Rect::new(
+        rect.x.saturating_sub(grow),
+        rect.y.saturating_sub(grow),
+        rect.width.saturating_add(grow.saturating_mul(2)),
+        rect.height.saturating_add(grow.saturating_mul(2)),
+    )
 }
 
 /// The host's font as the layout measures it.
@@ -1091,6 +1140,46 @@ mod tests {
             ),
             Act::Ignore
         );
+    }
+
+    /// A swipe or a long press is not the guide's, as in Beta 3: the host's
+    /// gestures (the edges' panels) take it.
+    #[test]
+    fn gestures_but_a_tap_are_not_the_guides() {
+        let g = guide(true);
+        let l = laid(&g);
+        for kind in [InputGestureKind::LongPress, InputGestureKind::SwipeLeft] {
+            let gesture = Input::Gesture {
+                now_ms: 0,
+                position: Point::new(10, 10),
+                kind,
+            };
+            assert_eq!(g.decide(&l, &gesture), Act::Ignore, "{kind:?}");
+        }
+    }
+
+    /// While a number is changed, a button the guide has no use for (*Power*,
+    /// the menu) passes on, as Beta 3's number editor let it.
+    #[test]
+    fn changing_a_number_lets_other_buttons_pass() {
+        let mut g = guide(false);
+        g.setting = Some(Setting {
+            key: "core.font-size".into(),
+            control: Control::Number {
+                value: 12,
+                min: 8,
+                max: 99,
+                step: 1,
+            },
+            ..two()
+        });
+        g.focus = Target::Card;
+        g.editing = Some(12);
+        let l = laid(&g);
+        for other in ["core.sleep", "core.menu", "core.refresh-screen"] {
+            assert_eq!(g.decide(&l, &action(other)), Act::Ignore, "{other}");
+        }
+        assert_eq!(g.decide(&l, &action("core.right")), Act::Step(1));
     }
 
     #[test]
