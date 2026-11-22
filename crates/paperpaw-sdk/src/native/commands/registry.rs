@@ -1,11 +1,7 @@
 //! Registry writes are staged and applied after the callback.
 use super::{CommandSender, Error, check_id, wire};
-use crate::native::{
-    settings::SettingValue,
-    wire::settings_wire::{SettingValueRef, settings_encode},
-};
+use crate::native::settings::{self, SettingValue};
 use alloc::vec::Vec;
-use core::mem::MaybeUninit;
 
 // registry.md section 4.4: keys and encoded values of one preview set.
 const PREVIEW_MAX_BYTES: usize = 2 * 1024;
@@ -132,27 +128,10 @@ impl CommandSender<'_, '_> {
             let encoded = if absent {
                 &[]
             } else {
-                let value = match value.value {
-                    SettingValue::Absent => SettingValueRef::Absent,
-                    SettingValue::Bool(value) => SettingValueRef::Bool(value),
-                    SettingValue::Int(value) => SettingValueRef::Int(value),
-                    SettingValue::Text(value) => SettingValueRef::Text(value),
-                };
-                // SAFETY: u8 and MaybeUninit<u8> have identical layouts. The
-                // settings_encode contract initializes exactly the first
-                // min(required, out.len()) slots on success and touches no
-                // other slot. It never stores uninitialized bytes. Check its
-                // returned required length before borrowing that prefix.
-                let out = unsafe {
-                    core::slice::from_raw_parts_mut(
-                        remaining.as_mut_ptr().cast::<MaybeUninit<u8>>(),
-                        remaining.len(),
-                    )
-                };
-                let length = settings_encode(value, out).map_err(Error::from_status)?;
-                if length > remaining.len()
-                    || length > wire::COMMAND_PREVIEW_SETTING_VALUE_MAX_BYTES
-                {
+                let length = settings::encode_into(settings::to_wire(value.value), remaining)
+                    .map_err(Error::from_status)?
+                    .len();
+                if length > wire::COMMAND_PREVIEW_SETTING_VALUE_MAX_BYTES {
                     return Err(Error::NoSpace);
                 }
                 let (encoded, rest) = remaining.split_at_mut(length);

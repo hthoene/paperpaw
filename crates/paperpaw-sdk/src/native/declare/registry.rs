@@ -1,7 +1,7 @@
 //! Registry declarations share the existing bounded declaration batches.
 use super::menus::{menu_full_id, menu_identifier, need_bits};
 use super::{Declarations, DeclareError, Item, Latched, filled, records_wire as wire};
-use crate::native::settings::SettingValue;
+use crate::native::settings::{self, SettingValue};
 use core::mem::MaybeUninit;
 
 /// Page opened by a setup step.
@@ -405,22 +405,12 @@ fn encode_value<'a>(
     value: SettingValue<'_>,
     out: &'a mut [MaybeUninit<u8>],
 ) -> Result<&'a [u8], DeclareError> {
-    use super::settings_value::{SettingValueRef, settings_encode};
-    let value = match value {
-        SettingValue::Absent => return Err(DeclareError::Default),
-        SettingValue::Bool(value) => SettingValueRef::Bool(value),
-        SettingValue::Int(value) => SettingValueRef::Int(value),
-        SettingValue::Text(value) => SettingValueRef::Text(value),
-    };
-    let length = settings_encode(value, out).map_err(DeclareError::Encode)?;
-    if length > out.len() {
-        return Err(DeclareError::Encode(
-            paperpaw_native::host_glue::ERR_NO_SPACE,
-        ));
+    if matches!(value, SettingValue::Absent) {
+        return Err(DeclareError::Default);
     }
-    // SAFETY: the generated encoder initialized exactly this prefix; u8 has
-    // the same layout as MaybeUninit<u8>, and the output borrow remains live.
-    Ok(unsafe { core::slice::from_raw_parts(out.as_ptr().cast(), length) })
+    settings::encode_into_uninit(settings::to_wire(value), out)
+        .map(|encoded| &*encoded)
+        .map_err(DeclareError::Encode)
 }
 
 #[cfg(test)]
