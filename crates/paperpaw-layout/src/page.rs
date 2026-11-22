@@ -133,6 +133,20 @@ struct Paragraph<'b> {
     indent: f32,
     lines: SetLines,
     cap: Option<Cap>,
+    /// The line the page ends with, where it ends inside the block and the
+    /// block has annotations: what of them does not fit is cut there.
+    page_last: Option<usize>,
+}
+
+/// Where a page ends that the next line of a paragraph does not fit on.
+enum Break {
+    /// Before the heading just before the paragraph: the page's lines
+    /// before the heading, and where it starts.
+    Heading(usize, Locator),
+    /// Before the paragraph, which goes to the next page whole.
+    Whole,
+    /// After this many of its lines.
+    After(usize),
 }
 
 impl Run<'_, '_> {
@@ -201,7 +215,10 @@ impl Run<'_, '_> {
         {
             return Ok(self.image(block, image));
         }
-        let paragraph = self.paragraph(block, from, after_heading)?;
+        let mut paragraph = self.paragraph(block, from, after_heading)?;
+        if paragraph.annotated.is_some() {
+            paragraph.page_last = self.page_last(&paragraph);
+        }
         for n in 0..paragraph.lines.len() {
             if let Some(end) = self.line(&paragraph, n) {
                 return Ok(Flow::End(end));
@@ -329,6 +346,7 @@ impl Run<'_, '_> {
             indent,
             lines,
             cap,
+            page_last: None,
         })
     }
 
@@ -369,13 +387,56 @@ impl Run<'_, '_> {
         let drawn = line.width + word_spacing * line.spaces as f32;
         let x = placed_x(&p.levels, cx.width, x, drawn);
         let range = self.drop_cap(p, line, first_x);
-        self.push_line(p, line, range, (x, word_spacing));
+        let last = line.range.end >= block.text.len() || p.page_last == Some(n);
+        self.push_line(p, line, range, (x, word_spacing), last);
         None
     }
 
-    /// Where the page ends when line `n` of `p` does not fit on it.
+    /// The line of `p` the page will end with, where it ends inside `p`:
+    /// its lines go on the page as long as they fit (the first one also on
+    /// a page with nothing on it yet), then the page breaks as
+    /// [`Self::break_at`] says.
+    fn page_last(&self, p: &Paragraph<'_>) -> Option<usize> {
+        let (mut y, mut empty) = (self.y, self.page.is_past_end());
+        for n in 0..p.lines.len() {
+            if y + p.line_height > self.height && !empty {
+                return match self.break_at(p, n) {
+                    Break::After(stay) => stay.checked_sub(1),
+                    Break::Heading(..) | Break::Whole => None,
+                };
+            }
+            y += p.line_height;
+            empty = false;
+        }
+        None
+    }
+
+    /// Where the page ends when line `n` of `p` does not fit on it; the
+    /// lines that go on to the next page are taken off this one.
     fn break_in(&mut self, p: &Paragraph<'_>, n: usize) -> Locator {
-        let (block, style, section) = (p.block, self.cx.style, self.at.section);
+        let (block, section) = (p.block, self.at.section);
+        let line_start =
+            |i: usize| Locator::new(section, block.source_offset(p.lines[i].0.range.start));
+        match self.break_at(p, n) {
+            Break::Heading(kept, start) => {
+                self.page.lines.truncate(kept);
+                start
+            }
+            Break::Whole => {
+                self.page.lines.truncate(p.lines_before);
+                line_start(0)
+            }
+            Break::After(stay) => {
+                let back = n - stay;
+                self.page.lines.truncate(self.page.lines.len() - back);
+                line_start(stay)
+            }
+        }
+    }
+
+    /// How the page breaks when line `n` of `p` does not fit on it.
+    fn break_at(&self, p: &Paragraph<'_>, n: usize) -> Break {
+        let style = self.cx.style;
         // Widows and orphans: as many lines go on as the next page needs.
         // Where too few would stay here, the paragraph goes whole.
         let left = p.lines.len() - n;
@@ -385,31 +446,22 @@ impl Run<'_, '_> {
         let spanned = p.cap.filter(|_| p.from == 0).map_or(0, |cap| cap.lines);
         let orphans = usize::from(style.orphans.max(1)).max(spanned);
         let alone = stay < orphans;
-        let line_start =
-            |i: usize| Locator::new(section, block.source_offset(p.lines[i].0.range.start));
         if alone && p.had_content {
             match p.after_heading {
                 // The heading just before goes along.
-                Some((kept, start, true)) => {
-                    self.page.lines.truncate(kept);
-                    return start;
-                }
+                Some((kept, start, true)) => return Break::Heading(kept, start),
                 // The paragraph goes whole.
-                None => {
-                    self.page.lines.truncate(p.lines_before);
-                    return line_start(0);
-                }
+                None => return Break::Whole,
                 // Under a heading that starts the page nothing can go. It
                 // stays as it falls.
                 Some(_) => {}
             }
         } else if back > 0 && !alone {
-            self.page.lines.truncate(self.page.lines.len() - back);
-            return line_start(stay);
+            return Break::After(stay);
         }
         // Starting the page, it cannot go whole. Then it stays as it falls
         // rather than leaving an orphan here.
-        line_start(n)
+        Break::After(n)
     }
 
     /// Places the drop capital beside `line` where it starts the block.
@@ -440,13 +492,15 @@ impl Run<'_, '_> {
         }
     }
 
-    /// Puts `range` of `line` on the page at `x`, and its rules beside it.
+    /// Puts `range` of `line` on the page at `x`, and its rules beside it;
+    /// `last` where no line of its block follows it on the page.
     fn push_line(
         &mut self,
         p: &Paragraph<'_>,
         line: &Line,
         range: core::ops::Range<usize>,
         (x, word_spacing): (f32, f32),
+        last: bool,
     ) {
         let block = p.block;
         let mut line_text = String::from(&block.text[range.clone()]);
@@ -472,7 +526,7 @@ impl Run<'_, '_> {
                 self.y + p.leading,
                 self.y + p.ascent + p.letters - (p.ascent - p.leading),
             ),
-            (&mut self.carried, line.range.end >= block.text.len()),
+            (&mut self.carried, last),
         );
         self.page.lines.push(PageLine {
             x,

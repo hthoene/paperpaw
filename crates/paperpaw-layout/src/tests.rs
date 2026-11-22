@@ -812,6 +812,26 @@ fn annotations_do_not_run_into_each_other_and_go_on_under_the_next_line() {
     assert_eq!(plain.lines[0].baseline, 8.0);
 }
 
+/// On a page with room for one of the block's lines, what does not fit
+/// under it is cut there, as on the block's last line: a gloss does not go
+/// on over a page break (ADR 0032).
+#[test]
+fn annotations_are_cut_on_the_page_last_line() {
+    let block = annotated(&[
+        (0, "xxxxxxxx", AnnotationKind::Gloss),
+        (35, "zzzzzzzzzz", AnnotationKind::Ruby),
+        (35, "aa bb cc dd", AnnotationKind::Gloss),
+    ]);
+    let page = page_of(block, 0, 30.0);
+    assert_eq!(page.lines.len(), 1);
+    let notes: Vec<(f32, &str)> = page.lines[0]
+        .annotations
+        .iter()
+        .map(|a| (a.x, a.text.as_str()))
+        .collect();
+    assert_eq!(notes, [(0.0, "xxxxxxxx"), (35.0, "zzzzz"), (35.0, "aa bb")]);
+}
+
 /// A page `height` high from `start`, of the one block `block`.
 fn page_of(block: Block, start: u32, height: f32) -> Page {
     let end = block.end;
