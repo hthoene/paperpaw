@@ -324,13 +324,13 @@ impl Cache for Lru {
         self.shrink_to(keep);
         self.spare = Vec::new();
         #[cfg(feature = "kernel")]
-        self.let_blocks_go();
+        self.let_large_go();
         self.entries.shrink_to_fit();
     }
 
     fn clear(&mut self) {
         #[cfg(feature = "kernel")]
-        self.let_blocks_go();
+        self.let_large_go();
         self.entries = Vec::new();
         self.anchored = Vec::new();
         self.spare = Vec::new();
@@ -397,7 +397,7 @@ impl Lru {
 
     /// Lets the held glyph go, and the memory that held it.
     #[cfg(feature = "kernel")]
-    fn let_blocks_go(&mut self) {
+    fn let_large_go(&mut self) {
         self.large = None;
     }
 
