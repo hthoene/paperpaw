@@ -152,8 +152,6 @@ pub enum Refusal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EntryRefusal {
-    /// A word to relocate does not lie in `[base, base + image_len)`.
-    RelocOutside,
     /// The metadata record disagrees with the header (`abi_major`,
     /// `needs_minor`, or the entry length of the profile).
     RecordDisagrees,
@@ -561,30 +559,6 @@ impl Header5 {
         bytes[..DIGESTED_LEN].copy_from_slice(&self.digest_prefix());
         bytes[DIGESTED_LEN..].copy_from_slice(&self.sha256);
         bytes
-    }
-
-    /// Whether `value`, a word to relocate read before relocation, is an
-    /// address in the image as linked: by the data bus's view
-    /// `[base, base + image_len]` or the instruction bus's
-    /// `[base + CODE_OFFSET, base + CODE_OFFSET + image_len]`, the end
-    /// included (a slice may point there). The same rule the relocation
-    /// itself applies, so a code pointer (`make`, a vtable) is no refusal.
-    pub fn word_in_image(&self, value: u32) -> bool {
-        let len = self.image_len;
-        value.wrapping_sub(self.base) <= len
-            || value.wrapping_sub(self.base.wrapping_add(CODE_OFFSET)) <= len
-    }
-
-    /// Every word to relocate, as read before relocation, lies in the image.
-    pub fn check_reloc_words(
-        &self,
-        words: impl IntoIterator<Item = u32>,
-    ) -> Result<(), EntryRefusal> {
-        words
-            .into_iter()
-            .all(|word| self.word_in_image(word))
-            .then_some(())
-            .ok_or(EntryRefusal::RelocOutside)
     }
 
     /// Where `make` lies in the image, for [`EntryFacts::make_at`]: an

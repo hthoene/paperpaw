@@ -404,40 +404,6 @@ fn the_digest_covers_the_first_64_bytes_and_all_after() {
     assert_eq!(&header.to_bytes()[64..], &header.sha256);
 }
 
-#[test]
-fn relocation_words_must_be_addresses_in_the_image_by_either_view() {
-    let h = good();
-    let code = h.base + CODE_OFFSET;
-    // Data addresses and code addresses, the first byte, the last, and the
-    // end (a slice may point there).
-    let inside = [
-        h.base,
-        h.base + h.image_len - 1,
-        h.base + h.image_len,
-        h.base + 100,
-        code,
-        code + h.code_at,
-        code + h.image_len,
-    ];
-    assert_eq!(h.check_reloc_words(inside), Ok(()));
-    assert_eq!(h.check_reloc_words([]), Ok(()));
-    for outside in [
-        h.base - 1,
-        h.base + h.image_len + 1,
-        code - 1,
-        code + h.image_len + 1,
-        0,
-        u32::MAX,
-        h.base + h.image_len + CODE_OFFSET / 2,
-    ] {
-        assert_eq!(
-            h.check_reloc_words([h.base, outside]),
-            Err(EntryRefusal::RelocOutside),
-            "{outside:#x}"
-        );
-    }
-}
-
 fn record_bytes(len: usize) -> Vec<u8> {
     record_for(len, X4_PROFILE.target)
 }
