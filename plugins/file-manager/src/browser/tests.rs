@@ -28,6 +28,13 @@ fn names(browser: &Browser) -> Vec<String> {
     browser.page().iter().map(|e| e.name.clone()).collect()
 }
 
+/// A focus step as the screen takes it: the page it reaches read where it is
+/// not held.
+fn step(browser: &mut Browser, storage: &MemoryStorage, delta: isize) {
+    browser.step(delta);
+    browser.show_focus(storage);
+}
+
 fn at(storage: &MemoryStorage, dir: &str, rows: usize) -> Browser {
     let mut browser = Browser::new(dir.to_string(), false, rows);
     browser.reload(storage, None);
@@ -52,7 +59,7 @@ fn only_a_page_is_held_and_the_focus_turns_the_pages() {
     let mut browser = at(&storage, "Many", 3);
     assert_eq!((browser.len(), names(&browser).len()), (8, 3));
     for _ in 0..4 {
-        browser.step(&storage, 1);
+        step(&mut browser, &storage, 1);
     }
     // The fifth entry is on the second page.
     assert_eq!((browser.cursor(), browser.first()), (4, 3));
@@ -73,13 +80,13 @@ fn the_focus_goes_round_over_the_list_and_the_bar() {
     let storage = card();
     let mut browser = at(&storage, "Notes", 5);
     assert_eq!(browser.len(), 1);
-    browser.step(&storage, 1);
+    step(&mut browser, &storage, 1);
     assert_eq!(browser.bar(), Some(0));
-    browser.step(&storage, 1);
+    step(&mut browser, &storage, 1);
     assert_eq!((browser.bar(), browser.cursor()), (None, 0));
-    browser.step(&storage, -1);
+    step(&mut browser, &storage, -1);
     assert_eq!(browser.bar(), Some(0), "back from the first to the bar");
-    browser.step(&storage, -1);
+    step(&mut browser, &storage, -1);
     assert_eq!((browser.bar(), browser.cursor()), (None, 0));
 }
 
@@ -196,6 +203,46 @@ fn renaming_keeps_the_data_and_a_taken_name_gets_a_free_one() {
     browser.note = None;
     browser.rename(&storage, "Books/b.epub", "b.epub");
     assert_eq!(browser.note, None);
+}
+
+/// A long name of letters beyond ASCII is renamed to as far as the card takes
+/// names (255 UTF-16 units); one longer says so and changes nothing (#486).
+#[test]
+fn a_long_name_is_renamed_to_as_far_as_the_card_takes_it() {
+    let storage = card();
+    let mut browser = at(&storage, "Books", 10);
+    let longest = "ä".repeat(NAME_UNITS - 5) + ".epub";
+    browser.rename(&storage, "Books/a.epub", &longest);
+    assert_eq!(browser.note, None);
+    let renamed = std::format!("Books/{longest}");
+    assert_eq!(storage.get(&renamed).unwrap(), b"a");
+    let longer = std::format!("ä{longest}");
+    browser.rename(&storage, &renamed, &longer);
+    assert_eq!(browser.note, Some(Note::Failed(Error::NoSpace)));
+    assert_eq!(storage.get(&renamed).unwrap(), b"a", "unchanged");
+    browser.note = None;
+    browser.new_folder(&storage, &longer);
+    assert_eq!(browser.note, Some(Note::Failed(Error::NoSpace)));
+}
+
+/// A step within the page held needs no card; the one onto the next page
+/// reads it.
+#[test]
+fn a_step_within_the_page_held_needs_no_card() {
+    let storage = card();
+    let mut browser = at(&storage, "Many", 3);
+    browser.step(1);
+    assert!(browser.holds_focus());
+    browser.step(1);
+    assert!(browser.holds_focus());
+    browser.step(1);
+    assert!(
+        !browser.holds_focus(),
+        "the fourth entry is on the second page"
+    );
+    browser.show_focus(&storage);
+    assert!(browser.holds_focus());
+    assert_eq!(names(&browser), ["f3.txt", "f4.txt", "f5.txt"]);
 }
 
 #[test]

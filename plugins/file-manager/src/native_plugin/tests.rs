@@ -47,3 +47,12 @@ fn the_options_and_texts_the_screen_uses_are_in_both_languages() {
         }
     }
 }
+
+/// A name as long as the card takes (255 UTF-16 units) is read whole, of
+/// three-byte letters too (#486): at 256 bytes such a name failed to read and
+/// the rename said nothing.
+#[test]
+fn a_name_as_long_as_the_card_takes_is_read_whole() {
+    let longest = "語".repeat(crate::browser::NAME_UNITS);
+    assert!(longest.len() <= NAME_LIMIT, "{}", longest.len());
+}
