@@ -349,10 +349,10 @@ pub fn load_for_update(
     }
 }
 
-/// [`load_text_for_update`] without an infallible allocation: the text
-/// is read into one fallible reservation of its size, so a heap that
-/// cannot take it is [`Error::OutOfMemory`](crate::data::Error::OutOfMemory)
-/// (not a missing or too large file). `None` where there is no such file.
+/// [`load_text_for_update`] with the memory error told apart: a heap that
+/// cannot take the text (its one reservation is had fallibly) is
+/// [`Error::OutOfMemory`](crate::data::Error::OutOfMemory), not a missing or
+/// too large file. `None` where there is no such file.
 ///
 /// # Errors
 /// A [`StorageError`] as [`load_text_for_update`] (`TooLarge` over `cap`,
@@ -364,35 +364,10 @@ pub fn try_load_text_for_update(
     cap: usize,
 ) -> Result<Option<String>, crate::data::Error> {
     use crate::data::Error;
-    let size = match storage.size(path) {
-        Ok(size) => size,
-        Err(StorageError::NotFound) => return Ok(None),
-        Err(e) => return Err(Error::Storage(e)),
-    };
-    let size = usize::try_from(size).unwrap_or(usize::MAX);
-    if size > cap {
-        return Err(Error::Storage(StorageError::TooLarge));
-    }
-    let mut data: Vec<u8> = Vec::new();
-    data.try_reserve_exact(size)
-        .map_err(|_| Error::OutOfMemory)?;
-    data.resize(size, 0);
-    let mut filled = 0;
-    while filled < size {
-        match storage.read_at(path, filled as u64, &mut data[filled..]) {
-            Ok(0) => break,
-            Ok(n) => filled += n.min(size - filled),
-            Err(StorageError::NotFound) => return Ok(None),
-            Err(e) => return Err(Error::Storage(e)),
-        }
-    }
-    data.truncate(filled);
-    if data.starts_with(BOM) {
-        data.drain(..BOM.len());
-    }
-    String::from_utf8(data)
-        .map(Some)
-        .map_err(|_| Error::Storage(StorageError::InvalidData))
+    load_text_for_update(storage, path, cap).map_err(|e| match e {
+        StorageError::OutOfMemory => Error::OutOfMemory,
+        e => Error::Storage(e),
+    })
 }
 
 /// [`load_for_update`] for a text file:
