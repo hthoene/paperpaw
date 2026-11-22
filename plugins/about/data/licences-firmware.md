@@ -310,7 +310,7 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - embassy-time-driver 0.2.2: Copyright the embassy-time-driver contributors (https://github.com/embassy-rs/embassy)
 - embassy-usb 0.6.0: Copyright the embassy-usb contributors (https://github.com/embassy-rs/embassy)
 - embassy-usb-driver 0.2.2: Copyright the embassy-usb-driver contributors (https://github.com/embassy-rs/embassy)
-- embassy-usb-synopsys-otg 0.4.0: Copyright the embassy-usb-synopsys-otg contributors (https://github.com/embassy-rs/embassy)
+- embassy-usb-synopsys-otg 0.4.0: Copyright (c) Embassy project contributors
 - embedded-can 0.4.1: Copyright (c) 2021-2022 The Rust embedded HAL team and contributors.
 - embedded-hal 0.2.7: Copyright (c) 2017-2018 Jorge Aparicio
 - embedded-hal 1.0.0: Copyright (c) 2017-2018 Jorge Aparicio
