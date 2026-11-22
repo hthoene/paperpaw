@@ -4925,6 +4925,16 @@ change the plugin SDK.
 
 - **X4 Classic: waking after Power was a fresh start** (#478). Power put it into a deep sleep, so the next press started the reader anew (about 4 s to the first picture). It now sleeps lightly as the X4, the X3 and the X4 Pro do: the next press wakes it at once on the same page. After a while asleep (*Switch off after sleeping*, 30 minutes by default) it switches off as before; *At once* keeps the old behaviour.
 
+- **Wi-Fi keeps the focus where you were** (#481). Joining a network put the focus back on the first network of the list, and Back from the networks or from the phone setup put it on the first row of the Wi-Fi page. As in Beta 3, the focus stays on the network chosen and comes back to the row the page was left from (wifi 1.0.9).
+
+- **A Wi-Fi password can be typed on the phone again** (#481). The keyboard offered *Phone* for every text but a password, the one it is most handy for. As in Beta 3, a password can be typed on the phone too: masked there, and what was typed on the reader is not sent along (keyboard 1.1.4).
+
+- **The key bar names only what a button does** (#481). The Wi-Fi transfer, the phone's typing page and the battery page showed *Select* and the arrows, which do nothing there. As in Beta 3, only *Back* shows, and *Select* says *Without a router* where it opens the reader's own network (transfer 1.0.8, battery 1.0.12).
+
+- **The device check shows its steps** (#481). The device check (diagnostics) stayed an empty page: it asked the device about itself with too small a reply buffer, which the host refuses (diagnostics 1.0.10).
+
+- **Long texts on empty pages show whole** (#481). The empty *Passwords and keys* page, the statistics' empty book list and the help of *Sync with KOReader* were cut to a line or four lines with "…"; they are wrapped whole again (settings 1.0.14, stats 1.1.4).
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
