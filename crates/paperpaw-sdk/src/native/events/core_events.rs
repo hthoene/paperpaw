@@ -1,7 +1,7 @@
 //! Exact generated EVT records become borrowed typed views.
 use super::{
-    BluetoothChange, BookKind, ChargeFlags, Error, Event, InstallDone, LibraryChanges, PowerChange,
-    ReadingView, WifiDone, WifiLinkState, wire,
+    BluetoothChange, BookKind, ChargeFlags, Error, Event, InstallDone, LibraryChanges,
+    PROGRESS_MAX_PPM, PowerChange, ReadingView, WifiDone, WifiLinkState, wire,
 };
 use crate::native::device::PowerLevel;
 use crate::native::{
@@ -220,9 +220,14 @@ event_fn!(lookup_ready, wire::EventLookupReady<'_>, |r| {
 });
 
 event_fn!(document_changed, wire::EventDocumentChanged, |r| {
+    // As `document_closed` and a book's position: the host never sends id 0
+    // nor a progress past the end, so either is a malformed record.
+    if r.progress_ppm > PROGRESS_MAX_PPM {
+        return Err(Error::Invalid);
+    }
     Event::DocumentChanged {
         now_ms: r.now_ms,
-        document: crate::native::document::DocId::from_wire(r.document),
+        document: DocId::named(r.document).ok_or(Error::Invalid)?,
         state: crate::native::document::Preparation::of(r.state),
         progress_ppm: r.progress_ppm,
     }

@@ -10,3 +10,6 @@
   `CommandSender::show_again` now returns `Invalid` for `after_ms` (or a non-zero
   `every_ms`) under `SHOW_AGAIN_MIN_MS`; `after_ms` 0 no longer quietly cancels
   the request that waits.
+- **A malformed `document_changed` event is refused** (#484): an event naming
+  document 0 or a progress over 1,000,000 now decodes as `Invalid`, as
+  `document_closed` and the book events already did.
