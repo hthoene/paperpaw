@@ -137,8 +137,10 @@ pub fn list(storage: &dyn Storage, dir: &str, hidden: bool) -> Result<Vec<Entry>
     })?;
     // Compared letter by letter, without a lower-case copy of each name
     // for every comparison; names alike but for case by their letters.
-    // Unstable: a stable sort takes 4 KiB of stack (too much on the X4).
-    paperpaw_sort::sort_by(&mut entries, |a, b| {
+    // Unstable, in place and without memory: the order is total (no two
+    // entries compare equal), so a stable sort would only cost the heap it
+    // takes (4 bytes an entry).
+    paperpaw_sort::sort_unstable_by(&mut entries, |a, b| {
         b.is_dir
             .cmp(&a.is_dir)
             .then_with(|| {
