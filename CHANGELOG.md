@@ -4928,6 +4928,8 @@ change the plugin SDK.
 
 - **A section going on over a page shows its heading again** (#472). In long lists, such as the settings, a section that continues on the next page has its heading at the top of that page again, as in Beta 3; a heading that would end a page alone moves to the next page with its rows.
 
+- **"Text and symbols" can be chosen as a status line again** (#472). The status line editors of Home and the reader did not offer the kernel's own line of items, and the settings showed its raw id instead of its name; the registry now lists it after the plugins' lines.
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
