@@ -73,10 +73,6 @@ pub(crate) fn topmost_guard(view: &dyn UiStackView) -> Option<usize> {
 }
 
 /// The topmost guarding instance, if any.
-#[allow(
-    dead_code,
-    reason = "the kernel's stack sync uses it; test crates that include this file by path do not"
-)]
 pub(crate) fn guard_instance(view: &dyn UiStackView) -> Option<u32> {
     topmost_guard(view)
         .and_then(|i| view.row(i))
@@ -213,10 +209,6 @@ pub(crate) fn guard_on_allowed(
 /// the stack `ERR_NOT_FOUND`); `guards` on only as [`guard_on_allowed`] says,
 /// where the instance does not guard already. Everything else, turning
 /// `guards` off and `secret` or `holds_edges` either way, is allowed.
-#[allow(
-    dead_code,
-    reason = "the stage uses it; test crates that include this file by path do not"
-)]
 pub(crate) fn policy_allowed(
     view: &dyn UiStackView,
     submitter: u64,
@@ -358,7 +350,6 @@ pub(crate) fn visible_rows(view: &dyn UiStackView, viewer: u64) -> Visible {
 }
 
 /// A question as `core.ui` op 8 gets it.
-#[allow(dead_code, reason = "consumer is H2's op 8 handler")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Ask<'a> {
     pub(crate) asker: u64,

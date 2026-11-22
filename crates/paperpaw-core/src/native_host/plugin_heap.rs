@@ -91,13 +91,6 @@ const fn offset(align: usize) -> usize {
 /// What a block of `size` bytes aligned to `align` costs its owner: a large
 /// block its header, the padding the alignment needs, and the block; a small
 /// one its size rounded up to `SMALL_GRAIN`.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "read by the budget tests; the teardown sweep (PR 3) reads it"
-    )
-)]
 #[must_use]
 pub(crate) const fn block_cost(size: usize, align: usize) -> usize {
     if is_large(size) {

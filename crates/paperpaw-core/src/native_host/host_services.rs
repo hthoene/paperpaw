@@ -109,10 +109,6 @@ pub(crate) struct HostServices {
     /// registry for the `core.net` adapter.
     owners: OnceCell<super::shared::Shared<super::owner_directory::OwnerDirectory>>,
     /// The `core.format` calls under way (root 3 of the file service).
-    #[allow(
-        dead_code,
-        reason = "entered by the DOC adapter, read by the file service"
-    )]
     format_scope: super::format_scope::FormatScope,
     /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
     /// `Drop`): the main loop retries them ([`Self::retry_retirements`]).
@@ -322,22 +318,18 @@ impl HostServices {
         result.map(|()| self.retirements_pending())
     }
 
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.document` once. `ERR_STATE` when it is wired already.
     pub(crate) fn wire_documents(&self, host: Rc<dyn DocHost>) -> Result<(), i32> {
         self.documents.set(DocServices(host)).map_err(|_| ERR_STATE)
     }
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.files` once.
     pub(crate) fn wire_files(&self, host: Rc<dyn FilesHost>) -> Result<(), i32> {
         self.files.set(FilesServices(host)).map_err(|_| ERR_STATE)
     }
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.library` once.
     pub(crate) fn wire_library(&self, host: Rc<dyn LibHost>) -> Result<(), i32> {
         self.library.set(LibServices(host)).map_err(|_| ERR_STATE)
     }
-    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.lookup` once.
     pub(crate) fn wire_lookup(
         &self,
@@ -382,7 +374,6 @@ impl HostServices {
         self.hyphen.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its screen stack; tests do today")]
     /// Wire `core.ui` once.
     pub(crate) fn wire_ui(&self, ui: UiServices) -> Result<(), i32> {
         let made = super::shared::try_box(ui).ok_or(ERR_NO_MEMORY)?;
@@ -616,10 +607,6 @@ impl HostServices {
     /// # Errors
     /// `ERR_STATE` when it was called already; `ERR_BUSY` when the list of
     /// sources is in use; `ERR_NO_MEMORY`.
-    #[allow(
-        dead_code,
-        reason = "the document service's wiring calls it (Host Engineer, train 6)"
-    )]
     pub(crate) fn register_reader_book_reporting(&self) -> Result<(), i32> {
         let sources = self.busy_sources();
         if sources.has(super::storage_files::BusyKind::ReaderBook) {
@@ -918,10 +905,6 @@ impl HostServices {
 
     /// The `core.format` calls under way: the document service enters one
     /// around each call, the file service asks it for root 3.
-    #[allow(
-        dead_code,
-        reason = "entered by the DOC adapter, read by the file service"
-    )]
     pub(crate) fn format_scope(&self) -> &super::format_scope::FormatScope {
         &self.format_scope
     }
