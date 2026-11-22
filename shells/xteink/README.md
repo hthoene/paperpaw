@@ -139,7 +139,7 @@ starts it; the running firmware is not touched until then.
   power button puts it to a light sleep where a press wakes it at once; it
   switches off after a while asleep, 30 minutes by default, and the next
   press starts it again; the X4 Pro does the same, with its front light
-  off meanwhile; the X4 Classic keeps its deep sleep), light sleep
+  off meanwhile, and so does the X4 Classic), light sleep
   between button reads on battery.
 - Wi-Fi (ADR 0016): on when something needs the network, chosen on the
   Wi-Fi page in the settings; HTTP and HTTPS (ADR 0017) for plugins,
