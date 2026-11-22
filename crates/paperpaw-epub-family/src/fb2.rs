@@ -643,6 +643,10 @@ impl Fb2Document {
                 let _ = storage.remove(&paths.end);
                 let _ = storage.create_dir(&cache);
                 let found = scan(storage, &file, encoding, &cache)?;
+                // What was appended (the unpacked copy, the contents) reaches
+                // the card before the stamp that marks it whole (see
+                // `CachePaths::complete`).
+                storage.sync()?;
                 storage.write(&info_path, save_info(&found)?.as_bytes())?;
                 storage.write(&stamp_path, stamp.as_bytes())?;
                 found

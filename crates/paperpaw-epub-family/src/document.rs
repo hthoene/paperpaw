@@ -444,8 +444,10 @@ impl EpubDocument {
             (Err(error), None) => Err(package::error(error)),
             (Ok(()), None) if woff => Ok(None),
             (Ok(()), None) if written == 0 => Err(bad()),
+            // The pieces reach the card before the rename that publishes them.
             (Ok(()), None) => storage
-                .rename(&temp, dest)
+                .sync()
+                .and_then(|()| storage.rename(&temp, dest))
                 .map(|()| u32::try_from(written).ok())
                 .map_err(Into::into),
         };
