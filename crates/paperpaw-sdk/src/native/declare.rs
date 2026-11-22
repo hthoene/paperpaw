@@ -746,7 +746,8 @@ fn choices_text(choices: &[&str], default: &str) -> Result<String, DeclareError>
 }
 
 impl<'a> SpecDecl<'a> {
-    /// The record's scalars and the default as wire bytes.
+    /// The record's scalars and the default as wire bytes, the default and
+    /// the choices each within its wire cap (`TooLong` otherwise).
     fn parts(&self) -> Result<SpecParts, DeclareError> {
         let (default, min, max, choices) = match &self.kind {
             Kind::Bool(v) => (value_bytes(SettingValueRef::Bool(*v))?, 0, 0, String::new()),
@@ -921,14 +922,6 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                     self.failed = Some(Latched::NoMemory);
                 }
             })?;
-            within(
-                &parts.choices,
-                records_wire::SETTING_SPEC_CHOICES_MAX_BYTES,
-                "choices",
-            )?;
-            if parts.default.len() > records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES {
-                return Err(DeclareError::TooLong("default"));
-            }
             self.push(Item::Spec(spec, parts))?;
             Ok(())
         })();
