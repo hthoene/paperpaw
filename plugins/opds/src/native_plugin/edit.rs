@@ -279,7 +279,7 @@ impl Opds {
     }
 
     /// The label of the catalog's password among the secrets.
-    fn secret_label(host: &Host<'_>, name: &str) -> Result<String, Error> {
+    pub(super) fn secret_label(host: &Host<'_>, name: &str) -> Result<String, Error> {
         Messages::new()?.format(
             host,
             "opds.secret",
@@ -313,7 +313,6 @@ impl Opds {
             keep::name_of(&view.catalog.url)?,
             Self::secret_label(host, &view.catalog.name)?,
         );
-        view.catalog.legacy = keep::Secret::default();
         let vault = self.vault(host);
         let done = if text.is_empty() {
             catalogs::Vault::remove(&vault, &name)
@@ -321,7 +320,14 @@ impl Opds {
             catalogs::Vault::keep(&vault, &name, &label, text)
         };
         match done {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                // An older password in the list goes once the secrets hold
+                // the new one: where they cannot, the old one still works.
+                if let Some(view) = self.edit_view() {
+                    view.catalog.legacy = keep::Secret::default();
+                }
+                Ok(())
+            }
             Err(Error::NoMemory) => Err(Error::NoMemory),
             Err(Error::Unsupported) => Self::notice_key(host, "core.secrets-unsupported"),
             Err(_) => Self::notice_key(host, "opds.not-kept"),

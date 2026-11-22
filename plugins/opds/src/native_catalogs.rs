@@ -233,6 +233,28 @@ pub fn encode(catalogs: &[Catalog]) -> Result<String, Error> {
     Ok(text)
 }
 
+/// The list as [`load`] reads it, with the passwords an older version kept
+/// in it moved to the secrets ([`move_passwords`]) and the list kept without
+/// them. A list that cannot be kept now is kept by the next load: the secrets
+/// hold the passwords by then.
+///
+/// # Errors
+/// As [`load`].
+pub fn load_moving_passwords(
+    files: &dyn Files,
+    vault: &dyn Vault,
+    max: usize,
+    label: &mut dyn FnMut(&str) -> Result<String, Error>,
+) -> Result<Vec<Catalog>, Error> {
+    let mut list = load(files, max)?;
+    if move_passwords(vault, &mut list, label)?
+        && let Err(Error::NoMemory) = save(files, &list)
+    {
+        return Err(Error::NoMemory);
+    }
+    Ok(list)
+}
+
 /// Keeps the list. `catalogs` must come from [`load`]: what is not in it is
 /// gone.
 ///
@@ -272,11 +294,16 @@ pub trait Vault {
 }
 
 /// The password of `catalog`: the secret's, else one an older version kept in
-/// the list; `None` where there is none.
+/// the list; `None` where there is none. A password goes only with a user: a
+/// catalog without one asks nothing of the secrets, so they cannot keep it
+/// from being read.
 ///
 /// # Errors
 /// `NoMemory` and what the service says but `NotFound`.
 pub fn password(vault: &dyn Vault, catalog: &Catalog) -> Result<Option<Secret>, Error> {
+    if catalog.user.is_empty() {
+        return Ok(None);
+    }
     match vault.read(&keep::name_of(&catalog.url)?) {
         Ok(Some(secret)) => Ok(Some(secret)),
         Ok(None) | Err(Error::Unsupported) => {

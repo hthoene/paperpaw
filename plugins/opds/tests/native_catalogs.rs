@@ -144,8 +144,14 @@ fn folders_are_below_the_library_folder() {
 }
 
 fn with_old_password(url: &str, password: &str) -> Catalog {
-    let mut catalog = Catalog::new(url).unwrap();
+    let mut catalog = with_user(url);
     catalog.legacy = Secret::copy(password).unwrap();
+    catalog
+}
+
+fn with_user(url: &str) -> Catalog {
+    let mut catalog = Catalog::new(url).unwrap();
+    catalog.user = "reader".into();
     catalog
 }
 
@@ -199,7 +205,7 @@ fn where_no_secret_can_be_kept_the_old_password_stays_in_the_list_and_works() {
 
 #[test]
 fn a_password_is_the_secret_else_the_old_one_else_none() {
-    let c = Catalog::new("https://a.example").unwrap();
+    let c = with_user("https://a.example");
     let vault = MemVault::default();
     assert!(password(&vault, &c).unwrap().is_none());
     vault
@@ -240,4 +246,46 @@ fn a_new_address_takes_the_password_along() {
     let full = MemVault::with(&name_of("https://a.example").unwrap(), "x");
     full.room.set(Some(1));
     assert!(!move_secret(&full, "https://a.example", "https://b.example", "l").unwrap());
+}
+
+#[test]
+fn a_catalog_without_a_user_asks_nothing_of_the_secrets() {
+    let vault = MemVault {
+        broken: true,
+        ..MemVault::default()
+    };
+    let public = Catalog::new("https://a.example").unwrap();
+    assert!(password(&vault, &public).unwrap().is_none());
+    assert_eq!(
+        password(&vault, &with_user("https://a.example")).unwrap_err(),
+        Error::Io
+    );
+}
+
+#[test]
+fn a_list_read_moves_its_old_passwords_to_the_secrets_and_keeps_itself_without_them() {
+    let mem = Mem::default();
+    let list = [
+        with_old_password("https://a.example", "pw-a"),
+        Catalog::new("https://b.example").unwrap(),
+    ];
+    catalogs::save(&mem, &list).unwrap();
+    assert!(mem.text("catalogs.txt").unwrap().contains("pw-a"));
+    let vault = MemVault::default();
+    let read = catalogs::load_moving_passwords(&mem, &vault, 100, &mut label).unwrap();
+    assert!(read.iter().all(|c| c.legacy.is_empty()));
+    assert_eq!(
+        vault.value(&name_of("https://a.example").unwrap()).unwrap(),
+        "pw-a"
+    );
+    assert!(!mem.text("catalogs.txt").unwrap().contains("pw-"));
+    // Where the device keeps none, the list keeps it as before.
+    catalogs::save(&mem, &list).unwrap();
+    let none = MemVault {
+        unsupported: true,
+        ..MemVault::default()
+    };
+    let read = catalogs::load_moving_passwords(&mem, &none, 100, &mut label).unwrap();
+    assert_eq!(read[0].legacy.as_str(), "pw-a");
+    assert!(mem.text("catalogs.txt").unwrap().contains("pw-a"));
 }

@@ -32,14 +32,11 @@ pub fn pending(link: &mut dyn Link, of: Of, root: &str) -> Result<u32, Error> {
             names::path(root, "", &rel)?
         };
         let mut local: Vec<Entry> = Vec::new();
-        match link.list(&folder, &mut local, MOST + 1) {
-            Ok(()) | Err(Error::NotFound) => {}
+        match link.list(&folder, &mut local, MOST) {
+            Ok(false) | Err(Error::NotFound) => {}
             Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(_) => continue,
-        }
-        local.retain(|e| !names::left_out(&e.name));
-        if local.len() > MOST {
-            continue;
+            // More files than a sync takes, or a folder that cannot be read.
+            Ok(true) | Err(_) => continue,
         }
         let kept = state::read(link.data(), of, &rel)?;
         for entry in &local {

@@ -51,6 +51,16 @@ pub fn normalize_server(text: &str) -> Result<String, Error> {
     }
 }
 
+/// Whether a base URL is one the network service asks: `http://` or
+/// `https://` (another scheme would never connect).
+#[must_use]
+pub fn is_web(url: &str) -> bool {
+    ["http://", "https://"].iter().any(|scheme| {
+        url.get(..scheme.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(scheme))
+    })
+}
+
 /// A base URL as shown: without `https://` (but with `http://`, which is
 /// worth knowing).
 #[must_use]
@@ -530,6 +540,15 @@ mod tests {
             ("://x", "https://://x"),
         ] {
             assert_eq!(normalize_server(text).unwrap(), want, "{text:?}");
+        }
+        for (url, web) in [
+            ("https://sync.example.org", true),
+            ("HTTP://192.168.1.5:8080", true),
+            ("webdavs://x/y", false),
+            ("ftp://x", false),
+            ("http:/x", false),
+        ] {
+            assert_eq!(is_web(url), web, "{url}");
         }
         assert_eq!(server_label("https://a.b"), "a.b");
         assert_eq!(server_label("http://a.b"), "http://a.b");

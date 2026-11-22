@@ -83,6 +83,7 @@ fn the_tokens_are_distinct() {
         WORK_ALLOWED,
         WORK_REFUSED,
         HTTP_DONE,
+        POWER_CHANGED,
     ];
     tokens.sort_unstable();
     assert!(tokens.windows(2).all(|w| w[0] != w[1]));
