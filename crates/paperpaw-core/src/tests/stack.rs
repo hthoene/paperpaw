@@ -561,6 +561,39 @@ fn the_row_of_hints_over_a_page_in_grays_comes_and_goes_with_the_whole_frame() {
     assert_eq!(effects.refresh().map(|(area, _)| area), Some(screen));
 }
 
+/// An overlay that hides the row, opened while it shows over the page after
+/// a press, takes it off the panel at once: no labels stay there for buttons
+/// that now do something else (#483).
+#[test]
+fn an_overlay_that_hides_the_row_takes_it_off_the_panel() {
+    let mut kernel = reader_with_hints();
+    kernel.open_screen(
+        Instant(100),
+        SCREEN,
+        named("overlay")
+            .with("overlay", "top")
+            .with("hints", "hidden"),
+    );
+    render(&mut kernel);
+    assert!(kernel.hint_row().is_none());
+    assert!(kernel.frame().data.iter().all(|byte| *byte == 0xff));
+}
+
+/// A press while the row shows over the page lets it show longer, and draws
+/// and refreshes nothing for it: each press of a row's button refreshed the
+/// row again, and once more when its time was over (#483).
+#[test]
+fn a_press_while_the_row_shows_refreshes_nothing() {
+    let mut kernel = reader_with_hints();
+    render(&mut kernel);
+    let effects = press(&mut kernel, 20, "confirm");
+    assert!(kernel.hint_row().is_some());
+    assert_eq!(effects.refresh(), None);
+    // Shown longer: still there after the first press's time.
+    kernel.tick(Instant(10 + crate::HINTS_MS));
+    assert!(kernel.hint_row().is_some());
+}
+
 #[test]
 fn hidden_overlay_overrides_the_readers_active_hint_timer() {
     let mut kernel = reader_with_hints();
