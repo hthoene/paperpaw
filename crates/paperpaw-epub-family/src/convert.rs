@@ -96,8 +96,11 @@ pub(crate) trait Formula {
     ) -> Result<(), DocumentError>;
     /// Text inside it, with entities to decode unless `cdata`.
     fn text(&mut self, text: &str, cdata: bool) -> Result<(), DocumentError>;
-    /// An element inside it ends: the formula, once its own element does.
-    fn end(&mut self) -> Result<Option<Done>, DocumentError>;
+    /// Element `tag` (its local name) inside it ends: the formula, once its
+    /// own element does. `</math>` ends the formula also where elements in
+    /// it were left open (HTML's `<mspace>` without `/>`): else the rest of
+    /// the chapter would be read as part of it.
+    fn end(&mut self, tag: &str) -> Result<Option<Done>, DocumentError>;
 }
 
 /// A finished formula.
@@ -739,7 +742,7 @@ impl Converter<'_> {
 
     fn end(&mut self, name: &str) -> Result<(), DocumentError> {
         if let Some(math) = self.math.as_mut() {
-            match math.end()? {
+            match math.end(local_name(name))? {
                 None => return Ok(()),
                 Some(done) => {
                     self.math = None;

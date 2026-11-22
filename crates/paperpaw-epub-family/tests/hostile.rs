@@ -288,6 +288,22 @@ fn deeply_nested_elements_take_little_memory_and_storage() {
 }
 
 #[test]
+fn a_deeply_nested_formula_takes_little_memory() {
+    // The formula is kept as markup for another plugin: its elements below
+    // the deepest kept are counted, not each held by name.
+    let depth = 100_000;
+    let chapter = format!(
+        "<html><body><p>Es gilt <math>{}<mi>x</mi>{}</math> immer.</p></body></html>",
+        "<mrow>".repeat(depth),
+        "</mrow>".repeat(depth)
+    );
+    let card = Card::new("book.epub", epub(&chapter));
+    let (read, peak) = open_and_read(&card);
+    assert!(peak < PLAIN_PEAK, "{peak} bytes at once");
+    assert_eq!(read.last, "Es gilt x immer.");
+}
+
+#[test]
 fn unclosed_paragraphs_are_ended_by_the_next() {
     let mut chapter = String::from("<html><body>");
     for i in 0..1500 {
