@@ -12,3 +12,5 @@
 - **Printed page numbers** (#484): when the card refuses the list of a book's
   printed pages, the book is read again later instead of keeping no page
   numbers for good.
+- **Book styles** (#484): a book with very many or very long style rules keeps
+  the first of them instead of losing all its styles.

@@ -506,7 +506,7 @@ fn write_fonts(
 /// has no room for them, as a chapter converted without them would be
 /// kept so.
 pub(crate) fn styles(storage: &dyn Storage, cache: &str) -> Result<css::Rules, DocumentError> {
-    let Some(data) = read_cache(storage, &path(cache, "styles.txt")?, 64 * 1024)? else {
+    let Some(data) = read_cache(storage, &path(cache, "styles.txt")?, MAX_STYLES)? else {
         return Ok(css::Rules::default());
     };
     match String::from_utf8(data) {
@@ -1055,13 +1055,20 @@ fn write_styles(
     Ok(())
 }
 
-/// Writes `rules` to `file` in their cache form, a few lines at a time.
+/// The longest `styles.txt` read, and so written: the book's styles are read
+/// whole, on a heap of a few hundred KiB.
+const MAX_STYLES: usize = 64 * 1024;
+
+/// Writes `rules` to `file` in their cache form, a few lines at a time. The
+/// lines that would make it longer than [`MAX_STYLES`] are left out: a
+/// longer file is not read, and the book would lose all its styles.
 fn write_rules(storage: &dyn Storage, file: &str, rules: &css::Rules) -> Result<(), DocumentError> {
     storage.write(file, &[])?;
     let mut lines = String::new();
+    let mut written = 0;
     let mut failed: Option<DocumentError> = None;
     let encoded = rules.encode_lines(&mut |line| {
-        if failed.is_some() {
+        if failed.is_some() || written + lines.len() + line.len() > MAX_STYLES {
             return;
         }
         if let Err(e) = fallible::push_str(&mut lines, line) {
@@ -1073,6 +1080,7 @@ fn write_rules(storage: &dyn Storage, file: &str, rules: &css::Rules) -> Result<
                 .append(file, lines.as_bytes())
                 .err()
                 .map(DocumentError::Storage);
+            written += lines.len();
             lines.clear();
         }
     });
@@ -1246,6 +1254,27 @@ mod tests {
         }
         assert_eq!(out, "/* \u{fffd} 2010 */ p { a: \u{2014} }");
         assert!(pending.is_empty());
+    }
+
+    /// Rules beyond what `styles.txt` holds are left out; those before
+    /// stay (a longer file is not read: the book would lose them all).
+    #[test]
+    fn the_styles_kept_are_as_many_as_are_read_again() {
+        let mut rules = css::Rules::default();
+        let mut parser = css::Parser::new("").unwrap();
+        let long = "x".repeat(200);
+        let css: String = (0..500)
+            .map(|i| alloc::format!(".c{i}{long} {{ text-align: center }}\n"))
+            .collect();
+        parser.feed(&css, &mut rules);
+        assert_eq!(rules.rules.len(), 500);
+        let storage = paperpaw_sdk::MemoryStorage::new();
+        write_rules(&storage, "cache/styles.txt", &rules).unwrap();
+        let size = storage.size("cache/styles.txt").unwrap();
+        assert!(size <= MAX_STYLES as u64, "{size} bytes");
+        let read = styles(&storage, "cache").unwrap();
+        assert!(read.rules.len() > 250, "{} rules", read.rules.len());
+        assert_eq!(read.rules[..], rules.rules[..read.rules.len()]);
     }
 
     /// `package.ini` is the text `config::set_all` made of its entries
