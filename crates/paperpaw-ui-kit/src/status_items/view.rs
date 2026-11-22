@@ -15,7 +15,7 @@ use paperpaw_sdk::{
     Handled, Point,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, Input, InputGestureKind, PointerPhase},
+        callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind, PointerPhase},
         commands::{CommandSender, RedrawMode},
         registry::{PageCursor, Registry, StatusScope},
     },
@@ -67,7 +67,8 @@ pub enum Step {
     Ignored,
     /// Taken; the screen is drawn again.
     Redraw,
-    /// Taken, nothing to draw (a finger moved within the place it was at).
+    /// Taken, nothing to draw (a finger moved within the place it was at, a
+    /// button that moves nothing further).
     Taken,
     /// The setting changed to this text.
     Changed(String),
@@ -75,11 +76,16 @@ pub enum Step {
     Header(&'static str),
 }
 
+/// Where the focus alone moved, from the first row to the second: no row
+/// changed, these two alone are drawn again.
+type Moved = Option<(usize, usize)>;
+
 /// A step taken in the model whose rows are not in the list yet.
 struct Pending {
     step: Step,
     items: Option<Vec<Item>>,
     focus: usize,
+    moved: Moved,
     undo: Undo,
 }
 
@@ -98,6 +104,10 @@ pub struct StatusItemsView {
     texts: Texts,
     /// The shown item a finger has taken along by its grip.
     drag: Option<Drag>,
+    /// Where the region of the screen drawn last began, as the list keeps it:
+    /// its rows are in screen pixels, a redraw area is asked for in the
+    /// region's.
+    origin: (i32, i32),
 }
 
 /// A finger on a grip: its contact, the item's place and where it would land.
@@ -127,6 +137,7 @@ impl StatusItemsView {
             title,
             texts,
             drag: None,
+            origin: (0, 0),
         };
         let items = view.build()?;
         view.list.replace(items);
@@ -198,7 +209,7 @@ impl StatusItemsView {
     /// [`Error::NoMemory`]; the view is as it was.
     pub fn step(&mut self, input: &Input<'_>) -> Result<Step, Error> {
         let pending = self.prepare(input)?;
-        Ok(self.commit(pending))
+        Ok(self.commit(pending).0)
     }
 
     /// The model is changed as `input` says and the new rows are made, but
@@ -211,10 +222,11 @@ impl StatusItemsView {
         };
         let made = self.apply(input);
         match made {
-            Ok((step, items)) => Ok(Pending {
+            Ok((step, items, moved)) => Ok(Pending {
                 step,
                 items,
                 focus: self.list.focus(),
+                moved,
                 undo,
             }),
             Err(error) => {
@@ -224,9 +236,12 @@ impl StatusItemsView {
         }
     }
 
-    fn apply(&mut self, input: &Input<'_>) -> Result<(Step, Option<Vec<Item>>), Error> {
+    /// The step `input` makes, the rows made new and where the focus alone
+    /// moved.
+    fn apply(&mut self, input: &Input<'_>) -> Result<(Step, Option<Vec<Item>>, Moved), Error> {
+        let mut moved = None;
         let step = match *input {
-            Input::Action { action, .. } => self.action(input, action)?,
+            Input::Action { action, .. } => self.action(input, action, &mut moved)?,
             Input::Gesture { kind, .. } => self.gesture(input, kind)?,
             Input::Pointer {
                 position,
@@ -238,17 +253,18 @@ impl StatusItemsView {
         };
         let items = match step {
             Step::Ignored | Step::Taken => None,
+            _ if moved.is_some() => None,
             _ => Some(self.build()?),
         };
-        Ok((step, items))
+        Ok((step, items, moved))
     }
 
-    fn commit(&mut self, pending: Pending) -> Step {
+    fn commit(&mut self, pending: Pending) -> (Step, Moved) {
         if let Some(items) = pending.items {
             self.list.replace(items);
             self.list.set_focus(pending.focus);
         }
-        pending.step
+        (pending.step, pending.moved)
     }
 
     fn undo(&mut self, undo: Undo) {
@@ -256,20 +272,35 @@ impl StatusItemsView {
         self.list.set_focus(undo.focus);
     }
 
-    fn action(&mut self, input: &Input<'_>, action: &str) -> Result<Step, Error> {
+    /// An action of the buttons; `moved` is set where the focus alone moved.
+    fn action(
+        &mut self,
+        input: &Input<'_>,
+        action: &str,
+        moved: &mut Moved,
+    ) -> Result<Step, Error> {
         let focus = self.list.focus();
+        let held = self.chooser.moving();
         match self.chooser.action(action, focus, true)? {
             Outcome::Changed(to) => {
                 self.list.set_focus(to);
                 return Ok(Step::Changed(self.chooser.value()?));
             }
+            // Still held: it is at the end of the shown ones and stays.
+            Outcome::Redraw if held && self.chooser.moving() => return Ok(Step::Taken),
             Outcome::Redraw => return Ok(Step::Redraw),
             Outcome::Ignored => {}
         }
         // Not the chooser's: the list moves its focus.
         match self.list.decide(input) {
+            // At the end of the list: nothing to draw.
+            ItemStep::Focus(to) if to == focus => Ok(Step::Taken),
             ItemStep::Focus(to) => {
                 self.list.set_focus(to);
+                // The rows tell an item that is held by the focus.
+                if !held {
+                    *moved = Some((focus, to));
+                }
                 Ok(Step::Redraw)
             }
             _ => Ok(Step::Ignored),
@@ -389,12 +420,21 @@ impl StatusItemsView {
         setting: &str,
         input: &Input<'_>,
     ) -> Result<Handled, Error> {
-        let Some(step) = self.run(input, |step| Self::send(host, setting, step))? else {
+        let Some((step, moved)) = self.run(input, |step| Self::send(host, setting, step))? else {
             return Ok(Handled::No);
         };
-        if !matches!(step, Step::Header(_) | Step::Taken) {
-            let mut scratch = [0; 64];
-            CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+        match (step, moved) {
+            (Step::Header(_) | Step::Taken, _) => {}
+            // The two rows alone, as the list draws a focus step.
+            (_, Some((from, to))) => crate::list::redraw_areas(
+                host,
+                self.origin,
+                [self.list.rect_of(from), self.list.rect_of(to)],
+            )?,
+            _ => {
+                let mut scratch = [0; 64];
+                CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+            }
         }
         Ok(Handled::Yes)
     }
@@ -402,12 +442,12 @@ impl StatusItemsView {
     /// As [`Self::step`], with the host's part (`send`) done before the rows
     /// replace the old ones: what the host refuses leaves the model, the
     /// rows and the setting as they were. `None` where the view did not take
-    /// the input.
+    /// the input; with the step, where the focus alone moved.
     fn run(
         &mut self,
         input: &Input<'_>,
         send: impl FnOnce(&Step) -> Result<(), Error>,
-    ) -> Result<Option<Step>, Error> {
+    ) -> Result<Option<(Step, Moved)>, Error> {
         let pending = self.prepare(input)?;
         if matches!(pending.step, Step::Ignored) {
             return Ok(None);
@@ -451,7 +491,12 @@ impl StatusItemsView {
         self.list.set_grips(if shown > 1 { shown } else { 0 });
         self.list.set_drag(self.drag.map(|d| (d.from, d.to)));
         self.list
-            .draw_with(host, frame, &self.title, true, Footer::Note(hint))
+            .draw_with(host, frame, &self.title, true, Footer::Note(hint))?;
+        // The list keeps its rows of a screen only: as it does, the origin.
+        if matches!(frame.purpose, DrawPurpose::Screen) {
+            self.origin = (frame.rect.x, frame.rect.y);
+        }
+        Ok(())
     }
 }
 
