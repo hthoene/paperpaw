@@ -32,7 +32,7 @@ use crate::native_links::{DocRef, PageLink, Returns};
 use crate::native_marks::Span;
 use crate::native_pages;
 use crate::native_place::Progress;
-use crate::native_selection::live::{At, Live, Move, Side, Went, lead_of};
+use crate::native_selection::live::{At, Live, Move, Pages, Side, Went, lead_of};
 use crate::native_selection::{Mode, line_boxes};
 use crate::native_wordbox::word_at;
 
@@ -438,7 +438,13 @@ impl Marking {
             && pending.page != ctx.page_start
         {
             self.pending = None;
-            live.pages.turned(pending.forward);
+            if live.mode == Mode::Choosing {
+                // The cursor alone crossed the page: what the cap counts
+                // starts where the text begins, on this page.
+                live.pages = Pages::default();
+            } else {
+                live.pages.turned(pending.forward);
+            }
             if let Some(side) = pending.side {
                 live.land(ctx.words, side, pending.forward);
             }

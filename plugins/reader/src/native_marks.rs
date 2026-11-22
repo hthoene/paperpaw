@@ -230,7 +230,8 @@ pub fn load(
     mine: u64,
 ) -> Result<(Vec<Span>, Vec<Foreign>), Error> {
     let book = BookRef::path(path)?;
-    let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
+    // The library's calls take 1,024 bytes of input (a path of up to 512).
+    let (mut input, mut out) = (buffer(1024)?, buffer(SERVICE_BUFFER)?);
     let mut found: Vec<Span> = Vec::new();
     let mut foreign: Vec<Foreign> = Vec::new();
     let mut cursor = AnnotationCursor::start();

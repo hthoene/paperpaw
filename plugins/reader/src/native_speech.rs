@@ -424,7 +424,7 @@ impl Speaker {
             Ok(None) => return scene.say("reader.aloud.page-done"),
             Err(error) => return fail(scene, error),
         };
-        if first.0.page != scene.shown() && !matches!(scene.turn_to(first.0.page), Ok(true)) {
+        if !reach(scene, first.0.page) {
             return scene.say("reader.aloud.failed");
         }
         let now = Spoken {
@@ -524,9 +524,7 @@ impl Speaker {
             }
             return;
         };
-        if next.sentence.page != scene.shown()
-            && !matches!(scene.turn_to(next.sentence.page), Ok(true))
-        {
+        if !reach(scene, next.sentence.page) {
             // The page is not where it was meant to be: the layout changed.
             self.aloud = Some(aloud);
             return self.pause(scene, true);
@@ -539,6 +537,28 @@ impl Speaker {
         });
         mark(scene, options, &next.sentence);
     }
+}
+
+/// Turns the pages on, one at a time as Beta 3 did, until the page on show
+/// starts at `target`: a sentence may start pages on, past pages that hold
+/// only the words carried over or a picture (as [`following`] passes them).
+/// Whether it is on show; a page that will not turn, or a `target` that is
+/// no page's start, stops it.
+fn reach<S: Scene>(scene: &mut S, target: Place) -> bool {
+    for _ in 0..=MAX_SKIPS {
+        let shown = scene.shown();
+        if shown == target {
+            return true;
+        }
+        let end = match scene.with_page(shown, place) {
+            Ok((_, end)) if end <= target => end,
+            _ => return false,
+        };
+        if !matches!(scene.turn_to(end), Ok(true)) {
+            return false;
+        }
+    }
+    scene.shown() == target
 }
 
 /// Underlines `sentence` where the setting says so.

@@ -3,7 +3,7 @@
 //! report and the status lines carry once the count is complete.
 
 use paperpaw_sdk::document::Locator;
-use paperpaw_sdk::native::device::{Device, DeviceClass};
+use paperpaw_sdk::native::device::DeviceClass;
 use paperpaw_sdk::native::files::Files;
 use paperpaw_sdk::native::fonts::{Font, FontRole};
 use paperpaw_sdk::native::storage::{DataStorage, Root};
@@ -117,7 +117,7 @@ impl Open {
     /// The device's memory class, asked once (none where the host does not
     /// tell: the pace of a small device).
     fn device_class(&mut self, host: &Host<'_>) -> Option<DeviceClass> {
-        *self.count.class.get_or_insert_with(|| read_class(host))
+        *self.count.class.get_or_insert_with(|| native_index::device_class(host))
     }
 
     /// The book's edition for the name of its index, its file and the packs
@@ -245,14 +245,6 @@ impl View {
             open.ensure_counter(host, &setup);
         }
     }
-}
-
-/// The memory class `core.device` tells.
-fn read_class(host: &Host<'_>) -> Option<DeviceClass> {
-    let device = Device::open(host).ok()?;
-    let (mut input, mut out) = (buffer(256).ok()?, buffer(1024).ok()?);
-    let identity = device.device(host, &mut input, &mut out).ok()?;
-    Some(identity.class())
 }
 
 /// The size and time of the book's file on the card.

@@ -55,9 +55,9 @@ pub use pictures::{AFTER_MS as PICTURES_AFTER_MS, KEY as PICTURES_KEY};
 /// Most pages laid out to find the page before one.
 pub const BACK_LIMIT: usize = 4096;
 
-/// The progress of a book, where it opens and the progress stored with that
-/// place.
-type Beginning = (Option<Progress>, (u32, u32), u32);
+/// The progress of a book, where it opens, the progress stored with that
+/// place, and whether the saved place could not be read (held).
+type Beginning = (Option<Progress>, (u32, u32), u32, bool);
 
 /// What the screen shows.
 #[derive(Debug)]
@@ -140,6 +140,9 @@ struct Open {
     saved_at: Option<u64>,
     /// The page on show is not the place saved.
     unsaved: bool,
+    /// The place saved could not be read when the book opened (Beta 3's
+    /// `held`): it is not written over by the place read on.
+    held: bool,
     /// The last input turned the page, not yet told to the plugin.
     turned: bool,
     /// The pictures of the page on show: drawn a frame after its text (#252).
@@ -223,7 +226,8 @@ impl View {
         let root = found.root();
         let asked = count::Asked::for_book(host, &found.path);
         let state = {
-            let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
+            // The request carries the path (up to 512 bytes) and its options.
+            let (mut input, mut out) = (buffer(1024)?, buffer(4096)?);
             let colour =
                 snapshot::capture_snapshot(host).is_ok_and(|display| display.display_is_colour());
             let book = open_request(&found.path, root, (publisher_styles(host)?, colour));
@@ -326,7 +330,7 @@ impl View {
         // The place the hand-over names, if the book has it; else the place
         // saved last time; else the start (a page number needs the page index:
         // `PORTING-7.md`).
-        let (progress, at, stored_ppm) = Self::place_and_progress(
+        let (progress, at, stored_ppm, held) = Self::place_and_progress(
             host,
             (docs, library),
             (&mut found, id, (sections, conversion)),
@@ -351,6 +355,7 @@ impl View {
             trail: Trail::new(),
             root: root_code(root),
             unsaved: native_open::names_place(|k| found.get(k), sections),
+            held,
             path: found.path,
             conversion,
             progress,
@@ -412,14 +417,14 @@ impl View {
         // A note opened at a heading (`reader.anchor`): there.
         found.place_anchor(host, docs, id)?;
         let progress = Progress::read(host, docs, id, sections, (input, out))?;
-        let (at, stored) = Self::starting_place(
+        let (at, stored, held) = Self::starting_place(
             host,
             library,
             found,
             (sections, conversion, progress.as_ref()),
             out,
         )?;
-        Ok((progress, at, stored))
+        Ok((progress, at, stored, held))
     }
 
     /// The highlights of the book; a book the library does not know has none,
@@ -446,33 +451,37 @@ impl View {
         found: &Handover,
         (sections, conversion, progress): (u32, u64, Option<&Progress>),
         out: &mut [u8],
-    ) -> Result<((u32, u32), u32), Error> {
+    ) -> Result<((u32, u32), u32, bool), Error> {
         Ok(
             match native_open::opening(|k| found.get(k), |p: Place| p.section < sections) {
-                Start::At(place) => ((place.section, place.offset), 0),
+                Start::At(place) => ((place.section, place.offset), 0, false),
                 Start::Saved => {
+                    let Some(library) = library else {
+                        return Ok(((0, 0), 0, false));
+                    };
                     // The library's calls take 1,024 bytes of input.
                     let mut ask = buffer(1024)?;
-                    let stored = library.map(|library| {
-                        native_place::saved(
-                            host,
-                            library,
-                            &found.path,
-                            (sections, conversion),
-                            (&mut ask, out),
-                        )
-                    });
+                    let Ok(stored) = native_place::saved(
+                        host,
+                        library,
+                        &found.path,
+                        (sections, conversion),
+                        (&mut ask, out),
+                    ) else {
+                        // There but unreadable: the book opens at its start
+                        // and the place is held, not written over.
+                        return Ok(((0, 0), 0, true));
+                    };
                     // A place of another conversion is found again by its
                     // progress; the file stays as it is until the next save.
-                    let at = stored.and_then(|s| {
-                        s.at.or_else(|| {
-                            s.other
-                                .and_then(|other| native_place::relocate(other, s.ppm, progress))
-                        })
+                    let at = stored.at.or_else(|| {
+                        stored
+                            .other
+                            .and_then(|other| native_place::relocate(other, stored.ppm, progress))
                     });
-                    (at.unwrap_or((0, 0)), stored.map_or(0, |s| s.ppm))
+                    (at.unwrap_or((0, 0)), stored.ppm, false)
                 }
-                _ => ((0, 0), 0),
+                _ => ((0, 0), 0, false),
             },
         )
     }
@@ -524,6 +533,10 @@ impl View {
             open.trail.clear();
             open.pictures = pictures::Pass::Whole;
             if let Ok(setup) = open.settings.setup(host) {
+                // The page starts at the start of its first line in the new
+                // layout, as Beta 3's `relayout`: no part of a line at the top,
+                // and a start the new page count knows.
+                open.at = open.line_start(host, docs, &setup, open.at).unwrap_or(open.at);
                 open.ensure_counter(host, &setup);
             }
             open.announce(host, docs);
@@ -837,6 +850,7 @@ impl View {
         // The document is given back once: the body that holds it goes with it.
         match core::mem::replace(&mut self.body, Body::Message("reader.no-book")) {
             Body::Open(mut open) => {
+                open.end_zoom(host);
                 open.save(host, library, When::Closing);
                 Self::forget(host, docs, open.id);
             }
@@ -1016,7 +1030,9 @@ impl Open {
         if to == self.at || to.0 >= self.sections {
             return Ok(());
         }
-        self.trail.push(self.at)?;
+        // The page before a chapter's start is the last of the chapter before,
+        // not the page jumped from (Beta 3's `show` kept no history over a jump).
+        self.trail.clear();
         self.at = to;
         self.page = None;
         self.unsaved = true;
@@ -1050,6 +1066,14 @@ impl Open {
         let (true, Some(library)) = (self.unsaved, library) else {
             return;
         };
+        if self.held {
+            // The place that could not be read stays; that this reading is
+            // not kept is said once, as a refused write is.
+            if !self.said {
+                self.said = self.say_not_saved(host, "reader.not-saved-plain", when == When::Closing);
+            }
+            return;
+        }
         let now = clock::micros(host).ok();
         let due = when != When::Turn
             || match (self.saved_at, now) {
@@ -1218,7 +1242,7 @@ impl Open {
             &self.words,
             &self.path,
             &self.title,
-            "",
+            &self.language,
             area,
         )
         .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages))
@@ -1246,7 +1270,7 @@ impl Open {
             &[],
             &self.path,
             &self.title,
-            "",
+            &self.language,
             area,
         )
         .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
@@ -1393,6 +1417,7 @@ mod menu_bar;
 mod notes;
 mod pictures;
 mod preparing;
+pub(crate) use preparing::failed_message;
 mod ribbon;
 mod script_hint;
 mod setup;

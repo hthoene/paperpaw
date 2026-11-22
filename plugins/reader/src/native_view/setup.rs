@@ -271,10 +271,6 @@ fn text_of(host: &Host<'_>, reading: Reading) -> Result<Reading, Error> {
 }
 
 impl Setup {
-    pub(super) fn read(host: &Host<'_>) -> Result<Self, Error> {
-        Self::read_on(host, snapshot::capture_snapshot(host)?)
-    }
-
     /// The setup of the settings now on `display`.
     // Out of line: a Setup is large, and its copies in the callers' frames made
     // the frames of `open` and `screen_shown` pass the limit of 2,048 bytes.
