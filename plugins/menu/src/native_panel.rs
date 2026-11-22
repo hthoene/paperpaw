@@ -166,6 +166,8 @@ pub struct Layout {
     pub region: Rect,
     /// The bar that turns pages, if there are pages.
     pub pager: Option<Rect>,
+    /// Laid out right to left: the controls of a row run from the right.
+    pub rtl: bool,
 }
 
 /// The text of a button for `row`: its label, the badge after it.
@@ -532,6 +534,7 @@ pub fn layout(lines: &[Line], g: &Geometry) -> Result<Layout, Error> {
         rows: rows_out,
         region,
         pager,
+        rtl: g.rtl,
     })
 }
 

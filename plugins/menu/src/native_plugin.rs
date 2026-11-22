@@ -17,7 +17,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input, InputGestureKind},
-        commands::{CommandSender, RedrawMode},
+        commands::{CommandSender, PreviewSetting, RedrawMode},
         events::{Event, Incoming, kinds},
         formatting::Arg,
         registrations,
@@ -55,8 +55,8 @@ struct ListView {
     /// The settings among them.
     infos: Vec<SettingInfo>,
     list: ItemList,
-    /// The number being changed with the buttons: its row.
-    editing: Option<usize>,
+    /// The number being changed with the buttons.
+    editing: Option<Editing>,
     /// The focus is shown: always with buttons, on touch screens once
     /// buttons are used (a tap needs no focus).
     keys: bool,
@@ -71,6 +71,18 @@ impl ListView {
     fn info(&self, key: &str) -> Option<&SettingInfo> {
         self.infos.iter().find(|i| i.key == key)
     }
+}
+
+/// A number changed with the buttons, as Beta 3's `NumberEdit`: shown at once
+/// (a preview), kept with *Select*, the value before again with *Back*.
+#[derive(Clone, Copy, Debug)]
+struct Editing {
+    /// Its row.
+    row: usize,
+    /// The value kept when it began.
+    before: i64,
+    /// The value shown.
+    now: i64,
 }
 
 /// The interface-7 menu plugin.
@@ -138,6 +150,10 @@ impl Plugin for NativeMenu {
                 ..
             } => self.shown(host, instance, last_input),
             Event::ScreenClosed { instance, .. } => {
+                // A number shown but not kept goes back to the value kept.
+                if self.screens.get(instance).is_some_and(|v| v.editing.is_some()) {
+                    CommandSender::new(host, &mut [0; 64]).end_preview().ok();
+                }
                 self.screens.close(instance);
                 self.panels.close(instance);
                 self.bars.close(instance);
@@ -210,10 +226,15 @@ impl Plugin for NativeMenu {
             CommandSender::new(host, &mut scratch).back()?;
             return Ok(Handled::Yes);
         }
-        if view.editing.is_some()
-            && let Some(handled) = Self::edit_input(host, view, &input)?
-        {
-            return Ok(handled);
+        if view.editing.is_some() {
+            if let Some(handled) = Self::edit_input(host, view, &input)? {
+                return Ok(handled);
+            }
+            // A tap elsewhere leaves the number as it was kept, as Beta 3's
+            // `NumberEdit::leave`; the tap goes on to what it hit.
+            if matches!(input, Input::Gesture { .. } | Input::Pointer { .. }) {
+                Self::end_edit(host, view, None)?;
+            }
         }
         // The first press of a button shows where the focus is.
         if !view.keys && is_move(&input) {
@@ -456,7 +477,8 @@ impl NativeMenu {
         let mut reader = Reader::open(host)?;
         let made = Self::read(&mut reader, view);
         let (rows, infos) = reader.finish(made)?;
-        let items = Self::items(host, &rows, &infos, view.editing, view.touch)?;
+        let shown = view.editing.map(|e| (e.row, e.now));
+        let items = Self::items(host, &rows, &infos, shown, view.touch)?;
         let focus = view.list.focus();
         let first = model::first_choosable(&rows);
         view.rows = rows;
@@ -489,13 +511,13 @@ impl NativeMenu {
         Ok((rows, infos))
     }
 
-    /// The items for `rows`: a number being changed shows its value between
-    /// arrows.
+    /// The items for `rows`: a number being changed (`editing`: its row and
+    /// the value shown) shows that value between arrows.
     fn items(
         host: &Host<'_>,
         rows: &[Row],
         infos: &[SettingInfo],
-        editing: Option<usize>,
+        editing: Option<(usize, i64)>,
         touch: bool,
     ) -> Result<Vec<Item>, Error> {
         let mut messages = Messages::new()?;
@@ -513,16 +535,21 @@ impl NativeMenu {
             let info = infos.iter().find(|i| i.key == row.item);
             let value = match (row.kind, info) {
                 (Kind::Submenu, _) => copy("›")?,
-                (Kind::Setting, Some(info)) => {
-                    let text = value_text(info, &on, &off, &mut |key, count| {
-                        say(&mut messages, host, key, count)
-                    })?;
-                    if editing == Some(index) {
+                (Kind::Setting, Some(info)) => match editing {
+                    Some((row, now)) if row == index => {
+                        let shown = SettingInfo {
+                            value: Some(Value::Int(now)),
+                            ..info.clone()
+                        };
+                        let text = value_text(&shown, &on, &off, &mut |key, count| {
+                            say(&mut messages, host, key, count)
+                        })?;
                         concat(&["‹ ", &text, " ›"])?
-                    } else {
-                        text
                     }
-                }
+                    _ => value_text(info, &on, &off, &mut |key, count| {
+                        say(&mut messages, host, key, count)
+                    })?,
+                },
                 _ if row.checked() => copy(&on)?,
                 _ => copy(&row.badge)?,
             };
@@ -658,12 +685,20 @@ impl NativeMenu {
             }
             Act::Step => self.step(host, token, index, 1),
             Act::StartNumber => {
+                let Some(Value::Int(before)) = info.value else {
+                    return Ok(());
+                };
                 let Some(view) = self.screens.top(token) else {
                     return Ok(());
                 };
-                let items = Self::items(host, &view.rows, &view.infos, Some(index), view.touch)?;
+                let items =
+                    Self::items(host, &view.rows, &view.infos, Some((index, before)), view.touch)?;
                 Self::redraw(host)?;
-                view.editing = Some(index);
+                view.editing = Some(Editing {
+                    row: index,
+                    before,
+                    now: before,
+                });
                 view.list.replace(items);
                 Ok(())
             }
@@ -695,8 +730,11 @@ impl NativeMenu {
         commands.queue_redraw(RedrawMode::Partial)
     }
 
-    /// The buttons while a number is being changed: left/right (up/down,
-    /// pages) change it at once, confirm and back end it.
+    /// The buttons while a number is being changed, as in Beta 3 and the
+    /// settings: right and up raise it, left and down lower it, each step
+    /// shown at once and not yet kept; *Select* keeps it, *Back* goes back to
+    /// the value before. The state changes only once what can be refused went
+    /// through.
     fn edit_input(
         host: &Host<'_>,
         view: &mut ListView,
@@ -706,31 +744,63 @@ impl NativeMenu {
             return Ok(None);
         };
         let direction = match action {
-            "core.right" | "core.down" | "core.next" | "core.next-page" => 1,
-            "core.left" | "core.up" | "core.previous" | "core.prev-page" => -1,
+            "core.right" | "core.up" | "core.next" | "core.next-page" => 1,
+            "core.left" | "core.down" | "core.previous" | "core.prev-page" => -1,
             "core.confirm" | "core.back" => 0,
             _ => return Ok(None),
         };
-        let Some(row) = view.editing else {
+        let Some(editing) = view.editing else {
+            return Ok(None);
+        };
+        let Some(info) = view.rows.get(editing.row).and_then(|r| view.info(&r.item)) else {
+            // Its row went (the menu changed): nothing is kept.
+            Self::end_edit(host, view, None)?;
             return Ok(None);
         };
         if direction == 0 {
-            let items = Self::items(host, &view.rows, &view.infos, None, view.touch)?;
-            Self::redraw(host)?;
-            view.editing = None;
-            view.list.replace(items);
+            let kept = (action == "core.confirm" && editing.now != editing.before)
+                .then(|| copy(&info.key))
+                .transpose()?;
+            Self::end_edit(host, view, kept.as_deref().map(|key| (key, editing.now)))?;
             return Ok(Some(Handled::Yes));
         }
-        let Some(info) = view.rows.get(row).and_then(|r| view.info(&r.item)) else {
-            view.editing = None;
-            return Ok(None);
+        let shown = SettingInfo {
+            value: Some(Value::Int(editing.now)),
+            ..info.clone()
         };
-        if let Some(Value::Int(next)) = next_value(host, info, direction)? {
-            let mut scratch = buffer(256)?;
-            CommandSender::new(host, &mut scratch)
-                .set_setting(&info.key, SettingValue::Int(next))?;
-        }
+        let Some(Value::Int(next)) = next_value(host, &shown, direction)? else {
+            return Ok(Some(Handled::Yes));
+        };
+        let items = Self::items(host, &view.rows, &view.infos, Some((editing.row, next)), view.touch)?;
+        let (mut scratch, mut values) = (buffer(1024)?, buffer(64)?);
+        CommandSender::new(host, &mut scratch).preview_settings(
+            &[PreviewSetting::new(&shown.key, SettingValue::Int(next))],
+            &mut values,
+        )?;
+        Self::redraw(host)?;
+        view.editing = Some(Editing { now: next, ..editing });
+        view.list.replace(items);
         Ok(Some(Handled::Yes))
+    }
+
+    /// Ends changing a number: the value `kept` is kept (its key and value),
+    /// the preview ends either way, and the rows show the values kept.
+    fn end_edit(
+        host: &Host<'_>,
+        view: &mut ListView,
+        kept: Option<(&str, i64)>,
+    ) -> Result<(), Error> {
+        let items = Self::items(host, &view.rows, &view.infos, None, view.touch)?;
+        let mut scratch = buffer(1024)?;
+        let mut commands = CommandSender::new(host, &mut scratch);
+        if let Some((key, value)) = kept {
+            commands.set_setting(key, SettingValue::Int(value))?;
+        }
+        commands.end_preview()?;
+        Self::redraw(host)?;
+        view.editing = None;
+        view.list.replace(items);
+        Ok(())
     }
 }
 
