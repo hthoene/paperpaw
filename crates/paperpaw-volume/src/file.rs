@@ -7,6 +7,10 @@ use crate::io::{IoBase, Read, Seek, SeekFrom, Write};
 use crate::time::{Date, DateTime, TimeProvider};
 
 const MAX_FILE_SIZE: u32 = u32::MAX;
+// Modified for PaperPaw: added. The bytes of a directory at most: FAT numbers its entries in 16
+// bits (65,536 of them). Its size is not in an entry; its chain says it, and a chain that runs in
+// a loop has no end.
+const MAX_DIR_SIZE: u32 = 65_536 * 32;
 
 /// A FAT filesystem file object used for reading and writing data.
 ///
@@ -440,6 +444,11 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
         let Some(current_cluster) = current_cluster_opt else {
             return Ok(0);
         };
+        // Modified for PaperPaw: a directory whose chain goes on past its largest size is damaged
+        // (one that ran in a loop was read for ever).
+        if self.is_dir() && self.offset >= MAX_DIR_SIZE {
+            return Err(Error::CorruptedFileSystem);
+        }
         let offset_in_cluster = self.offset % cluster_size;
         let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
         let bytes_left_in_file = self.bytes_left_in_file().unwrap_or(bytes_left_in_cluster);
@@ -495,6 +504,10 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
         // Exit early if we are going to write no data
         if write_size == 0 {
             return Ok(0);
+        }
+        // Modified for PaperPaw: a directory does not grow past its largest size.
+        if self.is_dir() && self.offset >= MAX_DIR_SIZE {
+            return Err(Error::NotEnoughSpace);
         }
         // Modified for PaperPaw: the volume is not marked dirty for a file's data (see
         // `FsIoAdapter::write`).

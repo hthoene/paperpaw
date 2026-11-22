@@ -1,4 +1,5 @@
-//! Mutations of corrupt chains must not over-report free clusters.
+//! Damaged chains and cluster numbers: what reading and changing them does, and that freeing
+//! them does not over-report free clusters.
 use super::*;
 use crate::format::{FormatVolumeOptions, format_volume};
 use crate::io::StdIoWrapper;
@@ -188,4 +189,70 @@ fn a_cluster_number_out_of_the_volume_is_an_error_not_a_place_on_the_disk() {
         ));
         assert_eq!(fat_bytes(&fs), fat, "the FAT stays as it was");
     }
+}
+
+/// Every slot of `cluster` that ends a directory (a zero) made an entry of an empty file: the
+/// directory goes on past it.
+fn fill_with_entries(fs: &TestFs, cluster: u32) {
+    let mut entry = [0u8; 32];
+    entry[..11].copy_from_slice(b"FILLER  TXT");
+    entry[11] = 0x20;
+    let begin = fs.offset_from_cluster(cluster).unwrap();
+    let mut disk = fs.disk.borrow_mut();
+    for at in (begin..begin + u64::from(fs.cluster_size())).step_by(32) {
+        let mut first = [0u8; 1];
+        disk.seek(SeekFrom::Start(at)).unwrap();
+        disk.read_exact(&mut first).unwrap();
+        if first[0] == 0 {
+            disk.seek(SeekFrom::Start(at)).unwrap();
+            disk.write_all(&entry).unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_directory_is_read_and_grown_to_its_largest_size_only() {
+    let fs = filesystem();
+    let root = fs.root_dir();
+    let first = |name: &str| {
+        root.iter()
+            .map(Result::unwrap)
+            .find(|e| e.file_name() == name)
+            .and_then(|e| e.first_cluster())
+            .unwrap()
+    };
+    // Two clusters linked to one another, full of entries: a chain that runs in a loop.
+    root.create_dir("loop").unwrap();
+    let c1 = first("loop");
+    let c2 = c1 + 1;
+    set_entry(&fs, c1, c2 as u16);
+    set_entry(&fs, c2, c1 as u16);
+    fill_with_entries(&fs, c1);
+    fill_with_entries(&fs, c2);
+    let dir = root.open_dir("loop").unwrap();
+    let read: Vec<_> = dir.iter().take(70_000).collect();
+    // 65,536 entries, then the error.
+    assert_eq!(read.len(), 65_537);
+    assert!(matches!(read.last(), Some(Err(Error::CorruptedFileSystem))));
+    // A chain of 2 MiB, full: no entry more fits.
+    root.create_dir("full").unwrap();
+    let start = first("full");
+    let clusters = 65_536 * 32 / fs.cluster_size();
+    for n in start..start + clusters {
+        let next = if n + 1 < start + clusters {
+            n + 1
+        } else {
+            0xFFFF
+        };
+        set_entry(&fs, n, next as u16);
+        fill_with_entries(&fs, n);
+    }
+    let dir = root.open_dir("full").unwrap();
+    let before = fs.cluster_changes();
+    assert!(matches!(
+        dir.create_file("one more.txt"),
+        Err(Error::NotEnoughSpace)
+    ));
+    assert_eq!(fs.cluster_changes(), before, "no cluster was taken");
+    assert_eq!(dir.iter().count(), 65_536);
 }
