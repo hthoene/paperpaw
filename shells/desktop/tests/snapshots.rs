@@ -491,6 +491,18 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // The look's page in German with its first row, a number, focused: on the
+    // X4 (buttons) it shows its value between round − and +, as Beta 3 did
+    // (#472).
+    Case {
+        name: "x4-settings-look-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:core.settings,wait:300,open:settings.group:id=core.group.look,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     // Buttons in slots of a touch row: the footnote's side by side, the
     // skim screen's four and the transfer's one below the other.
     Case {

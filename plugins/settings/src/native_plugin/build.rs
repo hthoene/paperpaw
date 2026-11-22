@@ -239,8 +239,11 @@ impl GroupView {
                 {
                     row.on = Some(*on);
                 }
-                if self.touch && entry.setting.kind == Kind::Int && entry.detail.editor_kind == 0 {
+                if entry.setting.kind == Kind::Int && entry.detail.editor_kind == 0 {
                     match self.track_of(entry, editing) {
+                        // Without touch, Left and Right change it: its − and
+                        // + show with the focus, as in Beta 3.
+                        _ if !self.touch => item = item.with_focus_steps()?,
                         Some(track) => item = item.with_track(track)?,
                         None => {
                             if let Item::Row(row) = &mut item {

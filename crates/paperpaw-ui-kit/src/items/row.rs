@@ -80,9 +80,19 @@ pub(super) fn draw_row_as(
         cols = Rect::new(band.x, band.y, band.width.saturating_sub(room), band.height);
     }
     let mut noted = band;
-    if row.stepper {
-        let (free, (minus, plus)) = draw_stepper(paint, (font, style), band, row, ink)?;
-        cols = free;
+    let stepper = row.steps_shown(focused);
+    if stepper {
+        // Where the value has a line of its own under the title, the buttons
+        // take that line, as Beta 3 put them under a long title.
+        let at = if below {
+            last_line(font, style, &mut cols)?
+        } else {
+            band
+        };
+        let (free, (minus, plus)) = draw_stepper(paint, (font, style), at, row, ink)?;
+        if !below {
+            cols = free;
+        }
         let track = match row.track() {
             Some(track) => {
                 // The track in the row under the buttons, and the note under it.
@@ -93,17 +103,10 @@ pub(super) fn draw_row_as(
         };
         buttons = Some((minus, plus, track));
     }
-    let mut value = shown_value(row);
+    let mut value = shown_value(row, stepper);
     if !value.is_empty() && below {
         // The value on a line of its own under the title, at the right.
-        let line = crate::geometry::line_px(font, style.text)?.min(cols.height);
-        let strip = Rect::new(
-            cols.x,
-            cols.y.saturating_add(cols.height - line),
-            cols.width,
-            line,
-        );
-        cols.height -= line;
+        let strip = last_line(font, style, &mut cols)?;
         columns(paint, font, style, strip, "", value, ink)?;
         value = "";
     }
@@ -390,6 +393,18 @@ pub(super) fn title_lines(
     Ok((lines, band.saturating_add(extra), below))
 }
 
+/// Takes the last text line off `cols`: where a value under its title goes.
+fn last_line(font: &Font<'_>, style: &Style, cols: &mut Rect) -> Result<Rect, Error> {
+    let line = crate::geometry::line_px(font, style.text)?.min(cols.height);
+    cols.height -= line;
+    Ok(Rect::new(
+        cols.x,
+        cols.y.saturating_add(cols.height),
+        cols.width,
+        line,
+    ))
+}
+
 /// How a row that keeps its title whole (`wrap_value`) lays out its title and
 /// value, as Beta 3's settings did: side by side where both fit; else the title
 /// wrapped beside the value where the value takes at most 60 % of the room and
@@ -416,10 +431,20 @@ fn kept_title(
     };
     let room = f32::from(width.saturating_sub(lead).saturating_sub(control));
     let room = (room - 3.0 * f32::from(style.margin)).max(1.0);
-    let value = shown_value(row);
-    let value_width = font.measure_text(style.text, value)?;
+    let value = shown_value(row, row.stepper);
     let most = title_most(row);
     let measure = |line: &str| font.measure_text(style.text, line);
+    if row.focus_steps() {
+        // A number keeps the room of the − and + it shows with the focus: its
+        // title beside them, or across the row with them under it.
+        let band = Rect::new(0, 0, width.saturating_sub(lead), style.row);
+        let steps = f32::from(stepper_width(font, style, band, value)?);
+        if font.measure_text(style.text, &row.title)? <= room - steps {
+            return Ok((Vec::new(), false));
+        }
+        return Ok((wrap_title(measure, &row.title, room, most)?, true));
+    }
+    let value_width = font.measure_text(style.text, value)?;
     let beside = room - value_width;
     if font.measure_text(style.text, &row.title)? <= beside {
         return Ok((Vec::new(), false));
