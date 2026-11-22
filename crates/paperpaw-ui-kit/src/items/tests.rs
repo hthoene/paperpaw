@@ -321,6 +321,15 @@ fn a_tap_on_a_row_that_is_gone_or_on_a_faint_stepper_does_nothing() {
 }
 
 #[test]
+fn small_print_is_no_row_to_choose() {
+    let Item::Row(mut row) = Item::row("Facts", "").unwrap() else {
+        panic!("a row")
+    };
+    row.small = true;
+    assert!(!Item::Row(row).selectable());
+}
+
+#[test]
 fn replacing_keeps_the_focus_near_where_it_was() {
     let mut list = ItemList::new(items("hrrrr"));
     list.set_focus(4);

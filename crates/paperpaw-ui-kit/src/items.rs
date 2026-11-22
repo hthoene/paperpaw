@@ -215,10 +215,11 @@ impl Item {
         }))
     }
 
-    /// Whether focus can rest on it.
+    /// Whether focus can rest on it: a row that is not faint (`disabled`),
+    /// nor text a page reads out (`plain`), nor small print (`small`).
     #[must_use]
     pub const fn selectable(&self) -> bool {
-        matches!(self, Self::Row(row) if !row.disabled && !row.plain)
+        matches!(self, Self::Row(row) if to_choose(row))
     }
 }
 
@@ -1024,8 +1025,14 @@ pub(crate) fn item_height(
 }
 
 /// Whether a row is text a page reads out (or small print), not a row to choose.
-fn page_text(row: &RowItem) -> bool {
+const fn page_text(row: &RowItem) -> bool {
     row.plain || row.small
+}
+
+/// Whether a row is one to choose: neither faint nor text a page reads out.
+/// Only such a row takes the focus, a tap, and the look of the focus.
+const fn to_choose(row: &RowItem) -> bool {
+    !row.disabled && !page_text(row)
 }
 
 /// The lines a title of a row that shows its text whole takes at most: four for
