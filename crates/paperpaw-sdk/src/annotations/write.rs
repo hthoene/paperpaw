@@ -14,7 +14,9 @@
 //! - **Version 1 and 2** files are converted on their first write: every
 //!   row gets the 1-based place it had among the rows as its id,
 //!   `# next-id` is the row count plus 1, and the generation is 2 before
-//!   the change, 3 after it ([`next_generation`]).
+//!   the change, 3 after it ([`next_generation`]). A row kept before
+//!   conversions were (every row of version 1, one marked `?` in version 2)
+//!   stays one whose conversion is not known (`?`), never one added since.
 //! - A row is one line: tabs and line breaks of a text become spaces
 //!   ([`one_line`]), a note is cut as [`stored_note`] says, and a line over
 //!   [`LINE_MAX`] bytes is refused ([`StorageError::TooLarge`]): the reader
@@ -227,8 +229,17 @@ pub fn generation_after(info: &Info) -> u32 {
 /// # Errors
 /// [`Error::OutOfMemory`]; [`StorageError::TooLarge`] for a line over
 /// [`LINE_MAX`] bytes, or a client key over [`KEY_MAX`], and
-/// [`Error::Unreadable`] for a kind that has no letter.
+/// [`Error::Unreadable`] for a kind that has no letter or an end XPointer
+/// without a start (the reader takes such a row for damage, so it would
+/// never be seen).
 pub fn format_row(spec: &Spec<'_>, line: &mut Vec<u8>) -> Result<(), Error> {
+    row_line(spec, false, line)
+}
+
+/// [`format_row`], the conversion written `?` where it is `unknown`: a row
+/// kept before conversions were, which must not read as one added since
+/// (in the conversion of whoever reads it, see [`super::relocate`]).
+fn row_line(spec: &Spec<'_>, unknown: bool, line: &mut Vec<u8>) -> Result<(), Error> {
     let kind = letter(spec.kind).ok_or(Error::Unreadable)?;
     if spec.key.len() > KEY_MAX || spec.key.contains(['\t', '\n', '\r']) || spec.id == 0 {
         return Err(Error::Unreadable);
@@ -236,6 +247,9 @@ pub fn format_row(spec: &Spec<'_>, line: &mut Vec<u8>) -> Result<(), Error> {
     let text = one_line(spec.text);
     let note = stored_note(spec.note);
     let (start, end) = (one_line(spec.start_xpointer), one_line(spec.end_xpointer));
+    if start.is_empty() && !end.is_empty() {
+        return Err(Error::Unreadable);
+    }
     let numbers = [
         spec.start.section,
         spec.start.offset,
@@ -250,8 +264,12 @@ pub fn format_row(spec: &Spec<'_>, line: &mut Vec<u8>) -> Result<(), Error> {
         "{kind}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t",
         numbers[0], numbers[1], numbers[2], numbers[3], spec.percent, spec.created, spec.updated
     );
-    if let Some(conversion) = spec.conversion {
-        let _ = write!(head, "{conversion:016x}");
+    match spec.conversion {
+        Some(conversion) => {
+            let _ = write!(head, "{conversion:016x}");
+        }
+        None if unknown => head.push('?'),
+        None => {}
     }
     let mut tail = String::new();
     tail.try_reserve(24).map_err(|_| Error::OutOfMemory)?;
@@ -539,7 +557,8 @@ fn merge(
         if convert {
             buffer.clear();
             let spec = converted(id, &row, &scratch);
-            format_row(&spec, &mut buffer)?;
+            let unknown = spec.conversion.is_none() && conversion_unknown(line, info.version);
+            row_line(&spec, unknown, &mut buffer)?;
             out.borrow_mut().line(&buffer)?;
         } else {
             out.borrow_mut().line(line)?;
@@ -556,6 +575,21 @@ fn merge(
     while edits.next_new(None, &mut |s| write_new(s))? {}
     out.borrow_mut().flush()?;
     Ok(generation)
+}
+
+/// Whether the row `line` of a file of `version` (1 or 2) without a
+/// conversion was kept before conversions were, its conversion not known:
+/// every row of version 1 and one of version 2 without the conversion's
+/// field or with another mark there than none (`?`). With none (an empty
+/// field) it is one added since.
+fn conversion_unknown(line: &[u8], version: u32) -> bool {
+    let tabs = line.iter().filter(|b| **b == b'\t').count();
+    version < 2
+        || tabs < 12
+        || line
+            .split(|b| *b == b'\t')
+            .nth(8)
+            .is_some_and(|conversion| !conversion.is_empty())
 }
 
 /// The row of an old file as version 3 says it.
