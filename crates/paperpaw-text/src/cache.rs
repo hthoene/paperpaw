@@ -180,11 +180,11 @@ fn read_deflated(
     bitmap.clear();
     bitmap.try_reserve_exact(found.len).ok()?;
     let end = found.start.checked_add(found.len)?;
-    let mut block = Vec::new();
+    let (mut decoder, mut block) = (Vec::new(), Vec::new());
     let mut at = found.start;
     while at < end {
         let number = at / BLOCK;
-        if !deflated.inflate(pack, number, &mut block) {
+        if !deflated.inflate(pack, number, &mut decoder, &mut block) {
             return None;
         }
         let from = at - number * BLOCK;
