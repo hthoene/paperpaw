@@ -562,10 +562,12 @@ impl ScreenDecl<'_> {
         self.policy_flags = (self.policy_flags & !(3 << 11)) | bar.bits();
         self
     }
-    /// Show no row of button hints with this screen (the sleep screen).
+    /// Show no row of button hints with this screen (the sleep screen). It
+    /// replaces an earlier [`ScreenDecl::hints`]: the host refuses bit 8 beside
+    /// a row that shows.
     #[must_use]
     pub const fn hints_hidden(mut self) -> Self {
-        self.policy_flags |= 256;
+        self.policy_flags = (self.policy_flags & !HINT_BITS) | 256;
         self
     }
     /// When the row of button hints shows with this screen (draft 38):
@@ -575,10 +577,14 @@ impl ScreenDecl<'_> {
     /// ([`ScreenPolicy::hints`](crate::native::ui::ScreenPolicy::hints)).
     #[must_use]
     pub const fn hints(mut self, hints: HintRow) -> Self {
-        self.policy_flags = (self.policy_flags & !(3 << 13)) | hints.bits();
+        self.policy_flags = (self.policy_flags & !HINT_BITS) | hints.bits();
         self
     }
 }
+
+/// The policy bits that say whether the row of button hints shows: bit 8
+/// (`hints_hidden`) and bits 13-14 (`hints`). The last call says it alone.
+const HINT_BITS: u32 = 256 | (3 << 13);
 
 /// An `action.spec` declaration with a plugin-owned callback token.
 #[derive(Debug, Clone, PartialEq, Eq)]
