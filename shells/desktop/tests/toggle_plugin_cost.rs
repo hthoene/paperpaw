@@ -12,13 +12,16 @@ use paperpaw_core::native_host::host_slot::slot_counts;
 use paperpaw_core::sdk::MemoryStorage;
 use paperpaw_emulator::{device::Device, headless::run_script, profiles};
 
+/// Moves the focus to the part with `label`: the page key to its page, then
+/// right to it (the arrow keys stay on the page, #465).
 fn focus(device: &mut Device, label: &str) {
     for _ in 0..120 {
         let parts = device.kernel.describe();
         if parts.iter().any(|p| p.focused && p.label.contains(label)) {
             return;
         }
-        run_script(device, "right").unwrap();
+        let shown = parts.iter().any(|p| p.label.contains(label));
+        run_script(device, if shown { "right" } else { "run:core.next-page" }).unwrap();
     }
     panic!("no focus on {label}");
 }

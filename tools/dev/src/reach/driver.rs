@@ -253,8 +253,9 @@ impl<'a> Driver<'a> {
 
     /// Moves the focus to the part whose text is `text` or begins so (case
     /// aside), with each button that moves it in turn (forward to the end
-    /// of a list, then back to its start), while the same screens stay
-    /// open: whether it is there.
+    /// of a list, then back to its start; an arrow key that went round a
+    /// page goes on after the page key, [`super::page_key`]), while the
+    /// same screens stay open: whether it is there.
     fn focus_on(&mut self, text: &str) -> bool {
         let text = text.to_lowercase();
         let there = |seen: &Seen| {
@@ -264,11 +265,22 @@ impl<'a> Driver<'a> {
         let mut seen = self.observe();
         let stack = seen.stack.clone();
         for mover in super::movers(&self.variant) {
+            let page = super::page_key(&self.variant, &mover);
+            // The parts the focus was on since the page last turned.
+            let mut round = HashSet::new();
             for _ in 0..TO_PRESSES {
                 if there(&seen) || seen.stack != stack {
                     break;
                 }
-                self.press(&mover, PRESS_MS);
+                let focused = seen.focused().map(|part| part.label.clone());
+                let key = match &page {
+                    Some(page) if focused.is_some_and(|label| !round.insert(label)) => {
+                        round.clear();
+                        page
+                    }
+                    _ => &mover,
+                };
+                self.press(key, PRESS_MS);
                 wait(&mut self.session.device, STEP_MS);
                 seen = self.observe();
             }
