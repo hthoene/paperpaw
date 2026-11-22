@@ -167,6 +167,9 @@ impl<'a> RequestedPlugins<'a> {
 ///
 /// Counters are absent until
 /// counted; a present counter is 1-based. Progress is in millionths.
+/// The most a progress in millionths can be: the end of the book.
+const PROGRESS_MAX_PPM: u32 = 1_000_000;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ReadingView<'a> {
@@ -254,7 +257,7 @@ impl<'a> ReadingView<'a> {
         self.chapter_left
     }
     fn validate(self) -> Result<Self, Error> {
-        if self.progress_ppm > 1_000_000
+        if self.progress_ppm > PROGRESS_MAX_PPM
             || self.page == Some(0)
             || self.pages == Some(0)
             || matches!((self.page, self.pages), (Some(p), Some(n)) if p > n)
