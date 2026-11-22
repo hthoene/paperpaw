@@ -375,6 +375,12 @@ debug = 2
 # of its list, because a scan or connection had begun meanwhile; this copy
 # tries the sync again later (patches/trouble-host, "Modified for
 # PaperPaw").
+# embassy-usb-synopsys-otg (feature `usb-drive`, through esp-hal) kept the
+# endpoints of the last USB drive allocated, so that the second drive of a
+# run panicked in `Driver::start`; this copy clears them when a driver is
+# made (patches/embassy-usb-synopsys-otg, "Modified for PaperPaw", a
+# backport of embassy's unreleased fix).
 [patch.crates-io]
 trouble-host = { path = "../../patches/trouble-host" }
+embassy-usb-synopsys-otg = { path = "../../patches/embassy-usb-synopsys-otg" }
 mbedtls-rs = { path = "../../patches/mbedtls-rs" }
