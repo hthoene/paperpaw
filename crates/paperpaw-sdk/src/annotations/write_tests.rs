@@ -232,6 +232,45 @@ fn a_row_is_one_line_and_reads_back_whole() {
     assert!(format_row(&bad, &mut Vec::new()).is_err());
 }
 
+/// An end XPointer without a start is refused: the reader would take the
+/// row for damage, and the committed annotation would never be seen.
+#[test]
+fn an_end_xpointer_without_a_start_is_refused() {
+    let mut spec = Spec::new(1, Kind::Highlight, Locator::new(1, 2), Locator::new(1, 4));
+    spec.end_xpointer = "/x";
+    assert_eq!(format_row(&spec, &mut Vec::new()), Err(Error::Unreadable));
+    spec.start_xpointer = "  ";
+    assert_eq!(format_row(&spec, &mut Vec::new()), Err(Error::Unreadable));
+    spec.start_xpointer = "/a";
+    assert!(format_row(&spec, &mut Vec::new()).is_ok());
+}
+
+/// A row kept before conversions were (every one of version 1, one marked
+/// `?` in version 2) stays one whose conversion is not known; one added
+/// since (none) stays so, and a known one keeps it.
+#[test]
+fn a_conversion_not_known_stays_not_known_when_converted() {
+    let conversions = |storage: &MemoryStorage| -> Vec<String> {
+        let all = text(storage);
+        all.lines()
+            .filter(|line| !line.starts_with("# "))
+            .map(|line| line.split('\t').nth(8).unwrap().to_string())
+            .collect()
+    };
+    let v2 = "# format 2\n\
+h\t1\t0\t1\t4\t5\t0\t0\t?\t/a\t/b\tkept before\t\n\
+h\t2\t0\t2\t4\t5\t0\t0\t\t\t\tadded since\t\n\
+h\t3\t0\t3\t4\t5\t0\t0\t00000000000000ab\t\t\tknown\t\n";
+    let v1 = "h\t1\t0\t1\t4\t5\tversion 1\tnote\n";
+    for (old, after) in [(v2, vec!["?", "", "00000000000000ab"]), (v1, vec!["?"])] {
+        let storage = MemoryStorage::new().with(&file(), old);
+        let info = try_info(&storage, &file()).unwrap();
+        rewrite(&storage, &file(), TMP, (&info, 0), &mut nothing()).unwrap();
+        assert_eq!(conversions(&storage), after, "{old}");
+        assert_eq!(annotations::load(&storage, BOOK).len(), after.len());
+    }
+}
+
 #[test]
 fn a_file_of_a_later_version_is_not_written_over() {
     let storage = MemoryStorage::new().with(&file(), "# format 9\nh\t1\n");
