@@ -24,6 +24,7 @@ use crate::header::{CODE_OFFSET, Chip, MAGIC, MAX_IMAGE_LEN};
 use crate::index::HOT_MAX;
 use crate::profile::PREFIX_SIZE;
 use crate::signature::SIGNATURE_LEN;
+use crate::stream5::MAX_PATCHES;
 
 /// The format this module reads.
 pub const FORMAT: u16 = 5;
@@ -450,6 +451,11 @@ impl Header5 {
                 .is_none_or(|end| end > self.image_len)
         {
             return Err(bad("the hot code lies outside the code or above HOT_MAX"));
+        }
+        // The relocation's cap (`Tail::check`), refused here too: from the
+        // header alone, before the whole file is read for its digest.
+        if self.patches > MAX_PATCHES {
+            return Err(bad("more patches than MAX_PATCHES"));
         }
         if self.patches > (self.image_len - self.code_at) / 2 {
             return Err(bad("more patches than the code's instructions"));

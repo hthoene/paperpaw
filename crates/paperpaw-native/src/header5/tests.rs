@@ -325,6 +325,30 @@ fn parts_that_do_not_hold_together_are_malformed() {
     }
 }
 
+/// More patches than the relocation takes are refused from the header,
+/// before the file is read for its digest, even where the code holds that
+/// many instructions.
+#[test]
+fn more_patches_than_the_relocation_takes_are_refused_from_the_header() {
+    let big = Header5 {
+        image_len: 64 * 1024,
+        ..good()
+    };
+    let at_cap = Header5 {
+        patches: MAX_PATCHES,
+        ..big
+    };
+    assert!(read(&at_cap.to_bytes(), at_cap.file_len()).is_ok());
+    let over = Header5 {
+        patches: MAX_PATCHES + 1,
+        ..big
+    };
+    assert_eq!(
+        read(&over.to_bytes(), over.file_len()),
+        Err(Refusal::Malformed("more patches than MAX_PATCHES"))
+    );
+}
+
 #[test]
 fn the_edges_that_hold_are_taken() {
     let g = good();
