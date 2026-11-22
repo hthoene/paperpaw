@@ -104,3 +104,10 @@ its choice, the language changed) keeps its focus; only a page turned to starts 
 (`Guide::commit`). The sample of the text size is prepared apart and drawn in the reading font, at
 the chosen size, as interface 6 did; before, its lines were measured in the reading font but drawn in
 the UI font.
+
+## The arrows only move the focus (#476)
+
+As in Beta 3, left and right move the focus on every page; Select on the card of a choice of two
+changes it, a tap picks a side. The port had left and right pick a side of a choice of two: on a
+device with left and right only (X4, X4 Classic, X3) that kept the focus on the language's card, and
+since #472 keeps the focus on the answer chosen there was no way on to *Next*.

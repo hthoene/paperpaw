@@ -331,12 +331,10 @@ impl Guide {
                 Act::Edit
             }
             "core.confirm" => self.choose(self.focus),
-            "core.down" | "core.next" => self.moved(layout, 1),
-            "core.up" | "core.previous" => self.moved(layout, -1),
-            "core.left" | "core.right" => {
-                let delta = if action == "core.right" { 1 } else { -1 };
-                self.sideways(layout, delta)
-            }
+            // The arrows only move the focus, as in Beta 3: on a device with
+            // left and right only, they are its way off the card (#476).
+            "core.down" | "core.right" | "core.next" => self.moved(layout, 1),
+            "core.up" | "core.left" | "core.previous" => self.moved(layout, -1),
             "core.next-page" => Act::Turn(self.page + 1),
             "core.prev-page" if self.page > 0 => Act::Turn(self.page - 1),
             "core.back" if self.page == 0 => Act::AskSkip,
@@ -360,16 +358,7 @@ impl Guide {
         }
     }
 
-    /// Left and right: on a choice of two they pick; anywhere else they move
-    /// the focus (a number is changed after Select on its card).
-    fn sideways(&self, layout: &Layout, delta: isize) -> Act {
-        if self.shown && self.focus == Target::Card && self.answer() == Answer::Two {
-            return self.pick(usize::from(delta > 0));
-        }
-        self.moved(layout, delta)
-    }
-
-    /// Chooses option `index` of a choice of two.
+    /// Chooses option `index` of a choice of two, tapped.
     fn pick(&self, index: usize) -> Act {
         match self.setting.as_ref().map(|s| &s.control) {
             Some(Control::Choice { options, at }) if options.len() == 2 => {
@@ -985,20 +974,21 @@ mod tests {
     }
 
     #[test]
-    fn two_options_are_picked_by_side_or_by_tap() {
+    fn two_options_are_picked_by_select_or_by_tap_and_the_arrows_move_on() {
         let mut g = guide(false);
         g.setting = Some(two());
         g.focus = Target::Card;
         let l = laid(&g);
         let (first, second) = l.segments.unwrap();
+        // Left and right leave the card (#476: on the X4 they are the only
+        // arrows, picking with them kept the focus there).
         assert_eq!(
             g.decide(&l, &action("core.right")),
-            Act::Set(NewValue::Text(1))
+            Act::Focus(Target::Next)
         );
         assert_eq!(
             g.decide(&l, &action("core.left")),
-            Act::Keep,
-            "already chosen"
+            Act::Focus(Target::Other)
         );
         assert_eq!(g.decide(&l, &tap(second)), Act::Set(NewValue::Text(1)));
         assert_eq!(g.decide(&l, &tap(first)), Act::Keep);
