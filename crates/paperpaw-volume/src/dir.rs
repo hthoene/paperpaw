@@ -471,7 +471,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
                     .make_room(name)?
                     .map_or(Referrer::Unknown, Referrer::NewEntry);
                 // alloc cluster for directory data
-                let cluster = self.fs.alloc_cluster(None, true, referrer)?;
+                let cluster = self.fs.alloc_cluster(None, referrer)?;
                 // create entry in parent directory
                 let sfn_entry =
                     self.create_sfn_entry(short_name, FileAttributes::DIRECTORY, Some(cluster));

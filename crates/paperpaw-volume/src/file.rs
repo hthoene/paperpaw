@@ -518,8 +518,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
                     let referrer = self
                         .current_cluster
                         .map_or(Referrer::Unknown, Referrer::Link);
-                    self.fs
-                        .alloc_cluster(self.current_cluster, true, referrer)?
+                    self.fs.alloc_cluster(self.current_cluster, referrer)?
                 } else {
                     let entry = self
                         .entry

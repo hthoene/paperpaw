@@ -13,6 +13,7 @@ use crate::file::File;
 use crate::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use crate::table::{
     ClusterIterator, FatValue, RESERVED_FAT_ENTRIES, count_free_clusters, read_fat, read_fat_flags,
+    write_fat,
 };
 use crate::time::{DefaultTimeProvider, TimeProvider};
 
@@ -871,39 +872,46 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     // Modified for PaperPaw: `referrer` added, what is to point at the cluster: said on the disk
     // before the cluster is marked taken (see `claim`).
+    //
+    // Modified for PaperPaw: a directory's cluster, zeroed before anything links it (`zero` is
+    // gone: every caller zeroed). Upstream linked it from `prev_cluster` first: the disk takes
+    // changes in the order they were made, so a cut before the zeros left the bytes the cluster
+    // held before (a removed file's) in the directory, read as entries whose clusters are other
+    // files' (removing the directory then freed them). Now the cluster is marked taken on its
+    // own, zeroed, and linked last; cut off before the link, it is taken by nothing, and the
+    // claim of its link (`Referrer::Link`) has the next mount free it.
     pub(crate) fn alloc_cluster(
         &self,
         prev_cluster: Option<u32>,
-        zero: bool,
         referrer: Referrer,
     ) -> Result<u32, Error<IO::Error>> {
         trace!("alloc_cluster");
         let hint = self.fs_info.borrow().next_free_cluster;
-        // One cluster, through `alloc_run`: linked in one write where the cluster before it
-        // lies in the same block of the FAT.
         let (cluster, _) = {
             let mut fat = self.fat_slice();
             crate::table::alloc_run(
                 &mut fat,
                 self.fat_type,
-                prev_cluster,
+                None,
                 hint,
                 self.total_clusters,
                 &self.clusters_taken,
                 1,
-                &mut |fat, first, entries, joined| {
-                    if joined {
-                        self.drop_free_claim()
-                    } else {
-                        self.claim_taking(fat, first, entries, referrer)
-                    }
-                },
+                &mut |fat, first, entries, _| self.claim_taking(fat, first, entries, referrer),
             )?
         };
-        if zero {
+        {
             let mut disk = self.disk.borrow_mut();
             disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster)))?;
             write_zeros(&mut *disk, u64::from(self.cluster_size()))?;
+        }
+        if let Some(prev) = prev_cluster {
+            write_fat(
+                &mut self.fat_slice(),
+                self.fat_type,
+                prev,
+                FatValue::Data(cluster),
+            )?;
         }
         let mut fs_info = self.fs_info.borrow_mut();
         fs_info.set_next_free_cluster(cluster + 1);
