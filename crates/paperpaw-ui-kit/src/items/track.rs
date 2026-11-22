@@ -32,12 +32,15 @@ impl Item {
 
 impl ItemList {
     /// The slider row whose track is at `position` in the last frame, and the
-    /// track.
+    /// track; `None` where that row is faint or no longer there.
     #[must_use]
     pub fn track_at(&self, position: Point) -> Option<(usize, Rect)> {
-        self.steps.iter().find_map(|&(_, _, item, track)| {
-            track.filter(|t| t.contains(position)).map(|t| (item, t))
-        })
+        self.steps
+            .iter()
+            .filter(|step| self.choosable(step.2))
+            .find_map(|&(_, _, item, track)| {
+                track.filter(|t| t.contains(position)).map(|t| (item, t))
+            })
     }
 
     /// Replaces the value text and the number of the slider row at `index`, in
