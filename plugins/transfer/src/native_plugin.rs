@@ -83,6 +83,12 @@ enum View {
     Failed(String),
     /// No network: `true` where PaperPaw runs the Wi-Fi (its settings join one).
     NoNetwork(bool),
+    /// No network on the phone's typing screen: said, and only Back does
+    /// something (as in Beta 3: the own network is the transfer's, not the
+    /// keyboard's).
+    NoNetworkToType,
+    /// The text from the phone went into the field: Back goes on there.
+    Typed,
     /// The offline power mode: the reader is offered the network for this.
     Offline,
 }
@@ -119,8 +125,8 @@ pub struct NativeTransfer {
     registry: Option<Registry>,
     ui: Option<Ui>,
     work: Option<Work>,
-    /// Whether the plugin opened the reader's own network and left it open.
-    own_open: bool,
+    /// Where the reader's own network stands, as the plugin asked for it.
+    own_network: own::OwnNetwork,
     /// The plugins sent from the computer: what is staged and how each stands.
     installs: Installs,
     /// The cable's screen, while it is open (`native_plugin/cable.rs`).
@@ -259,20 +265,17 @@ impl Plugin for NativeTransfer {
             View::Serving { url, qr } => {
                 page.list
                     .draw_with(host, &mut frame, title, true, Footer::None)?;
-                let joining = match &page.own {
-                    Some(own) => Some((
-                        messages.copy(host, "transfer.own.join")?,
-                        own_note(host, own)?,
-                    )),
+                let title = match &page.own {
+                    Some(_) => Some(messages.copy(host, "transfer.own.join")?),
                     None => None,
                 };
-                let join = joining
+                let join = title
                     .as_ref()
                     .zip(page.own.as_ref())
-                    .map(|((title, note), own)| Join {
+                    .map(|(title, own)| Join {
                         qr: own.qr.as_ref(),
                         title,
-                        note,
+                        note: &own.note,
                     });
                 return draw_address(
                     host,
@@ -294,10 +297,25 @@ impl Plugin for NativeTransfer {
             View::NoNetwork(managed) => {
                 page.list
                     .draw_with(host, &mut frame, title, true, Footer::None)?;
-                page.router = draw_no_network(host, &mut frame, *managed)?;
+                let note = if *managed {
+                    "transfer.no-network"
+                } else {
+                    "transfer.no-network.system"
+                };
+                page.router = draw_no_network(host, &mut frame, note, *managed)?;
+                return Ok(());
+            }
+            View::NoNetworkToType => {
+                page.list
+                    .draw_with(host, &mut frame, title, true, Footer::None)?;
+                draw_no_network(host, &mut frame, "transfer.phone.no-network", false)?;
                 return Ok(());
             }
             View::Failed(words) => ("transfer.failed.title", own(words)?),
+            View::Typed => (
+                "transfer.phone.typed.title",
+                messages.copy(host, "transfer.phone.typed")?,
+            ),
         };
         let head = messages.copy(host, head)?;
         page.list.draw_with(
@@ -360,23 +378,6 @@ const fn server_of(token: u32) -> u32 {
     if token == PHONE { PHONE_SERVER } else { SERVER }
 }
 
-/// The name and the password of the own network, to type where the code cannot
-/// be scanned.
-fn own_note(host: &Host<'_>, own: &own::Own) -> Result<String, Error> {
-    let password = paperpaw_sdk::random::grouped(&own.password);
-    let arguments = [
-        Arg::Text {
-            name: "ssid",
-            value: &own.ssid,
-        },
-        Arg::Text {
-            name: "password",
-            value: &password,
-        },
-    ];
-    Messages::new()?.format(host, "transfer.own.network", &arguments)
-}
-
 /// A copy of `words`.
 fn own(words: &str) -> Result<String, Error> {
     paperpaw_ui_kit::text::copy(words)
@@ -409,7 +410,7 @@ impl NativeTransfer {
             Err(error) => self.show(
                 host,
                 token,
-                View::Failed(failed(host, "transfer.failed", word(error))?),
+                View::Failed(failed(host, "transfer.failed", error_key(error))?),
             ),
         }
     }
@@ -444,17 +445,14 @@ impl NativeTransfer {
     /// The screen closed: the server stops (the host does it too; stopping is
     /// idempotent) and the page is removed.
     fn end(&mut self, host: &Host<'_>, token: u32) -> Result<(), Error> {
-        let (server, files) = if token == PHONE {
-            (
-                PHONE_SERVER,
-                [native_phone::PAGE_FILE, native_phone::PAGE_FILE],
-            )
+        let (server, files): (u32, &[&str]) = if token == PHONE {
+            (PHONE_SERVER, &[native_phone::PAGE_FILE])
         } else {
             self.clean_staging(host)?;
             self.leave_own(host)?;
             (
                 SERVER,
-                [native_web::PAGE_FILE, native_install::LISTING_FILE],
+                &[native_web::PAGE_FILE, native_install::LISTING_FILE],
             )
         };
         if let Some(net) = &self.net {
@@ -563,11 +561,14 @@ impl NativeTransfer {
         if let Some(page) = self.screens.top(token) {
             page.guard = None;
         }
+        if reason == Reason::NoNetwork && token == PHONE {
+            return self.show(host, token, View::NoNetworkToType);
+        }
         if reason == Reason::NoNetwork {
             let managed = self.wifi(host)?.is_some();
             return self.show(host, token, View::NoNetwork(managed));
         }
-        let words = failed(host, key, reason_word(reason))?;
+        let words = failed(host, key, reason_key(reason))?;
         self.show(host, token, View::Failed(words))
     }
 
@@ -770,36 +771,39 @@ fn no_random(host: &Host<'_>) -> Result<String, Error> {
     Messages::new()?.copy(host, "transfer.no-random")
 }
 
-/// `key` (*could not start*, *stopped*) with the reason in the reader's words.
+/// `key` (*could not start*, *stopped*) with the reason, `reason` its own
+/// text's key, in the reader's words.
 fn failed(host: &Host<'_>, key: &str, reason: &str) -> Result<String, Error> {
+    let mut messages = Messages::new()?;
+    let reason = messages.copy(host, reason)?;
     let arguments = [Arg::Text {
         name: "reason",
-        value: reason,
+        value: &reason,
     }];
-    Messages::new()?.format(host, key, &arguments)
+    messages.format(host, key, &arguments)
 }
 
-/// The reason a server did not run, in the words the reader is shown.
-const fn reason_word(reason: Reason) -> &'static str {
+/// The text of the reason a server did not run.
+const fn reason_key(reason: Reason) -> &'static str {
     match reason {
-        Reason::NoNetwork => "no network",
-        Reason::Offline => "offline",
-        Reason::Saving => "saving",
-        Reason::NetworkOff => "network off",
-        Reason::Refused => "refused",
-        Reason::Ok => "ended",
-        _ => "failed",
+        Reason::NoNetwork => "transfer.reason.no-network",
+        Reason::Offline => "transfer.reason.offline",
+        Reason::Saving => "transfer.reason.saving",
+        Reason::NetworkOff => "transfer.reason.network-off",
+        Reason::Refused => "transfer.reason.refused",
+        Reason::Ok => "transfer.reason.ended",
+        _ => "transfer.reason.failed",
     }
 }
 
-/// Why the plugin's own start failed.
-const fn word(error: Error) -> &'static str {
+/// The text of why the plugin's own start failed.
+const fn error_key(error: Error) -> &'static str {
     match error {
-        Error::Busy => "busy",
-        Error::Denied => "not allowed",
-        Error::Unsupported => "not supported",
-        Error::Full | Error::NoSpace => "no room",
-        _ => "failed",
+        Error::Busy => "transfer.reason.busy",
+        Error::Denied => "transfer.reason.not-allowed",
+        Error::Unsupported => "transfer.reason.not-supported",
+        Error::Full | Error::NoSpace => "transfer.reason.no-room",
+        _ => "transfer.reason.failed",
     }
 }
 
@@ -841,7 +845,50 @@ fn stopped_key(serving: bool, reason: Reason) -> Option<&'static str> {
 
 #[cfg(test)]
 mod stop_tests {
-    use super::{Reason, stopped_key};
+    use super::{Error, Reason, error_key, own::failure_key, reason_key, stopped_key};
+    use paperpaw_sdk::native::events::WifiFailure;
+
+    /// The reasons said in *could not start* and *stopped* are texts of
+    /// their own in both languages, never an English word inside a German
+    /// sentence.
+    #[test]
+    fn every_reason_is_a_text_in_both_languages() {
+        let reasons = [
+            Reason::Ok,
+            Reason::NoNetwork,
+            Reason::Refused,
+            Reason::Offline,
+            Reason::Saving,
+            Reason::NetworkOff,
+            Reason::Io,
+        ]
+        .map(reason_key);
+        let errors = [
+            Error::Busy,
+            Error::Denied,
+            Error::Unsupported,
+            Error::Full,
+            Error::NoSpace,
+            Error::Io,
+        ]
+        .map(error_key);
+        let failures = [
+            WifiFailure::NeedsUser,
+            WifiFailure::Unsupported,
+            WifiFailure::Timeout,
+            WifiFailure::Other,
+        ]
+        .map(failure_key);
+        for catalog in [
+            include_str!("../i18n/en.ini"),
+            include_str!("../i18n/de.ini"),
+        ] {
+            for key in reasons.iter().chain(&errors).chain(&failures) {
+                let line = alloc::format!("\n{key} = ");
+                assert!(catalog.contains(&line), "{key}");
+            }
+        }
+    }
 
     /// A stop the plugin asked for before it served says nothing; one that
     /// ends a serving screen clears the address (the *stopped* text).

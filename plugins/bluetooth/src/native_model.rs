@@ -296,6 +296,18 @@ pub enum Choice {
     Nothing,
 }
 
+/// What ends with the search's screen ([`Search::closing`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Closing {
+    /// The scan runs: it is stopped (it takes the radio and the battery for
+    /// up to its whole time).
+    pub stop_scan: bool,
+    /// The device being added: let go, as no screen is there for the end of
+    /// its pairing (its keys would never be switched on, and it would stay
+    /// connected).
+    pub disconnect: Option<u32>,
+}
+
 #[derive(Debug, Default)]
 pub struct Search {
     pub found: Vec<Found>,
@@ -419,6 +431,15 @@ impl Search {
             typing,
             name: paperpaw_ui_kit::text::copy(name)?,
         })
+    }
+
+    /// What is to end now that the screen closes.
+    #[must_use]
+    pub fn closing(&self) -> Closing {
+        Closing {
+            stop_scan: self.searching,
+            disconnect: self.adding_id(),
+        }
     }
 
     fn adding_id(&self) -> Option<u32> {
@@ -582,6 +603,36 @@ mod tests {
         search.lost(9, BluetoothReason::Lost);
         search.failed(9, None);
         assert_eq!(search.problem, None);
+    }
+
+    #[test]
+    fn closing_the_search_stops_the_scan_and_lets_go_of_the_device_being_added() {
+        let mut search = Search::default();
+        assert_eq!(
+            search.closing(),
+            Closing {
+                stop_scan: false,
+                disconnect: None
+            }
+        );
+        search.start();
+        assert!(search.closing().stop_scan);
+        search.begin_add(7);
+        assert_eq!(search.closing().disconnect, Some(7));
+        // Connected, the pairing under way: still let go.
+        search.connected(7);
+        assert_eq!(search.closing().disconnect, Some(7));
+        search.ended();
+        assert_eq!(
+            search.closing(),
+            Closing {
+                stop_scan: false,
+                disconnect: Some(7)
+            }
+        );
+        // Paired: nothing more to end.
+        search.paired(7, Kind::Remote, "R").unwrap();
+        assert_eq!(search.closing().disconnect, None);
     }
 
     #[test]

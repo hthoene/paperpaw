@@ -132,29 +132,30 @@ fn a_network_chosen_on_the_phone_is_joined() {
         guests: 0,
         online: Some("Home"),
     };
+    // Connected: the setup is done and the radio as the user left it; the
+    // screen says so until Back leaves it (no timer closes it: the host takes
+    // no leaving of a screen from a timer).
     let effects = p.radio_changed(4000, &online).unwrap();
-    assert_eq!(effects, [Effect::WakeAt(4000 + DONE_MS), Effect::Redraw]);
-    assert!(matches!(p.stage(), Stage::Joined(ssid) if ssid == "Home"));
-    let effects = p.timer(4000 + DONE_MS, &online).unwrap();
     assert_eq!(
         effects,
         [
-            Effect::StopServing,
             Effect::Policy {
                 manual: false,
                 phone: false
             },
-            Effect::Back
+            Effect::Redraw
         ]
     );
+    assert!(matches!(p.stage(), Stage::Joined(ssid) if ssid == "Home"));
+    assert!(p.timer(4000 + IDLE_MS, &online).unwrap().is_empty());
+    assert!(matches!(p.stage(), Stage::Joined(_)));
 }
 
 #[test]
 fn next_goes_on_where_the_phone_does_not_say_it_joined() {
     let mut p = open();
-    let radio = hosting(0);
     assert_eq!(p.step(), Step::Join);
-    let step = |p: &mut Phone, action| p.action(action, &radio).unwrap();
+    let step = |p: &mut Phone, action| p.action(action).unwrap();
     assert_eq!(step(&mut p, Action::Confirm), Some(vec![Effect::Redraw]));
     assert_eq!(p.step(), Step::Open);
     assert_eq!(step(&mut p, Action::PrevPage), Some(vec![Effect::Redraw]));
@@ -172,11 +173,6 @@ fn next_goes_on_where_the_phone_does_not_say_it_joined() {
     assert_eq!(step(&mut p, Action::Confirm), Some(vec![Effect::Redraw]));
     assert!(p.radio_changed(700, &hosting(2)).unwrap().is_empty());
     assert_eq!(p.step(), Step::Join, "once only");
-    // Other keys are not its.
-    assert_eq!(
-        step(&mut p, Action::Back).unwrap().last(),
-        Some(&Effect::Back)
-    );
 }
 
 #[test]
@@ -185,7 +181,7 @@ fn a_phone_there_when_the_network_opens_shows_the_page_at_once() {
     p.radio_changed(200, &hosting(1)).unwrap();
     assert_eq!(p.step(), Step::Open);
     // Not again when it goes back.
-    p.action(Action::Confirm, &hosting(1)).unwrap();
+    p.action(Action::Confirm).unwrap();
     assert!(p.radio_changed(300, &hosting(2)).unwrap().is_empty());
 }
 
@@ -217,20 +213,19 @@ fn a_page_not_served_is_asked_again_with_a_key_and_not_once_served() {
     let mut p = drawn("tok3n", false, 100).unwrap();
     p.radio_changed(200, &hosting(0)).unwrap();
     p.not_served();
-    let radio = hosting(0);
     assert_eq!(
-        p.action(Action::Confirm, &radio).unwrap(),
+        p.action(Action::Confirm).unwrap(),
         Some(vec![Effect::Redraw, Effect::Serve])
     );
     assert_eq!(
-        p.action(Action::Confirm, &radio).unwrap(),
+        p.action(Action::Confirm).unwrap(),
         Some(vec![Effect::Redraw])
     );
     // Served: a refusal that comes late changes nothing.
     p.server_started("192.168.4.1").unwrap();
     p.not_served();
     assert_eq!(
-        p.action(Action::Confirm, &radio).unwrap(),
+        p.action(Action::Confirm).unwrap(),
         Some(vec![Effect::Redraw])
     );
 }
@@ -256,10 +251,11 @@ fn the_own_network_that_cannot_open_ends_the_setup_by_itself() {
     let effects = p.failed(300, OWN, "unused").unwrap();
     assert_eq!(effects, [Effect::WakeAt(300 + IDLE_MS), Effect::Redraw]);
     assert!(matches!(p.stage(), Stage::Failed(Failed::NotOpened)));
-    // Left alone as long as the others: closed, the network not open.
+    // Left alone as long as the others: ended, the network not open.
     let effects = p.timer(300 + IDLE_MS, &Radio::default()).unwrap();
-    assert_eq!(effects.last(), Some(&Effect::Back));
+    assert_eq!(effects.last(), Some(&Effect::Redraw));
     assert!(!effects.contains(&Effect::Leave));
+    assert!(matches!(p.stage(), Stage::Ended));
 }
 
 #[test]
@@ -268,6 +264,9 @@ fn the_own_network_left_alone_closes_after_ten_minutes() {
     // Nine minutes in: the timer only wakes again at the end of the ten.
     let effects = p.timer(200 + 9 * 60 * 1000, &hosting(0)).unwrap();
     assert_eq!(effects, [Effect::WakeAt(200 + IDLE_MS)]);
+    // The own network closes and the setup says it ended; the screen stays
+    // for Back (the host takes no leaving of a screen from a timer, and the
+    // leaving asked with it would be lost with the refusal).
     let effects = p.timer(200 + 11 * 60 * 1000, &hosting(0)).unwrap();
     assert_eq!(
         effects,
@@ -278,8 +277,20 @@ fn the_own_network_left_alone_closes_after_ten_minutes() {
                 manual: false,
                 phone: false
             },
-            Effect::Back
+            Effect::Redraw
         ]
+    );
+    assert!(matches!(p.stage(), Stage::Ended));
+    // Ended: nothing wakes it again, and Back leaves nothing more open.
+    assert!(
+        p.timer(200 + 21 * 60 * 1000, &Radio::default())
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !p.closed(&Radio::default())
+            .unwrap()
+            .contains(&Effect::Leave)
     );
     // A request counts as a touch.
     let mut p = open();
@@ -326,9 +337,65 @@ fn the_server_failing_shows_why() {
 }
 
 #[test]
+fn back_before_the_own_network_opened_leaves_it_too() {
+    // Asked for, not open yet: left all the same, or it would open for nobody
+    // after the screen closed.
+    let p = drawn("tok3n", false, 100).unwrap();
+    assert!(matches!(p.stage(), Stage::Opening));
+    let not_yet = Radio {
+        on: true,
+        ..Radio::default()
+    };
+    assert!(p.closed(&not_yet).unwrap().contains(&Effect::Leave));
+    // Never asked for (still looking for networks): nothing to leave.
+    let mut p = phone();
+    p.shown(true).unwrap();
+    assert!(!p.closed(&not_yet).unwrap().contains(&Effect::Leave));
+}
+
+#[test]
+fn a_password_longer_than_a_network_can_have_is_refused_with_the_page_again() {
+    let mut p = open();
+    let form = |password: &str| format!("t=tok3n&ssid=Home&password={password}");
+    // The host joins with at most 63 bytes: a longer one would leave the
+    // setup waiting for a join that never starts.
+    let long = form(&"p".repeat(64));
+    let effects = p.request(300, 1, "POST", "/join", Some(&long)).unwrap();
+    assert_eq!(
+        effects,
+        [
+            Effect::WakeAt(300 + IDLE_MS),
+            Effect::Respond {
+                request: 1,
+                status: 400,
+                page: Page::PasswordTooLong
+            }
+        ]
+    );
+    assert!(matches!(p.stage(), Stage::Hosting { .. }));
+    // 63 bytes are taken.
+    let longest = form(&"p".repeat(63));
+    p.request(400, 2, "POST", "/join", Some(&longest)).unwrap();
+    assert!(matches!(p.stage(), Stage::Leaving { .. }));
+}
+
+#[test]
+fn a_setup_whose_network_cannot_be_made_says_so() {
+    let mut p = phone();
+    p.shown(true).unwrap();
+    p.scanned().unwrap();
+    assert_eq!(p.not_drawn().unwrap(), [Effect::Redraw]);
+    assert!(matches!(p.stage(), Stage::Failed(Failed::NotOpened)));
+    // Nothing is opened after it.
+    assert!(p.drawn(Some((OWN, "t"))).unwrap().is_empty());
+    let p = Phone::not_opened(false, 0);
+    assert!(matches!(p.stage(), Stage::Failed(Failed::NotOpened)));
+}
+
+#[test]
 fn what_the_radio_keeps_after_the_screen_is_what_the_user_had() {
-    let mut p = drawn("t", true, 0).unwrap();
-    let effects = p.action(Action::Back, &Radio::default()).unwrap().unwrap();
+    let p = drawn("t", true, 0).unwrap();
+    let effects = p.closed(&Radio::default()).unwrap();
     assert!(effects.contains(&Effect::Policy {
         manual: true,
         phone: false
@@ -463,7 +530,7 @@ fn refused_allocations_are_errors_and_change_nothing() {
         p.timer(400 + LEAVE_MS, &hosting(0))?;
         p.failed(5000, "Home", "Wrong password")?;
         p.radio_changed(5100, &hosting(0))?;
-        p.action(Action::Confirm, &hosting(0))?;
+        p.action(Action::Confirm)?;
         p.timer(5100 + IDLE_MS, &hosting(0))?;
         Ok(())
     });
@@ -523,7 +590,10 @@ fn a_body_over_the_most_taken_counts_as_none() {
             ref other => panic!("{other:?}"),
         }
     };
-    let head = "t=tok3n&ssid=Home&password=";
+    // The form filled to the most by a field the page does not read: a
+    // password that long is refused for itself (a network's has at most 63
+    // bytes).
+    let head = "t=tok3n&ssid=Home&password=s3cret&x=";
     let exact = format!("{head}{}", "p".repeat(MAX_FORM - head.len()));
     assert_eq!(exact.len(), MAX_FORM);
     assert_eq!(status(&exact), 200);
@@ -550,25 +620,24 @@ fn many_networks_make_a_page_within_the_most_and_the_weakest_go() {
     let texts = Texts {
         language: "en",
         title: "Set up",
-        choose_one: "Choose one",
         other: "Another network",
         password: "Password",
         join: "Connect",
         note: "The reader keeps the password",
         open: "open",
     };
-    let all = choose_page(&texts, &found, false, "tok3n").unwrap();
+    let all = choose_page(&texts, &found, None, "tok3n").unwrap();
     assert!(all.len() > MOST_PAGE, "{}", all.len());
-    let page = choose_page_fit(&texts, &found, false, "tok3n", MOST_PAGE).unwrap();
+    let page = choose_page_fit(&texts, &found, None, "tok3n", MOST_PAGE).unwrap();
     assert!(page.len() <= MOST_PAGE, "{}", page.len());
     assert!(page.contains("-00-") && page.contains("<form"), "{page}");
     assert!(!page.contains("-63-"));
     // A few networks are all there.
-    let few = choose_page_fit(&texts, &found[..3], false, "tok3n", MOST_PAGE).unwrap();
+    let few = choose_page_fit(&texts, &found[..3], None, "tok3n", MOST_PAGE).unwrap();
     assert_eq!(
         few,
-        choose_page(&texts, &found[..3], false, "tok3n").unwrap()
+        choose_page(&texts, &found[..3], None, "tok3n").unwrap()
     );
     // Allocation is refused in turn.
-    sweep(|| choose_page_fit(&texts, &found, false, "tok3n", MOST_PAGE));
+    sweep(|| choose_page_fit(&texts, &found, None, "tok3n", MOST_PAGE));
 }

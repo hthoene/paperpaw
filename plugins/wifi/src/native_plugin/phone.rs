@@ -19,7 +19,8 @@ use paperpaw_sdk::native::{
     Error, Host,
     callbacks::DrawFrame,
     commands::{CommandSender, RedrawMode},
-    events::WifiFailure,
+    device::DeviceRequest,
+    events::{WifiDone, WifiFailure},
     formatting::Arg,
     net::{
         FileRoot, MAX_INLINE_BODY, Net, REQUEST_INPUT, Reason, Response, ServedRequest, Server,
@@ -46,7 +47,7 @@ use crate::native_policy::{Goal, Password, Radio};
 
 /// The plugin's number for its one server.
 const SERVER: u32 = 1;
-/// The work that closes the screen when left alone, and the steps of leaving.
+/// The work that ends the setup when left alone, and the steps of leaving.
 pub(super) const WAKE_KEY: &str = "wifi.phone-wake";
 /// The token the wake comes back with.
 pub(super) const WAKE_WORK: u32 = 3;
@@ -78,9 +79,24 @@ pub(super) struct PhoneView {
     join_qr: Option<QrCode>,
     /// The code that opens the page, once it is served.
     page_qr: Option<QrCode>,
+    /// The request that asked for the own network, until the host said how
+    /// it ended (`wifi_done`).
+    host_request: Option<u32>,
 }
 
 impl PhoneView {
+    /// A setup that could not be made: it says so, and Back leaves it.
+    pub(super) fn not_opened(manual: bool, now: u64) -> Self {
+        Self {
+            list: ItemList::default(),
+            phone: Phone::not_opened(manual, now),
+            own: None,
+            join_qr: None,
+            page_qr: None,
+            host_request: None,
+        }
+    }
+
     /// The code the step shows, where it has one: the one that joins the own
     /// network, or the one that opens the page once it is served.
     fn code(&self) -> Option<&QrCode> {
@@ -165,6 +181,7 @@ impl NativeWifi {
             own: None,
             join_qr: None,
             page_qr: None,
+            host_request: None,
         };
         Self::phone_build(host, &mut view)?;
         Ok(view)
@@ -342,6 +359,7 @@ impl NativeWifi {
                 }],
             )?),
             (Stage::Failed(Failed::NotOpened), _) => Some(say.copy(host, "wifi.phone.not-opened")?),
+            (Stage::Ended, _) => Some(say.copy(host, "wifi.phone.ended")?),
             (Stage::Failed(Failed::Server(reason)), _) => Some(say.format(
                 host,
                 "wifi.phone.failed",
@@ -447,6 +465,32 @@ impl NativeWifi {
         self.phone_step(host, |phone| phone.failed(now, ssid, &problem))
     }
 
+    /// A request for the network ended. The own network that the setup asked
+    /// for and no longer wants (its screen closed, or the setup ended, before
+    /// it opened) is left at once where it opened: not open for nobody.
+    pub(super) fn phone_hosted(
+        &mut self,
+        host: &Host<'_>,
+        done: &WifiDone<'_>,
+    ) -> Result<(), Error> {
+        let Some(request) = done.request().map(DeviceRequest::get) else {
+            return Ok(());
+        };
+        if let Some(View::Phone(view)) = self.screens.top(PHONE_TOKEN)
+            && view.host_request == Some(request)
+        {
+            view.host_request = None;
+        }
+        if self.unwanted_host != Some(request) {
+            return Ok(());
+        }
+        self.unwanted_host = None;
+        if done.status().is_ok() {
+            CommandSender::new(host, &mut [0; 64]).wifi_leave()?;
+        }
+        Ok(())
+    }
+
     /// The screen's timer came due.
     pub(super) fn phone_wake(&mut self, host: &Host<'_>, now: u64) -> Result<(), Error> {
         let info = self.read_named(host)?;
@@ -457,12 +501,10 @@ impl NativeWifi {
 
     /// A button: `Some` where it was the setup's.
     pub(super) fn phone_action(&mut self, host: &Host<'_>, action: Action) -> Result<bool, Error> {
-        let info = self.read_named(host)?;
         let Some(View::Phone(view)) = self.screens.top(PHONE_TOKEN) else {
             return Ok(false);
         };
-        let Some(effects) = Self::with_radio(&info, |radio| view.phone.action(action, radio))?
-        else {
+        let Some(effects) = view.phone.action(action)? else {
             return Ok(false);
         };
         self.phone_run(host, effects)?;
@@ -497,13 +539,7 @@ impl NativeWifi {
         let Some(View::Phone(view)) = self.screens.top(PHONE_TOKEN) else {
             return Ok(());
         };
-        let effects = Self::with_radio(&info, |radio| view.phone.action(Action::Back, radio))?;
-        // The screen is gone already: no leaving it.
-        let effects: Vec<Effect> = effects
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|effect| !matches!(effect, Effect::Back))
-            .collect();
+        let effects = Self::with_radio(&info, |radio| view.phone.closed(radio))?;
         let _ = DataStorage::new(host).remove(PAGE_FILE);
         self.phone_run(host, effects)
     }
@@ -526,18 +562,20 @@ impl NativeWifi {
                 Effect::Scan => CommandSender::new(host, &mut [0; 64]).wifi_scan()?,
                 Effect::Draw => match self.phone_draw(host) {
                     Ok(effects) => self.phone_run(host, effects)?,
-                    Err(_) => {
-                        // The own network could not be made (no memory, no
-                        // device): said, and the screen closed, not a failed
-                        // callback.
-                        crate::native_model::best_effort(Self::notice(
-                            host,
-                            "wifi.phone.not-opened",
-                        ));
-                        CommandSender::new(host, &mut [0; 64]).back()?;
-                    }
+                    // The own network could not be made (no memory, no
+                    // device): the screen says so, not a failed callback.
+                    Err(_) => self.phone_step(host, Phone::not_drawn)?,
                 },
-                Effect::Leave => CommandSender::new(host, &mut [0; 64]).wifi_leave()?,
+                Effect::Leave => {
+                    // A request for it the host has not ended yet: left too
+                    // once it opens.
+                    if let Some(View::Phone(view)) = self.screens.top(PHONE_TOKEN)
+                        && let Some(request) = view.host_request.take()
+                    {
+                        self.unwanted_host = Some(request);
+                    }
+                    CommandSender::new(host, &mut [0; 64]).wifi_leave()?;
+                }
                 Effect::Host => self.phone_host(host)?,
                 Effect::Serve => match self.phone_serve(host)? {
                     Serving::Started => {}
@@ -567,7 +605,6 @@ impl NativeWifi {
                 Effect::WakeAt(at) => {
                     crate::native_model::best_effort(self.phone_set_wake(host, at))
                 }
-                Effect::Back => CommandSender::new(host, &mut [0; 64]).back()?,
             }
         }
         if server_failed {
@@ -599,10 +636,14 @@ impl NativeWifi {
         let Some(own) = &view.own else {
             return Ok(());
         };
-        self.request = self.request.wrapping_add(1).max(1);
+        let request = self.request.wrapping_add(1).max(1);
+        self.request = request;
+        // Kept before it is sent: a refused one leaves a number that no
+        // outcome comes for, and nothing waits on that.
+        view.host_request = Some(request);
         let mut scratch = [0; 512];
         let result = CommandSender::new(host, &mut scratch).wifi_host(
-            self.request,
+            request,
             own.ssid(),
             own.password().as_str(),
         );
@@ -730,9 +771,8 @@ impl NativeWifi {
             Ok(None) | Err(Error::NotFound | Error::Denied | Error::NoSpace) => String::new(),
             Err(error) => return Err(error),
         };
-        let (title, choose_one, other) = (
+        let (title, other) = (
             say.copy(host, "wifi.phone.title")?,
-            say.copy(host, "wifi.phone.choose-one")?,
             say.copy(host, "wifi.phone.other")?,
         );
         let (password, join, note, open) = (
@@ -744,31 +784,24 @@ impl NativeWifi {
         let texts = Texts {
             language: if language.is_empty() { "en" } else { &language },
             title: &title,
-            choose_one: &choose_one,
             other: &other,
             password: &password,
             join: &join,
             note: &note,
             open: &open,
         };
+        // Why the page to choose comes again, said above the networks.
+        let again = match page {
+            Page::Choose { again: true } => Some(say.copy(host, "wifi.phone.choose-one")?),
+            Page::PasswordTooLong => Some(say.copy(host, "wifi.password.too-long")?),
+            _ => None,
+        };
         let html = match page {
-            Page::Choose { again } => {
-                let networks = self.read_networks(host)?;
-                let mut found = Vec::new();
-                found
-                    .try_reserve_exact(networks.len())
-                    .map_err(|_| Error::NoMemory)?;
-                for network in &networks {
-                    found.push(Found {
-                        ssid: &network.ssid,
-                        secured: network.secured,
-                    });
-                }
-                let token = match self.screens.top(PHONE_TOKEN) {
-                    Some(View::Phone(view)) => copy(view.phone.token())?,
-                    _ => return Ok(()),
+            Page::Choose { .. } | Page::PasswordTooLong => {
+                let Some(html) = self.choose_html(host, &texts, again.as_deref())? else {
+                    return Ok(());
                 };
-                choose_page_fit(&texts, &found, *again, &token, MOST_PAGE)?
+                html
             }
             Page::Joining(ssid) => {
                 let line = say.format(
@@ -784,6 +817,31 @@ impl NativeWifi {
             Page::NotFound => not_found_page(&texts)?,
         };
         self.phone_send(host, number, status, html.as_bytes())
+    }
+
+    /// The page to choose a network, with `note` above the networks in
+    /// reach; `None` where the setup's screen is gone.
+    fn choose_html(
+        &mut self,
+        host: &Host<'_>,
+        texts: &Texts<'_>,
+        note: Option<&str>,
+    ) -> Result<Option<String>, Error> {
+        let networks = self.read_networks(host)?;
+        let mut found = Vec::new();
+        found
+            .try_reserve_exact(networks.len())
+            .map_err(|_| Error::NoMemory)?;
+        for network in &networks {
+            found.push(Found {
+                ssid: &network.ssid,
+                secured: network.secured,
+            });
+        }
+        let Some(View::Phone(view)) = self.screens.top(PHONE_TOKEN) else {
+            return Ok(None);
+        };
+        choose_page_fit(texts, &found, note, view.phone.token(), MOST_PAGE).map(Some)
     }
 
     /// Sends `body` (inline where it fits, else from a file of the data

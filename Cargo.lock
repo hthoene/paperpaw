@@ -2041,7 +2041,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-bluetooth"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2849,7 +2849,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-transfer"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "flate2",
  "paperpaw-core",
@@ -2956,7 +2956,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wifi"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
