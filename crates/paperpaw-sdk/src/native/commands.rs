@@ -99,7 +99,12 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
         key: impl AsRef<str>,
         value: SettingValue<'_>,
     ) -> Result<(), Error> {
-        let key = key.as_ref();
+        self.set_setting_str(key.as_ref(), value)
+    }
+
+    /// [`Self::set_setting`] for `&str` only: one copy in the image, however
+    /// many key types and crates set.
+    fn set_setting_str(&mut self, key: &str, value: SettingValue<'_>) -> Result<(), Error> {
         if key.starts_with("core.grant.") {
             return Err(Error::Denied);
         }

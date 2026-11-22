@@ -75,7 +75,16 @@ pub fn read_setting<'a>(
     key: impl AsRef<str>,
     scratch: &'a mut [u8],
 ) -> Result<SettingValue<'a>, Error> {
-    let key = key.as_ref();
+    read_setting_str(host, key.as_ref(), scratch)
+}
+
+/// [`read_setting`] for `&str` only: one copy in the image, however many key
+/// types and crates read.
+fn read_setting_str<'a>(
+    host: &Host<'_>,
+    key: &str,
+    scratch: &'a mut [u8],
+) -> Result<SettingValue<'a>, Error> {
     if key.starts_with("core.grant.") {
         return Err(Error::Denied);
     }

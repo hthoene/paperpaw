@@ -118,7 +118,12 @@ pub fn copy_message<'a>(
     key: impl AsRef<str>,
     out: &'a mut [u8],
 ) -> Result<&'a str, Error> {
-    let key = key.as_ref();
+    copy_message_str(host, key.as_ref(), out)
+}
+
+/// [`copy_message`] for `&str` only: one copy of the host call in the image,
+/// however many key types and crates copy.
+fn copy_message_str<'a>(host: &Host<'_>, key: &str, out: &'a mut [u8]) -> Result<&'a str, Error> {
     if key.len() > MAX_MESSAGE_BYTES {
         return Err(Error::Invalid);
     }
