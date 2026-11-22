@@ -4930,6 +4930,8 @@ change the plugin SDK.
 
 - **"Text and symbols" can be chosen as a status line again** (#472). The status line editors of Home and the reader did not offer the kernel's own line of items, and the settings showed its raw id instead of its name; the registry now lists it after the plugins' lines.
 
+- **Setup: on the X4, X4 Classic and X3 you could not leave the language card again** (#476). Left and right chose a language there instead of moving on, and since the focus stays on the answer chosen, Next could no longer be reached. As in Beta 3, the arrows move the focus and Select changes a choice of two (setup 1.0.8).
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
