@@ -4924,6 +4924,8 @@ change the plugin SDK.
 
 - **Settings and setup as in Beta 3** (#472). A long title in a settings row wraps to a second line beside its value or switch instead of ending in "…". A list setting with a long value shows it again (the sleep screen's widgets, the status lines), with the names of its widgets and status items instead of their ids. The status lines' settings (the lines above and below the text, each part of a line) open their editor again, where lines and items are shown, hidden and ordered. *Advanced settings* on the main page is a switch again. The first-run setup asks for a screen lock again.
 
+- **A focused number shows − and + again** (#472). On devices without a touch screen, a number in the settings and in the menus shows its value between round − and + while it has the focus, as in Beta 3, so it is plain that Left and Right change it.
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
