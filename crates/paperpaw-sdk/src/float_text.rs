@@ -53,8 +53,7 @@ pub(crate) fn parse_f32(text: &str) -> Option<f32> {
         return Some(f32::NAN);
     }
     let (number, exponent) = match rest.split_once(['e', 'E']) {
-        // Clamped so that counting digits cannot overflow it.
-        Some((number, exponent)) => (number, exponent.parse::<i32>().ok()?.clamp(-10_000, 10_000)),
+        Some((number, exponent)) => (number, exponent_of(exponent)?),
         None => (rest, 0),
     };
     let (whole, fraction) = number.split_once('.').unwrap_or((number, ""));
@@ -82,6 +81,28 @@ pub(crate) fn parse_f32(text: &str) -> Option<f32> {
     }
     let near = scaled(mantissa as f64, scale) as f32;
     Some(sign * settled(mantissa, scale, near))
+}
+
+/// The exponent `text` (`[+-]digits`) says, held within ten thousand: far
+/// beyond every float either way, so that counting digits cannot overflow
+/// it, and one of any length still reads as `core` reads it (infinity, or
+/// 0). `None` where it is no exponent.
+fn exponent_of(text: &str) -> Option<i32> {
+    let (negative, digits) = match text.as_bytes().first()? {
+        b'-' => (true, text.get(1..)?),
+        b'+' => (false, text.get(1..)?),
+        _ => (false, text),
+    };
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let magnitude = digits
+        .bytes()
+        .fold(0_i32, |n, b| {
+            n.saturating_mul(10).saturating_add(i32::from(b - b'0'))
+        })
+        .min(10_000);
+    Some(if negative { -magnitude } else { magnitude })
 }
 
 /// The float `mantissa` times ten to the `scale` reads as. `near` is what
@@ -413,6 +434,27 @@ mod tests {
             let core: f32 = text.parse().expect("a number");
             let ours = parse_f32(&text).expect("a number");
             assert_eq!(ours.to_bits(), core.to_bits(), "{text}");
+        }
+    }
+
+    /// An exponent past what an `i32` holds reads as `core` reads it.
+    #[test]
+    fn an_exponent_of_any_length_is_read_as_core_reads_it() {
+        for text in [
+            "1e99999999999",
+            "1e+99999999999",
+            "-1e4294967296",
+            "1e-99999999999",
+            "0e99999999999",
+            "123.5e-2147483649",
+        ] {
+            let core: f32 = text.parse().expect("a number");
+            let ours = parse_f32(text).expect("a number");
+            assert_eq!(ours.to_bits(), core.to_bits(), "{text}");
+        }
+        for bad in ["1e", "1e+", "1e-", "1e--5", "1e5x", "1e 5"] {
+            assert_eq!(parse_f32(bad), None, "{bad}");
+            assert!(bad.parse::<f32>().is_err(), "{bad}");
         }
     }
 
