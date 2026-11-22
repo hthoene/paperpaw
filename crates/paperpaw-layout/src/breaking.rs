@@ -110,7 +110,10 @@ pub(crate) fn block_lines(
 }
 
 /// Whether `c` is of a script set by syllables (the Indic ones, Khmer,
-/// Lao, Tibetan, Burmese): as wide as its shaped part, not kerned.
+/// Lao, Tibetan, Burmese): as wide as its shaped part, not kerned. The
+/// blocks of `paperpaw_text`'s `indic::Script::of`, which is not public
+/// (`has_indic` looks at a text's bytes and takes a few more): a script
+/// added there is added here.
 fn shaped(c: char) -> bool {
     matches!(
         c,
