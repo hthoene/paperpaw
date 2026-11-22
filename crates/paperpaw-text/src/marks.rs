@@ -56,7 +56,7 @@ pub(crate) struct Marks<'a> {
     store: Option<ItemVariationStore<'a>>,
     arab: Script,
     hebr: Script,
-    /// Bengali and Devanagari, those the font has.
+    /// The Indic scripts' (`INDIC`), those the font has.
     indic: Script,
     thai: Script,
     /// Per GPOS lookup and subtable, the number of its first class
