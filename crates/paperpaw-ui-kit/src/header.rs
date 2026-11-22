@@ -1,4 +1,4 @@
-use crate::{Messages, Page, Paint, Style, text};
+use crate::{Messages, Page, Paint, Style, text, widget};
 use alloc::vec::Vec;
 use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
@@ -65,43 +65,146 @@ pub fn prepare(
     }
     let right = pager(page, host, font, s, m, area, band, touch, index, count, ink)?;
     let room = f32::from(right.saturating_sub(left).saturating_sub(s.margin));
-    let mut size = s.head;
-    while size > s.small && font.measure_text(size, title)? > room + 1.0 {
-        size = (size - 0.25).max(s.small);
+    let clip = s.flip(
+        area,
+        Rect::new(left, 0, right.saturating_sub(left), s.header),
+    );
+    title_part(page, font, s, (area, band, clip), (left, room), title, ink)
+}
+
+/// The size of captions, to the small size: the least a title wraps at.
+const CAPTION: f32 = 0.8;
+
+/// How a header's title is shown.
+#[derive(Debug, PartialEq)]
+enum Title {
+    /// On one line at this size, shortened with "…" where it does not fit.
+    Line(f32),
+    /// On these lines, each whole, at this size.
+    Lines(f32, Vec<alloc::string::String>),
+}
+
+/// How `title` is shown in `room` pixels, as Beta 3 showed it: on one line, as
+/// large as fits from `head` down to `least`; where it does not fit so, on as
+/// many lines as the bar holds (`most` tells how many at a size), at `least`,
+/// else at `caption`; shortened at `least` only where none of that holds it.
+/// A pixel of grace: a title that fits is not cut.
+///
+/// # Errors
+/// What `measure` or `most` say; [`Error::NoMemory`].
+fn fit_title(
+    measure: &mut dyn FnMut(f32, &str) -> Result<f32, Error>,
+    most: &mut dyn FnMut(f32) -> Result<usize, Error>,
+    (head, least, caption): (f32, f32, f32),
+    title: &str,
+    room: f32,
+) -> Result<Title, Error> {
+    if measure(least, title)? <= room + 1.0 {
+        let size =
+            widget::text::largest_size(
+                head,
+                least,
+                |size| Ok(measure(size, title)? <= room + 1.0),
+            )?;
+        return Ok(Title::Line(size.unwrap_or(least)));
     }
-    let title = text::fit(font, size, title, room + 1.0)?;
-    // Only a mirrored title needs its width, to put its right edge where the
-    // left edge was.
-    let wide = if s.rtl {
-        font.measure_text(size, &title)?
-    } else {
-        0.0
+    for size in [least, caption.min(least)] {
+        // A line beyond the most the bar holds tells that it does not fit.
+        let most = most(size)?.max(1);
+        let lines = text::wrap_with(
+            |line| measure(size, line),
+            title,
+            room.max(1.0),
+            most.saturating_add(1),
+        )?;
+        if lines.len() < 2 {
+            return Ok(Title::Line(size));
+        }
+        if lines.len() <= most {
+            return Ok(Title::Lines(size, lines));
+        }
+    }
+    Ok(Title::Line(least))
+}
+
+/// How many lines of a heading at `size` fit `high` pixels (at least one).
+fn lines_in(font: &Font<'_>, size: f32, high: u16) -> Result<usize, Error> {
+    let line = crate::geometry::line_px(font, size)?.max(1);
+    let apart = widget::text::step(font, size, true)?.max(1);
+    Ok(1 + usize::from(high.saturating_sub(line) / apart))
+}
+
+/// Draws the header's `title` from `left`, `room` wide, in the header `area`
+/// (its ink centred in `band`, cut at `clip`), as [`fit_title`] fits it; it is
+/// the heading.
+fn title_part(
+    page: &mut Page,
+    font: &Font<'_>,
+    s: &Style,
+    (area, band, clip): (Rect, Rect, Rect),
+    (left, room): (u16, f32),
+    title: &str,
+    ink: Color,
+) -> Result<(), Error> {
+    let least = s.small.min(s.head);
+    let shown = fit_title(
+        &mut |size, text| font.measure_text(size, text),
+        &mut |size| lines_in(font, size, area.height),
+        (s.head, least, s.small * CAPTION),
+        title,
+        room,
+    )?;
+    let (size, lines) = match shown {
+        Title::Line(size) => (size, alloc::vec![text::fit(font, size, title, room + 1.0)?]),
+        Title::Lines(size, lines) => (size, lines),
     };
-    // The title is the heading: it takes the text drawn next as its label.
+    let one = lines.len() == 1;
+    // The title is the heading: it takes the texts drawn inside it as its
+    // label (on lines, the whole bar holds them).
     crate::paint::describe(
         &mut page.paint,
         s.describing,
         PartRole::Heading,
-        band,
+        if one { band } else { area },
         false,
         false,
     )?;
-    page.paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
-    page.paint.push(Paint::Text {
-        text: title,
-        size,
-        origin: TextOrigin::new(
-            s.flip_x(area, f32::from(left), wide),
-            text::cap_baseline(font, size, band)?,
-        ),
-        color: ink,
-        clip: Some(s.flip(
-            area,
-            Rect::new(left, 0, right.saturating_sub(left), s.header),
-        )),
-    });
+    // One line by its capitals in the band; lines a heading's apart, the
+    // whole of them in the middle of the bar.
+    let (top, apart, line) = if one {
+        (band.y, 0, band.height)
+    } else {
+        let tall = widget::text::lines_height(font, size, true, lines.len())?;
+        (
+            area.y + area.height.saturating_sub(tall) / 2,
+            widget::text::step(font, size, true)?,
+            crate::geometry::line_px(font, size)?,
+        )
+    };
+    page.paint
+        .try_reserve(lines.len())
+        .map_err(|_| Error::NoMemory)?;
+    for (n, shown) in lines.into_iter().enumerate() {
+        let y = top.saturating_add(apart.saturating_mul(n as u16));
+        let baseline = text::cap_baseline(font, size, Rect::new(area.x, y, area.width, line))?;
+        // Only a mirrored title needs its width, to put its right edge where
+        // the left edge was.
+        let wide = if s.rtl {
+            font.measure_text(size, &shown)?
+        } else {
+            0.0
+        };
+        page.paint.push(Paint::Text {
+            text: shown,
+            size,
+            origin: TextOrigin::new(s.flip_x(area, f32::from(left), wide), baseline),
+            color: ink,
+            clip: Some(clip),
+        });
+    }
     Ok(())
 }
+
 /// The pager's label (`2 / 5`): said through two small stack buffers, so that a
 /// frame makes no 4 KiB buffer for it; a label that does not fit them (none of
 /// the catalogs' does) is said through `m`.
@@ -292,6 +395,55 @@ fn background(paint: &mut Vec<Paint>, s: &Style, area: Rect, paper: Color) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_title_is_made_smaller_in_few_steps_then_wrapped_then_shortened() {
+        // Every letter half the size wide; the bar holds two lines of the
+        // small size (10) and three of the caption's (8).
+        let measures = core::cell::Cell::new(0);
+        let fit = |title: &str| {
+            measures.set(0);
+            fit_title(
+                &mut |size, text| {
+                    measures.set(measures.get() + 1);
+                    Ok(text.chars().count() as f32 * size * 0.5)
+                },
+                &mut |size| Ok(if size < 10.0 { 3 } else { 2 }),
+                (20.0, 10.0, 8.0),
+                title,
+                100.0,
+            )
+            .unwrap()
+        };
+        assert_eq!(fit("Short"), Title::Line(20.0));
+        // 15 letters fit at 13.3 (99 px): found in 8 % steps, not in 0.25 px.
+        let Title::Line(size) = fit("Fifteen letters") else {
+            panic!("on one line");
+        };
+        assert!((13.0..13.4).contains(&size), "{size}");
+        assert!(measures.get() <= 8, "{}", measures.get());
+        assert_eq!(
+            fit("The quiet word in the valley of the"),
+            Title::Lines(
+                10.0,
+                alloc::vec!["The quiet word in".into(), "the valley of the".into()]
+            )
+        );
+        assert_eq!(
+            fit("The quiet word in the valley of the river that runs"),
+            Title::Lines(
+                8.0,
+                alloc::vec![
+                    "The quiet word in the".into(),
+                    "valley of the river that".into(),
+                    "runs".into()
+                ]
+            )
+        );
+        let long =
+            "The quiet word in the valley of the river that runs to the sea far away and back";
+        assert_eq!(fit(long), Title::Line(10.0));
+    }
 
     #[test]
     fn a_light_inset_header_keeps_its_rule_on_monochrome() {
