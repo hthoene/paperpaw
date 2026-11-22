@@ -506,6 +506,9 @@ pub struct View {
     generation: u32,
     /// Whether the list kept was there when they were.
     had_index: bool,
+    /// The reads of what is installed they were counted after
+    /// ([`Installs::reads`]).
+    reads: u32,
     /// Whether the row of hints says *Try again* for *Select* (#235).
     retry_hint: bool,
     /// The community source the reader is asked about (#214).
@@ -544,6 +547,7 @@ impl View {
         self.counts = counts;
         self.generation = ctx.loader.generation();
         self.had_index = index.is_some();
+        self.reads = ctx.installs.reads();
         Ok(())
     }
 
@@ -563,9 +567,12 @@ impl View {
         }
     }
 
-    /// Whether what the rows were made from has changed.
+    /// Whether what the rows were made from has changed: the list, or what
+    /// is installed.
     fn stale(&self, ctx: &Ctx<'_>) -> bool {
-        self.generation != ctx.loader.generation() || self.had_index != ctx.loader.index().is_some()
+        self.generation != ctx.loader.generation()
+            || self.had_index != ctx.loader.index().is_some()
+            || self.reads != ctx.installs.reads()
     }
 
     fn activate(&self, ctx: &Ctx<'_>, entry: usize) -> Result<Next, Error> {
@@ -653,8 +660,12 @@ impl Screen for View {
         Ok(screen)
     }
 
+    /// On top again: counted anew only where the list or what is installed
+    /// changed meanwhile (a count reads the whole index from the card).
     fn shown(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
-        self.refresh(ctx)?;
+        if self.stale(ctx) {
+            self.refresh(ctx)?;
+        }
         self.sync_hint(ctx);
         Ok(())
     }

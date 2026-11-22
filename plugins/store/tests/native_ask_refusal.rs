@@ -8,6 +8,7 @@
 #[path = "../../test-support/fail_alloc.rs"]
 mod fail_alloc;
 use paperpaw_plugin_store::native_ask::{self as ask, Decision, Have, Say};
+use paperpaw_plugin_store::native_download::Failure;
 use paperpaw_plugin_store::native_model::Entry;
 use paperpaw_plugin_store::native_queue::Report;
 use paperpaw_plugin_store::native_request::{Last, REQUEST, Request};
@@ -71,7 +72,7 @@ impl Installs for Going {
         if id == "pack-a" {
             Step::Installed
         } else {
-            Step::Failed(1)
+            Step::Failed(Failure::Network)
         }
     }
     fn queued(&self) -> bool {

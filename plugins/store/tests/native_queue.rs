@@ -275,3 +275,21 @@ fn the_dialog_names_plugins_by_the_listing_not_by_the_ask() {
     assert!(got[1].1.is_none());
     assert_eq!(names(&got).unwrap(), "Letters A, unlisted");
 }
+
+/// #486: a plugin the setup put in quietly asked, once installed, for the
+/// plugins it requires; Beta 3 offered them only outside the setup's queue,
+/// and for a plugin another plugin asked for (a chain of requirements).
+#[test]
+fn what_a_quiet_plugin_requires_is_not_offered_and_a_requested_ones_is() {
+    let offers = |mark: Mark| {
+        let mut queue = Queue::default();
+        queue.add(["a"], mark).unwrap();
+        queue.advance();
+        queue.offers_requires()
+    };
+    assert!(offers(Mark::Said));
+    assert!(!offers(Mark::Quiet));
+    assert!(offers(Mark::Requested));
+    // An install from a plugin's page, with no queue.
+    assert!(Queue::default().offers_requires());
+}
