@@ -271,18 +271,21 @@ fn letter(kind: Kind) -> Option<char> {
 }
 
 /// The mark a line of a file of `version` describes, and the line's
-/// fields.
+/// fields. What a row is, is said once, by [`is_row`], which the native
+/// reader and writer go by too: a line they take for no row (an XPointer
+/// end without a start, say) is none here either, and is kept as it is.
 fn fields(line: &str, version: u32) -> Option<(Mark, Vec<&str>)> {
-    let fields: Vec<&str> = if version >= FILE_VERSION {
-        line.split('\t').collect()
-    } else {
-        line.splitn(if version >= VERSION { 13 } else { 10 }, '\t')
-            .collect()
-    };
-    // A row of version 3 has its 15 columns, the id and key among them.
-    if version >= FILE_VERSION && (fields.len() != 15 || ident(&fields).is_none()) {
+    if !is_row(line.as_bytes(), version) {
         return None;
     }
+    // Split as the native reader splits it: tabs past the last field
+    // belong to it.
+    let most = match version {
+        FILE_VERSION.. => 15,
+        VERSION => 13,
+        _ => 10,
+    };
+    let fields: Vec<&str> = line.splitn(most, '\t').collect();
     let kind = match *fields.first()? {
         "b" => Kind::Bookmark,
         "h" => Kind::Highlight,
@@ -331,10 +334,7 @@ fn text_field(fields: &[&str]) -> usize {
     }
 }
 
-/// The annotation of a line. **A second row rule:** this and [`fields`] still
-/// decide what a row is for the plain readers and writers here, apart from
-/// [`is_row`]. They stay until the writes slice replaces them with that one
-/// definition (todo: one rule, then ids on write cannot drift from the reads).
+/// The annotation of a line (a row as [`is_row`] says, see [`fields`]).
 fn parse(line: &str, version: u32) -> Option<Annotation> {
     parse_anchored(line, version).map(|(a, ..)| a)
 }
@@ -356,8 +356,11 @@ fn parse_anchored(line: &str, version: u32) -> Option<(Annotation, Option<Anchor
     // made in a conversion not known.
     let anchor = match fields.get(8) {
         Some(&"") if rest == 11 => None,
+        // Known only as 16 hex digits, as the native reader takes it.
         Some(conversion) if rest == 11 => Some(Anchor {
-            conversion: u64::from_str_radix(conversion, 16).ok(),
+            conversion: Some(conversion)
+                .filter(|c| c.len() == 16)
+                .and_then(|c| u64::from_str_radix(c, 16).ok()),
             start: field(9),
             end: field(10),
         }),
@@ -1025,6 +1028,29 @@ mod tests {
             ("some text", "its note")
         );
         assert_eq!(a.mark.end, Locator::new(1, 20));
+    }
+
+    /// What a row is, is said once ([`is_row`]): a line the native reader
+    /// takes for no row is none here either and is kept as it is, and a
+    /// conversion is known only as 16 hex digits.
+    #[test]
+    fn rows_are_those_the_native_reader_takes_for_rows() {
+        let book = "books/v2.epub";
+        let damaged = "h\t1\t10\t1\t20\t5\t100\t200\t00000000000000ab\t\t/b\tno start\t";
+        let v2 = format!(
+            "# format 2\n{damaged}\n\
+             h\t2\t0\t2\t5\t5\t0\t0\tabc\t/a\t\tshort\t\n\
+             h\t3\t0\t3\t5\t5\t0\t0\t00000000000000ab\t/c\t\tknown\t\n"
+        );
+        let storage = MemoryStorage::new().with(&file(book), v2.as_str());
+        let all = load(&storage, book);
+        let texts: Vec<&str> = all.iter().map(|a| a.text.as_str()).collect();
+        assert_eq!(texts, ["short", "known"]);
+        assert_eq!(write::try_info(&storage, &file(book)).unwrap().rows, 2);
+        save(&storage, book, &all).unwrap();
+        let text = String::from_utf8(storage.get(&file(book)).unwrap()).unwrap();
+        assert!(text.contains(&format!("\n{damaged}\n")), "{text}");
+        assert!(text.contains("\t?\t/a\t\tshort\t"), "{text}");
     }
 
     const BOOK_V3: &str = "books/v3.epub";
