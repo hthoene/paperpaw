@@ -542,3 +542,17 @@ impl<IO: ReadWriteSeek> ExFat<IO> {
         self.grown.set(self.grown.get() + 1);
     }
 }
+
+/// Dropped, the volume is flushed as [`ExFat::flush`] does, as a FAT
+/// `FileSystem` is unmounted when it is dropped: what the disk keeps is
+/// written back, then the card is marked no longer in use where this
+/// mount marked it (`paperpaw-fat` drops a mount before it lends the card
+/// to a computer). A mount that failed wrote nothing, and after a flush
+/// nothing is left to write: neither writes anything here.
+impl<IO: ReadWriteSeek> Drop for ExFat<IO> {
+    fn drop(&mut self) {
+        if let Err(err) = self.flush() {
+            error!("flush on drop failed {:?}", err);
+        }
+    }
+}
