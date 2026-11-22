@@ -104,7 +104,8 @@ pub fn share(room: u16, gap: u16, n: u16) -> u16 {
 }
 
 /// `text` broken between words into lines `width` pixels wide at `size`
-/// (never inside a word), and whether a word is wider than a line alone.
+/// (never inside a word), each line of the text (`\n`) a line of its own, and
+/// whether a word is wider than a line alone.
 ///
 /// # Errors
 /// Font refusals and [`Error::NoMemory`].
@@ -114,30 +115,121 @@ pub fn break_words(
     text: &str,
     width: f32,
 ) -> Result<(Vec<String>, bool), Error> {
+    let broken = break_lines(
+        &mut |part| font.measure_text(size, part),
+        text,
+        width,
+        (usize::MAX, false),
+    )?;
+    Ok(broken.unwrap_or_default())
+}
+
+/// The one breaker of [`break_words`], [`words_in_lines`] and the sizes tried
+/// by [`wrap_whole`] and [`largest`]: `None` as soon as there are more than
+/// `most` lines or, with `whole`, a word is wider than a line (the rest is not
+/// measured). A word is measured alone, as it must be to tell whether it is
+/// too wide; its line is measured with it only where the sum of their widths
+/// lands near the edge (as [`text::wrap_with`] does), not for every word.
+///
+/// # Errors
+/// What `measure` says and [`Error::NoMemory`].
+fn break_lines(
+    measure: &mut dyn FnMut(&str) -> Result<f32, Error>,
+    text: &str,
+    width: f32,
+    (most, whole): (usize, bool),
+) -> Result<Option<(Vec<String>, bool)>, Error> {
     let mut lines: Vec<String> = Vec::new();
     let mut too_wide = false;
-    let mut current = String::new();
-    for word in text.split_whitespace() {
-        if font.measure_text(size, word)? > width {
-            too_wide = true;
+    let mut space: Option<f32> = None;
+    let slack = (width * text::NEAR_EDGE).max(0.0);
+    // A text of one line and no words has no lines; an empty line between
+    // others is one.
+    let paragraphs = text.contains('\n');
+    for paragraph in text.split('\n') {
+        let mut current = String::new();
+        let mut current_width = 0.0_f32;
+        for word in paragraph.split_whitespace() {
+            let word_width = measure(word)?;
+            if word_width > width {
+                if whole {
+                    return Ok(None);
+                }
+                too_wide = true;
+            }
+            if current.is_empty() {
+                push_str(&mut current, word)?;
+                current_width = word_width;
+                continue;
+            }
+            let space = match space {
+                Some(space) => space,
+                None => *space.insert(measure(" ")?),
+            };
+            let estimate = current_width + space + word_width;
+            let joined = if estimate <= width - slack {
+                Some(estimate)
+            } else if estimate > width + slack {
+                None
+            } else {
+                let longer = text::concat(&[&current, " ", word])?;
+                Some(measure(&longer)?).filter(|joined| *joined <= width)
+            };
+            if let Some(joined) = joined {
+                push_str(&mut current, " ")?;
+                push_str(&mut current, word)?;
+                current_width = joined;
+            } else {
+                if !push_line(&mut lines, core::mem::take(&mut current), most)? {
+                    return Ok(None);
+                }
+                push_str(&mut current, word)?;
+                current_width = word_width;
+            }
         }
-        if current.is_empty() {
-            push_str(&mut current, word)?;
-            continue;
-        }
-        let longer = text::concat(&[&current, " ", word])?;
-        if font.measure_text(size, &longer)? <= width {
-            current = longer;
-        } else {
-            lines.try_reserve(1).map_err(|_| Error::NoMemory)?;
-            lines.push(core::mem::replace(&mut current, text::copy(word)?));
+        if (!current.is_empty() || paragraphs) && !push_line(&mut lines, current, most)? {
+            return Ok(None);
         }
     }
-    if !current.is_empty() {
-        lines.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        lines.push(current);
+    Ok(Some((lines, too_wide)))
+}
+
+/// Adds `line` to `lines`; `false` where that makes more than `most`.
+fn push_line(lines: &mut Vec<String>, line: String, most: usize) -> Result<bool, Error> {
+    if lines.len() >= most {
+        return Ok(false);
     }
-    Ok((lines, too_wide))
+    lines.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    lines.push(line);
+    Ok(true)
+}
+
+/// How many lines of `size` stand in `height` pixels, a line's height apart,
+/// `most` at most: the most `n` whose `n` lines are no higher than `height`;
+/// `None` where not even none are (a height below 0).
+///
+/// # Errors
+/// Font refusals.
+fn lines_in(font: &Font<'_>, size: f32, height: f32, most: usize) -> Result<Option<usize>, Error> {
+    let pitch = line(font, size)?;
+    let high = |n: usize| pitch * n as f32 <= height;
+    if !high(0) {
+        return Ok(None);
+    }
+    if pitch <= 0.0 {
+        return Ok(Some(most));
+    }
+    // The quotient, put right by a step where rounding left it off the
+    // product the lines are checked by.
+    let mut n = ((height / pitch) as usize).min(most);
+    for _ in 0..2 {
+        if n > 0 && !high(n) {
+            n -= 1;
+        } else if n < most && high(n + 1) {
+            n += 1;
+        }
+    }
+    Ok(Some(n))
 }
 
 fn push_str(target: &mut String, text: &str) -> Result<(), Error> {
@@ -148,11 +240,12 @@ fn push_str(target: &mut String, text: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// `lines[from..]` joined with spaces.
+/// `lines[from..]` joined with spaces (an empty line between lines of the
+/// text adds none).
 fn join_from(lines: &[String], from: usize) -> Result<String, Error> {
     let mut joined = String::new();
-    for (n, part) in lines.iter().skip(from).enumerate() {
-        if n > 0 {
+    for part in lines.iter().skip(from).filter(|part| !part.is_empty()) {
+        if !joined.is_empty() {
             push_str(&mut joined, " ")?;
         }
         push_str(&mut joined, part)?;
@@ -173,10 +266,11 @@ pub fn wrap(
     width: f32,
     most: usize,
 ) -> Result<Vec<String>, Error> {
-    let (mut lines, _) = break_words(font, size, text, width)?;
+    let (mut lines, too_wide) = break_words(font, size, text, width)?;
     let most = most.max(1);
     let mut wide = None;
-    for (n, held) in lines.iter().enumerate() {
+    // Only a word alone is wider than its line: with none, no line is.
+    for (n, held) in lines.iter().enumerate().filter(|_| too_wide) {
         if font.measure_text(size, held)? > width {
             wide = Some(n);
             break;
@@ -220,16 +314,17 @@ pub fn wrap_whole(
     (width, height): (f32, f32),
     most: usize,
 ) -> Result<Option<(f32, Vec<String>)>, Error> {
-    let Some(size) = largest_size(max, min, |size| {
-        let (lines, too_wide) = break_words(font, size, text, width)?;
-        Ok(!too_wide
-            && lines.len() <= most.max(1)
-            && line(font, size)? * lines.len() as f32 <= height)
-    })?
-    else {
-        return Ok(None);
-    };
-    Ok(Some((size, break_words(font, size, text, width)?.0)))
+    // The lines of the size that fits are kept: the largest is the first.
+    let mut fitting = None;
+    let size = largest_size(max, min, |size| {
+        let Some(most) = lines_in(font, size, height, most.max(1))? else {
+            return Ok(false);
+        };
+        let measure = &mut |part: &str| font.measure_text(size, part);
+        fitting = break_lines(measure, text, width, (most, true))?;
+        Ok(fitting.is_some())
+    })?;
+    Ok(size.zip(fitting).map(|(size, (lines, _))| (size, lines)))
 }
 
 /// `items` (e.g. "Day 287 of 365", "Week 42") in lines `width` pixels wide at
@@ -409,27 +504,9 @@ pub fn words_in_lines(
     text: &str,
     width: f32,
 ) -> Result<Option<Vec<String>>, Error> {
-    let mut lines: Vec<String> = Vec::new();
-    for word in text.split_whitespace() {
-        if font.measure_text(size, word)? > width {
-            return Ok(None);
-        }
-        let joined = match lines.last() {
-            Some(last) => {
-                let joined = text::concat(&[last, " ", word])?;
-                (font.measure_text(size, &joined)? <= width).then_some(joined)
-            }
-            None => None,
-        };
-        match (joined, lines.last_mut()) {
-            (Some(joined), Some(last)) => *last = joined,
-            _ => {
-                lines.try_reserve(1).map_err(|_| Error::NoMemory)?;
-                lines.push(text::copy(word)?);
-            }
-        }
-    }
-    Ok(Some(lines))
+    let measure = &mut |part: &str| font.measure_text(size, part);
+    let broken = break_lines(measure, text, width, (usize::MAX, true))?;
+    Ok(broken.map(|(lines, _)| lines))
 }
 
 /// The largest size, from `least` to `most`, at which `text` fits a room
@@ -445,10 +522,11 @@ pub fn largest(
     (least, most): (f32, f32),
 ) -> Result<f32, Error> {
     let fits = |size: f32| -> Result<bool, Error> {
-        Ok(match words_in_lines(font, size, text, f32::from(width))? {
-            Some(lines) => line(font, size)? * lines.len() as f32 <= f32::from(height),
-            None => false,
-        })
+        let Some(most) = lines_in(font, size, f32::from(height), usize::MAX)? else {
+            return Ok(false);
+        };
+        let measure = &mut |part: &str| font.measure_text(size, part);
+        Ok(break_lines(measure, text, f32::from(width), (most, true))?.is_some())
     };
     Ok(largest_size(most.max(least), least, fits)?.unwrap_or(least))
 }
@@ -522,4 +600,133 @@ pub fn caption(
         area.width,
         area.height - height,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every letter ten wide, a space four; "AV" kerned a pixel closer, so a
+    /// line is not quite the sum of its words.
+    fn measure(text: &str) -> f32 {
+        let letters: f32 = text
+            .chars()
+            .map(|c| if c == ' ' { 4.0 } else { 10.0 })
+            .sum();
+        letters - text.matches("AV").count() as f32
+    }
+
+    /// The breaker as it was: each word measured alone and with its line.
+    fn measured_whole(text: &str, width: f32) -> (Vec<String>, bool) {
+        let (mut lines, mut too_wide, mut current) = (Vec::new(), false, String::new());
+        for word in text.split_whitespace() {
+            too_wide |= measure(word) > width;
+            if current.is_empty() {
+                current = word.into();
+                continue;
+            }
+            let longer = alloc::format!("{current} {word}");
+            if measure(&longer) <= width {
+                current = longer;
+            } else {
+                lines.push(core::mem::replace(&mut current, word.into()));
+            }
+        }
+        if !current.is_empty() {
+            lines.push(current);
+        }
+        (lines, too_wide)
+    }
+
+    fn broken(text: &str, width: f32, most: usize, whole: bool) -> Option<(Vec<String>, bool)> {
+        break_lines(&mut |part| Ok(measure(part)), text, width, (most, whole)).unwrap()
+    }
+
+    #[test]
+    fn words_break_as_measured_whole_with_fewer_and_shorter_measures() {
+        let text = "AVA wavy AVAV lines of a quote that runs on and on, past the edge \
+                    of the widget, with an unbreakablewordthatiswide in it";
+        for width in [
+            0.0, 30.0, 40.0, 44.0, 64.0, 100.0, 104.0, 150.0, 250.0, 1000.0,
+        ] {
+            assert_eq!(
+                broken(text, width, usize::MAX, false),
+                Some(measured_whole(text, width)),
+                "{width}"
+            );
+        }
+        let mut letters = 0;
+        break_lines(
+            &mut |part| {
+                letters += part.chars().count();
+                Ok(measure(part))
+            },
+            text,
+            150.0,
+            (usize::MAX, false),
+        )
+        .unwrap();
+        // Each word alone and again with its growing line took 425.
+        assert!(letters < 250, "{letters}");
+    }
+
+    #[test]
+    fn a_line_of_the_text_starts_a_line_and_an_empty_one_is_kept() {
+        assert_eq!(
+            broken(
+                "Milk\nEggs and bread\n\nCall Anna",
+                100.0,
+                usize::MAX,
+                false
+            ),
+            Some((
+                ["Milk", "Eggs and", "bread", "", "Call Anna"]
+                    .map(String::from)
+                    .to_vec(),
+                false
+            ))
+        );
+        // A text of one line and no words has no lines.
+        assert_eq!(
+            broken(" ", 100.0, usize::MAX, false),
+            Some((Vec::new(), false))
+        );
+    }
+
+    #[test]
+    fn the_breaking_stops_at_a_word_too_wide_or_a_line_too_many() {
+        let text = "one two three four";
+        assert_eq!(broken(text, 100.0, 1, true), None);
+        assert!(broken(text, 100.0, 2, true).is_some());
+        assert_eq!(broken("one unbreakable", 80.0, usize::MAX, true), None);
+        assert_eq!(
+            broken("one unbreakable", 80.0, usize::MAX, false).map(|b| b.1),
+            Some(true)
+        );
+        let mut measures = 0;
+        break_lines(
+            &mut |part| {
+                measures += 1;
+                Ok(measure(part))
+            },
+            "toolongforaline and many more words after it",
+            80.0,
+            (usize::MAX, true),
+        )
+        .unwrap();
+        assert_eq!(measures, 1);
+    }
+
+    #[test]
+    fn breaking_survives_every_refused_allocation() {
+        crate::fail_alloc::sweep(|| {
+            break_lines(
+                &mut |part| Ok(measure(part)),
+                "a b\n\nc d e",
+                30.0,
+                (usize::MAX, false),
+            )
+            .map(|b| b.map_or(0, |(lines, _)| lines.len()))
+        });
+    }
 }

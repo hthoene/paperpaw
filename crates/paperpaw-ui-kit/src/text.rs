@@ -442,7 +442,7 @@ pub fn with_ellipsis(text: &str) -> Result<String, Error> {
 
 /// A word that leaves less than this share of the width to the edge of a line
 /// is measured with the line, not added by its own width.
-const NEAR_EDGE: f32 = 0.04;
+pub(crate) const NEAR_EDGE: f32 = 0.04;
 
 /// Breaks `text` into at most `max_lines` lines (none when it is 0) no wider than `width` as
 /// `measure` says, at spaces (inside a word where one alone is too wide). Where
