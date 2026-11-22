@@ -15,7 +15,10 @@ use paperpaw_sdk::{
         reply::Reply,
         settings::SettingValue,
         snapshot,
-        ui::{HandoverId, Instance, Notify, Open, Param, Question, RequestId, ScreenPolicy, Ui},
+        ui::{
+            ButtonHint, HandoverId, Instance, Notify, Open, Param, Question, RequestId, ScreenPolicy,
+            Ui,
+        },
     },
 };
 use paperpaw_ui_kit::{
@@ -436,6 +439,23 @@ impl Device for HostDevice<'_, '_> {
     }
 }
 
+/// Unlocking, *Back* takes the last digit or dot away, as Beta 3 named it; a
+/// password is typed on the keyboard, which has a *Back* of its own, so the
+/// hint is hidden. A hint the host refuses leaves the usual one.
+fn back_hint(host: &Host<'_>, kind: &str) {
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(host, &mut scratch);
+    if kind == "password" {
+        if let Ok(hint) = ButtonHint::hidden("core.back") {
+            sender.set_hint(hint).ok();
+        }
+    } else if let Ok(words) = Messages::new().and_then(|mut m| m.copy(host, "lock.delete"))
+        && let Ok(hint) = ButtonHint::words("core.back", &words)
+    {
+        sender.set_hint(hint).ok();
+    }
+}
+
 /// A notice with the text of `key`.
 fn notify(host: &Host<'_>, key: &str) -> Result<(), Error> {
     let text = Messages::new()?.copy(host, key)?;
@@ -541,6 +561,9 @@ impl NativeLock {
                 // too: the next input sees it over (`WakeAt` waits for the
                 // work service, see PORTING-7.md).
                 view.flow.shown_screen(&mut fx);
+            }
+            if view.flow.step() == Step::Unlock {
+                back_hint(host, view.flow.kind());
             }
         }
         self.carry_out(host, instance, &mut fx)
