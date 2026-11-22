@@ -59,6 +59,24 @@ fn a_dropped_press_pressed_again_after_the_frame_does_not_stick() {
     assert!(nothing_held(&kernel));
 }
 
+/// A press held as the device went to sleep is over when it wakes: its
+/// release, lost while asleep, does not hold the button on (a long press
+/// nobody made, the next press swallowed, a key held for the plugins) (#483).
+#[test]
+fn a_press_held_across_a_sleep_is_over_at_the_wake() {
+    let log = log();
+    let mut kernel = shown_kernel(&log);
+    button(&mut kernel, 1500, "back", ButtonState::Pressed);
+    kernel.suspend(Instant(1600));
+    kernel.resume(Instant(60_000));
+    assert!(kernel.shared.keys_held.is_empty(), "no key held");
+    assert!(nothing_held(&kernel));
+    kernel.tick(Instant(61_000));
+    button(&mut kernel, 62_000, "back", ButtonState::Pressed);
+    button(&mut kernel, 62_050, "back", ButtonState::Released);
+    assert_eq!(*log.borrow(), ["a:core.back"]);
+}
+
 #[test]
 fn a_held_press_pressed_again_before_the_frame_keeps_its_release() {
     let log = log();
