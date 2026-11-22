@@ -59,6 +59,9 @@ pub enum Failed {
     Server(String),
     /// The own network could not open.
     NotOpened,
+    /// No password could be drawn from fully random numbers (the radio,
+    /// which makes the chip's numbers random, did not come on).
+    NoRandom,
 }
 
 /// Where the setting up is. A password in it prints as `Password(..)`.
@@ -131,6 +134,10 @@ pub enum Effect {
     RadioOn,
     /// Look for networks.
     Scan,
+    /// Draw the own network's password and the page's token; the answer goes
+    /// to [`Phone::drawn`]. Asked once the radio was on for a whole scan: the
+    /// chip's numbers are random only while it is on.
+    Draw,
     /// Open the own network.
     Host,
     /// Serve the page (port [`PORT`]).
@@ -174,7 +181,7 @@ fn room() -> Result<Vec<Effect>, Error> {
 
 /// The phone setup.
 pub struct Phone {
-    /// The own network's name, if a password could be drawn for it.
+    /// The own network's name, once a password was drawn for it.
     own: Option<String>,
     stage: Stage,
     step: Step,
@@ -184,7 +191,7 @@ pub struct Phone {
     manual: bool,
     started: bool,
     /// Drawn anew each time, in the page's form: a form sent from another
-    /// page in the phone's browser does not have it.
+    /// page in the phone's browser does not have it. Empty until drawn.
     token: String,
     /// When the phone asked last (or the own network opened).
     active: u64,
@@ -213,24 +220,22 @@ impl core::fmt::Debug for Phone {
 }
 
 impl Phone {
-    /// A setup at `now`: `own` is the own network's name (none where no
-    /// password could be drawn), `token` the page's token, `manual` whether
-    /// the user had switched the radio on before.
-    ///
-    /// # Errors
-    /// [`Error::NoMemory`].
-    pub fn new(own: Option<&str>, token: &str, manual: bool, now: u64) -> Result<Self, Error> {
-        Ok(Self {
-            own: own.map(copy).transpose()?,
+    /// A setup at `now`; `manual` is whether the user had switched the radio
+    /// on before. The own network is drawn once the radio is on
+    /// ([`Effect::Draw`]).
+    #[must_use]
+    pub const fn new(manual: bool, now: u64) -> Self {
+        Self {
+            own: None,
             stage: Stage::Searching,
             step: Step::Join,
             problem: None,
             manual,
             started: false,
-            token: copy(token)?,
+            token: String::new(),
             active: now,
             moved_on: false,
-        })
+        }
     }
 
     /// The stage.
@@ -266,19 +271,14 @@ impl Phone {
         }
     }
 
-    /// The screen is shown (once counts): the radio is held on while it is
-    /// open, and it looks for networks.
+    /// The screen is shown (once counts): the radio is switched on where it
+    /// is off and held on while the screen is open, and it looks for networks.
     ///
     /// # Errors
     /// [`Error::NoMemory`].
     pub fn shown(&mut self, radio_on: bool) -> Result<Vec<Effect>, Error> {
         let mut out = room()?;
         if self.started {
-            return Ok(out);
-        }
-        if self.own.is_none() {
-            self.started = true;
-            out.push(Effect::Redraw);
             return Ok(out);
         }
         for effect in [
@@ -298,18 +298,40 @@ impl Phone {
         Ok(out)
     }
 
-    /// The scan came back: the own network opens.
+    /// The scan came back: the radio was on all through it, so the own
+    /// network is drawn now.
     ///
     /// # Errors
     /// [`Error::NoMemory`].
     pub fn scanned(&mut self) -> Result<Vec<Effect>, Error> {
         let mut out = room()?;
         if matches!(self.stage, Stage::Searching) {
-            out.push(Effect::Redraw);
-            if self.own.is_some() {
+            out.push(Effect::Draw);
+        }
+        Ok(out)
+    }
+
+    /// What [`Effect::Draw`] came to: the own network's name and the page's
+    /// token, drawn from fully random numbers, and the own network opens; or
+    /// `None` (a weak draw) and the setup stops, never with a weaker password.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn drawn(&mut self, own: Option<(&str, &str)>) -> Result<Vec<Effect>, Error> {
+        let mut out = room()?;
+        if !matches!(self.stage, Stage::Searching) {
+            return Ok(out);
+        }
+        out.push(Effect::Redraw);
+        match own {
+            Some((ssid, token)) => {
+                let (ssid, token) = (copy(ssid)?, copy(token)?);
                 out.push(Effect::Host);
+                self.own = Some(ssid);
+                self.token = token;
                 self.stage = Stage::Opening;
             }
+            None => self.stage = Stage::Failed(Failed::NoRandom),
         }
         Ok(out)
     }
