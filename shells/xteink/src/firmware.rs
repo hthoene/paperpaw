@@ -429,10 +429,11 @@ impl Firmware {
         let light = self.light();
         self.panel_idle();
         // Not while the radio is on: its tasks run in between. Nor while
-        // the X4 Pro's light is on: its PWM stops in a light sleep.
+        // the X4 Pro's light is on: its PWM stops in a light sleep (the
+        // Picco's driver makes its own, `paperpaw_x4::picco`).
         let battery = !self.network.radio_on()
             && !installing
-            && !light
+            && !(light && cfg!(not(feature = "picco")))
             && ((!self.usb_power.cable() && self.kernel.settings().read(&device::LIGHT_SLEEP))
                 || self.trying_sleep());
         power::allow(battery);

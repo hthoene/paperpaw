@@ -54,10 +54,10 @@ impl Firmware {
     pub(super) fn dozing_step(&mut self) {
         power::feed();
         power::allow(false);
-        // The X3 knows the cable from its fuel gauge, which only a reading of
-        // the battery asks (the reading itself rests a second): a cable
-        // pulled while it dozes is noticed so.
-        #[cfg(feature = "x3")]
+        // The X3 knows the cable from its fuel gauge and the Picco from its
+        // charger, which only a reading of the battery asks (the reading
+        // itself rests a second): a cable pulled while it dozes is noticed so.
+        #[cfg(any(feature = "x3", feature = "picco"))]
         let _ = crate::input::millivolts();
         self.buttons();
         self.usb();

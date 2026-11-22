@@ -20,12 +20,16 @@ impl paperpaw_x4::sleeping::Board for Light<'_> {
     }
 
     fn look(&mut self) -> paperpaw_x4::sleeping::Look {
+        // Read first: the X3's gauge and the Picco's charger say whether it
+        // charges with the battery's reading, and a look must not take the
+        // cable from the reading before (up to `CHECK_MS` old).
+        let percent = input::percent_now();
         paperpaw_x4::sleeping::Look {
             now_ms: now().0,
             // Charging, not a computer talking: a reader on a cable with a full
             // cell is switched off after its time, as one on a battery.
             usb: self.firmware.usb_power.charging(),
-            percent: input::percent_now(),
+            percent,
         }
     }
 
@@ -100,8 +104,8 @@ impl paperpaw_x4::sleeping::Board for Light<'_> {
         self.firmware.kernel.show_again_at().map(|at| at.millis())
     }
 
-    fn show_again(&mut self) {
-        self.firmware.draw_sleep_again();
+    fn show_again(&mut self) -> bool {
+        self.firmware.draw_sleep_again()
     }
 }
 
@@ -111,11 +115,12 @@ impl Firmware {
     /// panel refreshes what changed (a partial update) and the work this
     /// brought is finished, as for the off screen. The caller has the watchdogs
     /// awake and the readings going, and puts the sleep back. The radios are
-    /// not touched: nothing here needs the network.
+    /// not touched: nothing here needs the network. `true` where the power
+    /// button was pressed meanwhile: the reader is awake then.
     #[inline(never)]
-    pub(super) fn draw_sleep_again(&mut self) {
+    pub(super) fn draw_sleep_again(&mut self) -> bool {
         let Some(effects) = self.kernel.show_again_now(now()) else {
-            return;
+            return false;
         };
         info!("sleeping: the sleep screen again");
         self.apply(effects);
@@ -126,6 +131,10 @@ impl Firmware {
         }
         self.settle_frame();
         self.write_back();
+        // What was pressed while it was drawn is not kept for after the
+        // sleep, where it would reach the kernel: the power button wakes the
+        // reader, the other buttons do nothing, as asleep.
+        input::forget_presses()
     }
 
     /// The off screen (the slot `core.off`) of a reader about to be switched

@@ -158,6 +158,14 @@ pub fn nap_until(until: u64) -> bool {
     nap(deadline)
 }
 
+/// Sleeps lightly for `ms` whatever the cable, then reads the buttons;
+/// `false` if it did not (the caller waits). For a reader being switched off:
+/// nothing on USB is kept awake for any more.
+pub fn nap_switching_off(ms: u64) -> bool {
+    mark(at::NAP_IDLE);
+    sleep_until(Instant::now() + Duration::from_millis(ms))
+}
+
 /// Sleeps lightly until `deadline` where allowed.
 fn nap(deadline: Instant) -> bool {
     if !ALLOWED.load(Ordering::Relaxed) {
@@ -179,13 +187,14 @@ fn sleep_until(deadline: Instant) -> bool {
         return false;
     };
     low_power.set_wakeup_deadline(deadline);
-    // The X4's ADC interrupt and sleep entry both use the internal
-    // analog bus. Keep the sampler out until the HAL has restored the
-    // clocks and regulators. The RTC alarm wakes the hardware without
-    // a CPU interrupt; sample_now reads the buttons after waking.
-    #[cfg(feature = "x4")]
+    // The ESP32-C3's ADC interrupt (the buttons of the X4 and the X3) and
+    // sleep entry both use the internal analog bus. Keep the sampler out
+    // until the HAL has restored the clocks and regulators. The RTC alarm
+    // wakes the hardware without a CPU interrupt; sample_now reads the
+    // buttons after waking.
+    #[cfg(feature = "esp32c3")]
     critical_section::with(|_| light(&mut low_power));
-    #[cfg(not(feature = "x4"))]
+    #[cfg(not(feature = "esp32c3"))]
     light(&mut low_power);
     critical_section::with(|cs| LOW_POWER.replace(cs, Some(low_power)));
     mark(at::WOKEN);

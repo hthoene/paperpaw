@@ -575,6 +575,31 @@ pub fn resume() {
     });
 }
 
+/// Forgets the presses and releases since the readings went on (the sleep
+/// screen drawn again while asleep, [`resume`]): none reaches the kernel
+/// after the sleep, and the readings start anew as at a wake, a button held
+/// now counting once it is let go. Whether the power button was pressed
+/// among them.
+#[cfg(feature = "asleep-light")]
+pub fn forget_presses() -> bool {
+    critical_section::with(|cs| {
+        let mut sampler = SAMPLER.borrow_ref_mut(cs);
+        let Some(sampler) = sampler.as_mut() else {
+            return false;
+        };
+        let mut power = false;
+        while let Some(change) = sampler.queue.pop() {
+            power |= matches!(
+                change,
+                Change::Button(paperpaw_platform::buttons::POWER, true, _)
+            );
+        }
+        sampler.debouncer = Debouncer::new();
+        sampler.power_armed = false;
+        power
+    })
+}
+
 /// Runs `sleep`, a light sleep, with the power button as a source that ends
 /// it, and says whether the button is down after it. With the readings
 /// paused: nothing else runs while it sleeps, interrupts are held off, so
