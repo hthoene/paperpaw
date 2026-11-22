@@ -14,3 +14,6 @@
   numbers for good.
 - **Book styles** (#484): a book with very many or very long style rules keeps
   the first of them instead of losing all its styles.
+- **Picture books** (#484): a fixed-layout book of pictures shows the same
+  title, authors and subjects as any other book; words of a name are no longer
+  run together, and up to 16 authors are listed.
