@@ -535,3 +535,34 @@ fn a_stopped_plugins_id_is_let_go_after_its_cleanup() {
         "not known any more: the safe answer"
     );
 }
+
+/// A socket opened in the callback of a screen the quick panel covers is
+/// still that screen's: it ends when the screen closes, not only at the
+/// idle timeout (`sockets.md` 1, #483).
+#[test]
+fn a_socket_of_a_covered_screens_callback_ends_with_that_screen() {
+    use crate::native_host::stack_rows::{HOST, OVERLAY, StackRow, StackRows};
+    let f = fixture(false);
+    let rows = alloc::rc::Rc::new(StackRows::default());
+    rows.update([
+        StackRow {
+            instance: 5,
+            owner: OWNER,
+            flags: 0,
+        },
+        StackRow {
+            instance: 6,
+            owner: 0,
+            flags: OVERLAY | HOST,
+        },
+    ]);
+    f.device.paths.owners().attach_screens(&rows);
+    let id = {
+        let _call = rows.enter_callback(OWNER, 5);
+        connect(&f, 0).unwrap()
+    };
+    connected(&f.device, id).unwrap();
+    drain(&f);
+    table::screen_closed(&f.device, OWNER, 5).unwrap();
+    assert_eq!(drain(&f), [(kind::CLOSED, reason::SCREEN_CLOSED)]);
+}

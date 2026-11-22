@@ -354,8 +354,9 @@ pub(crate) trait SockHost {
     ) -> Result<(), i32>;
     /// Rename the staged file of `path` (`<path>.pp-staged`) over `path`.
     fn staged_commit(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
-    /// The screen instance whose callback is running if it is showing.
-    fn showing_screen(&self, owner: u64) -> Option<u64>;
+    /// The screen instance whose callback is running, shown or covered: a
+    /// socket opened there ends with it (section 1).
+    fn calling_screen(&self, owner: u64) -> Option<u64>;
 }
 
 /// What the shell hands the frame under the key `core.sockets`.
