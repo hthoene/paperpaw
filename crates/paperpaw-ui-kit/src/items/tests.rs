@@ -508,6 +508,28 @@ fn a_head_as_high_as_the_page_leaves_room_for_the_first_row() {
     assert_eq!(head_fit(900, 700, None), 700);
 }
 
+#[test]
+fn a_head_that_keeps_the_rows_gives_way_to_all_of_them_where_they_fit() {
+    let style = style();
+    let mut list = ItemList::new(items("rrr"));
+    list.set_head("Code").unwrap();
+    list.set_head_height(400);
+    let whole = style.heading + 400;
+    // Only the first row stays on the page with it.
+    assert_eq!(
+        list.head_high(&style, 600, &[100, 100, 100]),
+        whole.min(500)
+    );
+    list.set_head_keeps_rows();
+    assert_eq!(list.head_high(&style, 600, &[100, 100, 100]), 300);
+    assert_eq!(list.head_high(&style, 900, &[100, 100, 100]), whole);
+    // Rows that fit no page with it: the first stays, as without.
+    assert_eq!(
+        list.head_high(&style, 600, &[250, 250, 250]),
+        whole.min(350)
+    );
+}
+
 fn measured_list() -> ItemList {
     let mut list = ItemList::new(items("hrrr"));
     list.keep_heights(vec![10, 20, 30, 40], 1);

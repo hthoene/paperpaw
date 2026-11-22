@@ -220,10 +220,7 @@ impl Plugin for NativeWifi {
                 view.list
                     .draw_with(host, &mut frame, "wifi.networks.title", true, Footer::None)
             }
-            View::Phone(view) => {
-                let (list, footer) = view.drawn();
-                list.draw_with(host, &mut frame, "wifi.phone.title", true, footer)
-            }
+            View::Phone(view) => view.draw(host, &mut frame),
         }
     }
 

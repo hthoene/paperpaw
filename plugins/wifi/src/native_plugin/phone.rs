@@ -17,6 +17,7 @@ use paperpaw_qr::{QrCode, QrError};
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::native::{
     Error, Host,
+    callbacks::DrawFrame,
     commands::{CommandSender, RedrawMode},
     events::WifiFailure,
     formatting::Arg,
@@ -24,12 +25,14 @@ use paperpaw_sdk::native::{
         FileRoot, MAX_INLINE_BODY, Net, REQUEST_INPUT, Reason, Response, ServedRequest, Server,
         ServerState,
     },
+    snapshot,
     storage::DataStorage,
     work::WorkSpec,
 };
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, Messages,
     mem::{SERVICE_BUFFER, buffer, push, wipe, wipe_text},
+    paint,
     text::{concat, copy},
 };
 
@@ -51,6 +54,8 @@ pub(super) const WAKE_WORK: u32 = 3;
 const PAGE_FILE: &str = "phone-page.html";
 /// The reply buffer of `serve`, `stop_serving` and `respond`.
 const SERVE_OUT: usize = 1_536;
+/// The code's room above the rows is two of this many parts of the screen.
+const CODE_SHARE: u16 = 5;
 /// The longest body the server takes: a form is at most [`MAX_FORM`], one
 /// that is longer counts as none (as in interface 6), not as a refusal.
 const MAX_BODY: u64 = 4_096;
@@ -76,20 +81,33 @@ pub(super) struct PhoneView {
 }
 
 impl PhoneView {
-    /// The list to draw and what it shows under its rows.
-    pub(super) fn drawn(&mut self) -> (&mut ItemList, Footer<'_>) {
-        let footer = match (self.phone.stage(), self.phone.step()) {
-            (Stage::Opening | Stage::Hosting { .. }, Step::Join) => match &self.join_qr {
-                Some(code) => Footer::Code { code, caption: "" },
-                None => Footer::None,
-            },
-            (Stage::Hosting { page: Some(_) }, Step::Open) => match &self.page_qr {
-                Some(code) => Footer::Code { code, caption: "" },
-                None => Footer::None,
-            },
-            _ => Footer::None,
-        };
-        (&mut self.list, footer)
+    /// The code the step shows, where it has one: the one that joins the own
+    /// network, or the one that opens the page once it is served.
+    fn code(&self) -> Option<&QrCode> {
+        match (self.phone.stage(), self.phone.step()) {
+            (Stage::Opening | Stage::Hosting { .. }, Step::Join) => self.join_qr.as_ref(),
+            (Stage::Hosting { page: Some(_) }, Step::Open) => self.page_qr.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Draws the step: its code large in the room the list keeps above the
+    /// rows, under the step's title, as Beta 3 showed it (not below the rows,
+    /// where it was left out once they took more than a page).
+    pub(super) fn draw(&mut self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+        // Two fifths of the screen at most: the rows below it stay on its
+        // page, and the code is drawn smaller where they need the room.
+        if self.code().is_some() {
+            let display = snapshot::capture_snapshot(host)?;
+            self.list
+                .set_head_height(display.display_height() / CODE_SHARE * 2);
+        }
+        self.list
+            .draw_with(host, frame, "wifi.phone.title", true, Footer::None)?;
+        match (self.code(), self.list.head_rect()) {
+            (Some(code), Some(room)) => paint::draw_code(frame, code, room),
+            _ => Ok(()),
+        }
     }
 
     /// The password and the token are wiped, not only dropped.
@@ -214,14 +232,14 @@ impl NativeWifi {
     }
 
     /// The rows of the two setup steps (join the own network, then open the
-    /// page); the index of the button that goes on.
+    /// page); the index of the button that goes on, and the step's title where
+    /// it heads the room of the step's code (`code`) instead of the rows.
     fn setup_rows(
         host: &Host<'_>,
         say: &mut Messages,
-        phone: &Phone,
-        own: &Own,
+        (phone, own, code): (&Phone, &Own, bool),
         items: &mut Vec<Item>,
-    ) -> Result<usize, Error> {
+    ) -> Result<(usize, Option<String>), Error> {
         if let Some(problem) = phone.problem() {
             push(items, said(problem)?)?;
         }
@@ -240,7 +258,12 @@ impl NativeWifi {
             ),
         };
         let heading = concat(&[number, &say.copy(host, title)?])?;
-        push(items, Item::heading(&heading)?)?;
+        let head = if code {
+            Some(heading)
+        } else {
+            push(items, Item::heading(&heading)?)?;
+            None
+        };
         push(items, said(&say.copy(host, note)?)?)?;
         match phone.step() {
             Step::Join => {
@@ -256,33 +279,46 @@ impl NativeWifi {
                 push(items, said(&say.copy(host, "wifi.phone.opening")?)?)?;
             }
             // The address in words, whether or not a code is drawn for it (none
-            // where it could not be made, or the rows take several pages).
+            // where it could not be made), as Beta 3 had it under the code.
             Step::Open => {
                 if let Some(url) = phone.page_address() {
-                    let text = concat(&[&say.copy(host, "wifi.phone.type-address")?, " ", url])?;
-                    push(items, said(&text)?)?;
+                    push(items, said(url)?)?;
+                    push(items, said(&say.copy(host, "wifi.phone.type-address")?)?)?;
                 }
             }
         }
         let label = say.copy(host, button)?;
         let next = items.len();
         push(items, Item::row(&label, "›")?)?;
-        Ok(next)
+        Ok((next, head))
     }
 
     /// The rows for what the setup is doing now.
     fn phone_build(host: &Host<'_>, view: &mut PhoneView) -> Result<(), Error> {
+        // The code that opens the page, made once it is served: none where it
+        // cannot be made (the address is in words on the screen); a short heap
+        // is not a failure of the callback, which would drop the redraw.
+        match view.phone.page_address() {
+            None => view.page_qr = None,
+            Some(url) if view.page_qr.is_none() => {
+                view.page_qr = QrCode::try_new(url.as_bytes()).ok()
+            }
+            Some(_) => {}
+        }
+        let code = view.code().is_some();
         let mut say = Messages::new()?;
         let mut items = Vec::new();
         let phone = &view.phone;
-        let mut next = None;
+        let (mut next, mut head) = (None, None);
         let text = match (phone.stage(), &view.own) {
             (Stage::Searching, _) => Some(say.copy(host, "wifi.state.searching")?),
             (Stage::Opening, Some(_)) if phone.problem().is_none() => {
                 Some(say.copy(host, "wifi.phone.opening")?)
             }
             (Stage::Opening | Stage::Hosting { .. }, Some(own)) => {
-                next = Some(Self::setup_rows(host, &mut say, phone, own, &mut items)?);
+                let (button, title) =
+                    Self::setup_rows(host, &mut say, (phone, own, code), &mut items)?;
+                (next, head) = (Some(button), title);
                 None
             }
             // No own network without a password drawn from fully random
@@ -320,6 +356,10 @@ impl NativeWifi {
         }
         view.list.wipe();
         view.list = ItemList::new(items);
+        if let Some(title) = head {
+            view.list.set_head(&title)?;
+            view.list.set_head_keeps_rows();
+        }
         if let Some(next) = next {
             view.list.set_focus(next);
         }
@@ -437,8 +477,7 @@ impl NativeWifi {
     ) -> Result<(), Error> {
         match state {
             ServerState::Started { address } => {
-                self.phone_step(host, |phone| phone.server_started(address))?;
-                self.phone_page_code()
+                self.phone_step(host, |phone| phone.server_started(address))
             }
             ServerState::Failed { reason } => {
                 let mut say = Messages::new()?;
@@ -449,21 +488,6 @@ impl NativeWifi {
             // longer there, and the screen says nothing more.
             _ => Ok(()),
         }
-    }
-
-    /// The code that opens the page, from its address.
-    fn phone_page_code(&mut self) -> Result<(), Error> {
-        let Some(View::Phone(view)) = self.screens.top(PHONE_TOKEN) else {
-            return Ok(());
-        };
-        let Some(url) = view.phone.page_address() else {
-            return Ok(());
-        };
-        // No code where it cannot be made (the address is in words on the
-        // screen): a short heap is not a failure of the callback, which would
-        // drop the redraw already staged.
-        view.page_qr = QrCode::try_new(url.as_bytes()).ok();
-        Ok(())
     }
 
     /// The screen closed: the page is not served, the own network closed, the
@@ -515,7 +539,17 @@ impl NativeWifi {
                 },
                 Effect::Leave => CommandSender::new(host, &mut [0; 64]).wifi_leave()?,
                 Effect::Host => self.phone_host(host)?,
-                Effect::Serve => server_failed |= self.phone_serve(host)? == Serving::Busy,
+                Effect::Serve => match self.phone_serve(host)? {
+                    Serving::Started => {}
+                    Serving::Busy => server_failed = true,
+                    // Asked again with the next change or key: the step
+                    // does not wait for a page that was never asked for.
+                    Serving::Hidden => {
+                        if let Some(View::Phone(view)) = self.screens.top(PHONE_TOKEN) {
+                            view.phone.not_served();
+                        }
+                    }
+                },
                 Effect::StopServing => self.phone_stop(host)?,
                 Effect::Respond {
                     request,
