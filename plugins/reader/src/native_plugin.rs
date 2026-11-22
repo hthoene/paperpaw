@@ -161,16 +161,21 @@ impl NativeReader {
         let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
             return Err(Error::State);
         };
-        let found = match handover {
-            Some(handover) => read_handover(host, ui, handover).unwrap_or_default(),
-            None => Handover::default(),
+        // No room to read which book to open is said as no room to open it
+        // is; a hand-over the host cannot give names no book.
+        let found = match handover.map(|handover| read_handover(host, ui, handover)) {
+            Some(Err(Error::NoMemory)) => Err(Error::NoMemory),
+            Some(Ok(found)) => Ok(found),
+            Some(Err(_)) | None => Ok(Handover::default()),
         };
         let library = self.library.as_ref();
         // The screen opened again (the reader asked to open while it shows a
         // book): the book it shows stays open; another book's document is
         // given back first, so the host has room for the new one.
         if let Some(view) = self.screens.get(instance) {
-            if view.keeps(host, docs, &found)? {
+            if let Ok(found) = &found
+                && view.keeps(host, docs, found)?
+            {
                 self.start_count(host);
                 return Ok(());
             }
@@ -182,7 +187,9 @@ impl NativeReader {
             (&mut self.screens, &mut self.resting),
             instance,
         )?;
-        let mut view = View::open(host, (docs, library), found).or_else(View::when_full)?;
+        let mut view = found
+            .and_then(|found| View::open(host, (docs, library), found))
+            .or_else(View::when_full)?;
         view.bind(instance.get());
         self.resting.retain(|(at, ..)| *at != instance);
         self.screens.open(instance, view)?;
@@ -1147,6 +1154,7 @@ impl NativeReader {
             kinds::Spoken,
             kinds::StackChanged,
             kinds::DocumentChanged,
+            kinds::LibraryChanged,
             kinds::PluginAnswered,
             kinds::StageCall
         ) else {
