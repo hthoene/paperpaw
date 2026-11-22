@@ -594,10 +594,14 @@ impl<S: Source> StoredPatterns<S> {
             raw_read(src, layout.table_len(), pos, &mut scratch[..n])?;
             for chunk in scratch[..n].as_chunks::<4>().0 {
                 let offset = u32::from_le_bytes(*chunk);
-                let ascending = index.last().is_none_or(|before| offset > before);
-                let size = offset - index.last().unwrap_or(offset);
-                if !ascending
-                    || u64::from(offset) >= patterns
+                // The size of the block before, where this one starts after it
+                // (the file may have changed since the check): none else.
+                let size = match index.last() {
+                    None => 0,
+                    Some(before) if offset > before => offset - before,
+                    Some(_) => return Err(Unread::Bounds),
+                };
+                if u64::from(offset) >= patterns
                     || size as usize > (layout.largest_block as usize)
                     || !index.push(offset)
                 {
