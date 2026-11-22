@@ -25,9 +25,6 @@
 //! `paperpaw.ini`, a setting's id and its value a line; the settings of
 //! its kind that it leaves out go back to their defaults when it is
 //! applied ([`Preset::changes`]).
-//!
-//! `Staging::add_presets`: crate::Staging::add_presets
-//! `Staging::add_preset`: crate::Staging::add_preset
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;

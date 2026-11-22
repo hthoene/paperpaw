@@ -453,7 +453,7 @@ pub(crate) fn each_line(
 }
 
 /// A size as people read it: `820 B`, `14 KB`, `2,3 MB` (with the
-/// decimal mark given, in Latin digits). To show one, see `shown_size`.
+/// decimal mark given, in Latin digits).
 pub fn size(bytes: u64, decimal: &str) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;
