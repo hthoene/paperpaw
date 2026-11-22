@@ -1161,3 +1161,31 @@ fn the_show_hints_again_message_is_closed_by_a_button() {
         assert_eq!(screen, "home.dashboard", "{button} left the message: {out}");
     }
 }
+
+/// A keyboard paired on the X4 Pro types at once (#456): the pretend
+/// remote's down key moves the search's focus, its escape key goes back to
+/// the Bluetooth page, which shows its keys switched on.
+#[test]
+fn a_keyboard_paired_on_the_bluetooth_page_types_at_once() {
+    let paired = run(
+        "bluetooth-pair",
+        "xteink-x4-pro",
+        "open:bluetooth.page,tap-on:Add a device,wait:6000,tap-on:PaperPaw Remote,wait:3000,\
+         tap-on:Pair,wait:4000,ble-key:down,wait:1000,describe,ble-key:escape,wait:1000,describe",
+        &[],
+    );
+    assert!(paired.ok, "{}", paired.stderr);
+    assert!(
+        paired.stdout.contains("Row \"Pulse HR, Sensor\" (focused)"),
+        "{}",
+        paired.stdout
+    );
+    assert_eq!(paired.screen(), "bluetooth.page", "{}", paired.stdout);
+    assert!(
+        paired
+            .stdout
+            .contains("Row \"PaperPaw Remote, On, Keyboard · connected\""),
+        "{}",
+        paired.stdout
+    );
+}
