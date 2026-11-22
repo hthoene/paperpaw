@@ -31,8 +31,8 @@ x4 = ["esp32c3", "asleep-light", "native-on"]
 # small class but no X3 has measured the gate's stack yet (#250).
 x3 = ["esp32c3", "asleep-light", "native-on", "x4-gate-closed"]
 # The reader sleeps lightly before it switches itself off (`firmware.rs`
-# `sleep_lightly`, `paperpaw_x4::sleeping`): the X4, the X3 and the X4 Pro
-# (#153); the X4 Classic keeps its deep sleep.
+# `sleep_lightly`, `paperpaw_x4::sleeping`): the X4, the X3, the X4 Pro
+# (#153) and the X4 Classic (#478: its deep sleep made every wake a start).
 asleep-light = []
 # Loads the X4's interface-7 plugin files (format 5, `abi/ppn5.md`) as far as
 # the core can take them: reads, checks, places and relocates the image and
@@ -90,7 +90,7 @@ esp32c3 = [
 # keep room in CrossPoint's slot. A developer build wanting them takes it
 # out.
 x4-pro = ["esp32s3", "asleep-light", "bluetooth", "usb-drive", "log/release_max_level_info", "native-on"]
-x4-classic = ["esp32s3", "usb-drive", "native-on"]
+x4-classic = ["esp32s3", "asleep-light", "usb-drive", "native-on"]
 # The Boox Picco (experimental, not tried on a device, #368): an ESP32-S3 as
 # the X4 Pro, with the Pro's memory, screen size, touch, light and Bluetooth,
 # so it is built as one: `x4-pro` and everything that feature turns on, with a
