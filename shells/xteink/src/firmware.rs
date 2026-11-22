@@ -649,8 +649,6 @@ impl Firmware {
         }
     }
 
-    /// Restarts the X4 once what plugins keep is saved and all written
-    /// is on the card (the kernel's stop writes it back): no sleep.
     /// Whether a book is open in the reader, shown now.
     fn reading(&self) -> bool {
         // The reader plugin's screen (`paperpaw_plugin_reader::SCREEN`).
@@ -659,6 +657,8 @@ impl Firmware {
             .is_some_and(|screen| screen.as_str() == "reader.screen")
     }
 
+    /// Restarts the X4 once what plugins keep is saved and all written
+    /// is on the card (the kernel's stop writes it back): no sleep.
     fn restart(&mut self) -> ! {
         info!("restarting");
         crate::safe_mode::clean_exit();

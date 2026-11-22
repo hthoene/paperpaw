@@ -186,6 +186,9 @@ impl Firmware {
                 remote::ok();
             }
             Command::Restart => {
+                // A restart asked for, as `restart`'s: no failed start for
+                // safe mode to count, even before the first frame.
+                crate::safe_mode::clean_exit();
                 // What plugins keep, saved and on the card first.
                 self.pause_trial();
                 let at = self.kernel_now();
