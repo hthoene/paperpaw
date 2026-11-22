@@ -374,8 +374,8 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
   (on USB it is not asked), and never turns a radio on: what the screen shows is what plugins
   already hold. A press of the power button wakes the device as before. A device that does not
   have bit 15 (the X4 Pro and Classic: their sleep would need a full start for every refresh)
-  keeps the screen as it was. Cost per wake on the X4: about 0.03 mAh (an estimate from
-  the panel's refresh and about 2 s of the processor awake; not yet measured).
+  keeps the screen as it was. Each wake costs some battery (the panel's refresh and the
+  processor awake for a moment): the less often, the less.
 
 ## 2. Plugin inputs and gestures (declarations)
 
