@@ -8,8 +8,8 @@
 use crate::{
     declarations::{
         ANNOTATIONS, BOOK_MOVED, DOCUMENT_CHANGED, FOOTNOTE, LIBRARY_CHANGED, SAMPLE, SCREEN,
-        SEARCH, SEARCH_WORK, SETTING_CHANGED, SKIM, SPOKEN, STACK_CHANGED, STARTED, STOPPING,
-        SUSPEND, TOC, TOC_WORK, WORK_DUE,
+        SEARCH, SEARCH_WORK, SETTING_CHANGED, SKIM, SPOKEN, STACK_CHANGED, STARTED, STATUS_EDIT,
+        STOPPING, SUSPEND, TOC, TOC_WORK, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
@@ -20,6 +20,7 @@ use crate::{
     native_search_view::{Outcome as SearchOutcome, SearchView},
     native_skim_view,
     native_skim_view::SkimView,
+    native_status_edit::StatusEditors,
     native_toc_view::{Outcome, TocView},
     native_view::{Handover, View, read_handover},
 };
@@ -52,6 +53,7 @@ use paperpaw_ui_kit::{
 
 mod ahead;
 mod reopen;
+mod screens;
 use reopen::rest;
 
 mod image {
@@ -115,6 +117,8 @@ pub struct NativeReader {
     notes: Screens<Footnote>,
     /// The skim screens over the pages.
     skims: Screens<SkimView>,
+    /// The editors of the status lines' settings.
+    status_edits: StatusEditors,
     /// Reading screens that gave their document back for another book's (the
     /// host lets a plugin keep few documents open, one on the X4), with the
     /// book they showed (path, root code): each opens it again, at its saved
@@ -243,50 +247,6 @@ impl NativeReader {
             return Ok(());
         };
         view.follow(host, docs, (&path, &href))
-    }
-
-    /// A screen of the reader opened: over the reading screen the pages stop
-    /// turning, then the screen's own view is opened.
-    fn screen_opened(
-        &mut self,
-        host: &Host<'_>,
-        token: u32,
-        instance: paperpaw_sdk::native::ui::Instance,
-        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
-    ) -> Result<(), Error> {
-        self.auto_turn_leave(host);
-        // Another screen of the reader: the user went elsewhere first.
-        if token != SCREEN {
-            self.aloud_asked = None;
-        }
-        match token {
-            SCREEN => self.open(host, instance, handover),
-            TOC => self.open_toc(host, instance, handover),
-            ANNOTATIONS => self.open_notes(host, instance, handover),
-            SEARCH => self.open_search(host, instance, handover),
-            FOOTNOTE => self.open_note(host, instance, handover),
-            SKIM => self.open_skim(host, instance, handover),
-            _ => Ok(()),
-        }
-    }
-
-    /// A screen of the reader came to the top.
-    fn screen_shown(
-        &mut self,
-        host: &Host<'_>,
-        token: u32,
-        instance: paperpaw_sdk::native::ui::Instance,
-        now_ms: u64,
-    ) -> Result<(), Error> {
-        match token {
-            SCREEN => self.reading_shown(host, instance, now_ms),
-            TOC => self.tocs.shown(TOC, instance),
-            SEARCH => self.searches.shown(SEARCH, instance),
-            ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),
-            FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
-            SKIM => self.skims.shown(SKIM, instance),
-            _ => Ok(()),
-        }
     }
 
     /// The table of contents opened: its book is opened with it.
@@ -1142,32 +1102,6 @@ impl NativeReader {
         Ok(())
     }
 
-    /// A screen of the reader closed: its view goes with it.
-    fn screen_closed(
-        &mut self,
-        host: &Host<'_>,
-        token: u32,
-        instance: paperpaw_sdk::native::ui::Instance,
-    ) {
-        match token {
-            SCREEN => {
-                self.hands.closed(host, instance, self.work.as_ref());
-                self.close(host, instance);
-            }
-            TOC => self.close_toc(host, instance),
-            SEARCH => {
-                if let Some(view) = self.searches.get(instance) {
-                    view.close();
-                }
-                self.searches.close(instance);
-            }
-            ANNOTATIONS => self.annotations.close(instance),
-            FOOTNOTE => self.notes.close(instance),
-            SKIM => self.skims.close(instance),
-            _ => {}
-        }
-    }
-
     /// The UI service, opened at the first need.
     fn open_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
@@ -1356,6 +1290,9 @@ impl Plugin for NativeReader {
             let skim = self.skims.top(token).ok_or(Error::State)?;
             return skim.draw(host, &mut frame);
         }
+        if token == STATUS_EDIT {
+            return self.status_edits.draw(host, token, &mut frame);
+        }
         // A screen covered in the round it opened (a dialog asked for as the book
         // opens) is drawn before the host tells it is shown: the newest one is
         // the one drawn then (#359).
@@ -1375,6 +1312,9 @@ impl Plugin for NativeReader {
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         if token == TOC {
             return self.toc_input(host, &input);
+        }
+        if token == STATUS_EDIT {
+            return self.status_edits.input(host, token, &input);
         }
         if token == ANNOTATIONS {
             return self.notes_input(host, &input);

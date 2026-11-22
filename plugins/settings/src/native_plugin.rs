@@ -154,7 +154,8 @@ enum Row {
 struct Entry {
     setting: Setting,
     detail: Detail,
-    /// Value and name of each option, for choices.
+    /// Value and name of each option, for choices; for a list, id and name of
+    /// each of its items the registry knows.
     options: Vec<(String, String)>,
 }
 

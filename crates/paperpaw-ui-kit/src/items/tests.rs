@@ -455,9 +455,9 @@ fn a_switch_row_shows_no_value_beside_its_title() {
     let Item::Row(mut row) = Item::noted("Night mode", "Off", "").unwrap() else {
         panic!("a row");
     };
-    assert_eq!(shown_value(&row), "Off");
+    assert_eq!(shown_value(&row, false), "Off");
     row.on = Some(false);
-    assert_eq!(shown_value(&row), "");
+    assert_eq!(shown_value(&row, false), "");
     // The title keeps the room before the switch.
     assert!(switch_room(&style()) > switch_size(&style()).0);
 }

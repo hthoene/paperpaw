@@ -1139,6 +1139,7 @@ screen reader.footnote | title=reader.title
 screen reader.screen | title=reader.title
 screen reader.search-results | title=reader.search
 screen reader.skim-screen | title=reader.skim
+screen reader.status-edit | title=core.group.status
 screen reader.toc | title=reader.toc
 screen settings.choose | title=settings.title
 screen settings.group | title=settings.title
@@ -2249,14 +2250,14 @@ native Extra reader | SettingExtra(SettingExtra { name: "auto-turn-seconds", uni
 native Extra reader | SettingExtra(SettingExtra { name: "aloud-speed", unit: "core.unit.percent", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 10, flags: 1, check: 0 })
 native Extra reader | SettingExtra(SettingExtra { name: "status.size", unit: "core.unit.pt", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
 native Extra reader | SettingExtra(SettingExtra { name: "status.edge", unit: "core.unit.tenth-mm", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 5, flags: 0, check: 0 })
-native Extra reader | SettingExtra(SettingExtra { name: "status.top-lines", unit: "", section: "reader.status.section.top", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
-native Extra reader | SettingExtra(SettingExtra { name: "status.bottom-lines", unit: "", section: "reader.status.section.bottom", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
-native Extra reader | SettingExtra(SettingExtra { name: "status.top-left", unit: "", section: "reader.status.section.top", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
-native Extra reader | SettingExtra(SettingExtra { name: "status.top-center", unit: "", section: "reader.status.section.top", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
-native Extra reader | SettingExtra(SettingExtra { name: "status.top-right", unit: "", section: "reader.status.section.top", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
-native Extra reader | SettingExtra(SettingExtra { name: "status.bottom-left", unit: "", section: "reader.status.section.bottom", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
-native Extra reader | SettingExtra(SettingExtra { name: "status.bottom-center", unit: "", section: "reader.status.section.bottom", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
-native Extra reader | SettingExtra(SettingExtra { name: "status.bottom-right", unit: "", section: "reader.status.section.bottom", follows: "", shown_id: "", shown_value: "", editor_kind: 0, editor: "", step: 0, flags: 0, check: 0 })
+native Extra reader | SettingExtra(SettingExtra { name: "status.top-lines", unit: "", section: "reader.status.section.top", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-edit", step: 0, flags: 0, check: 0 })
+native Extra reader | SettingExtra(SettingExtra { name: "status.bottom-lines", unit: "", section: "reader.status.section.bottom", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-edit", step: 0, flags: 0, check: 0 })
+native Extra reader | SettingExtra(SettingExtra { name: "status.top-left", unit: "", section: "reader.status.section.top", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-edit", step: 0, flags: 0, check: 0 })
+native Extra reader | SettingExtra(SettingExtra { name: "status.top-center", unit: "", section: "reader.status.section.top", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-edit", step: 0, flags: 0, check: 0 })
+native Extra reader | SettingExtra(SettingExtra { name: "status.top-right", unit: "", section: "reader.status.section.top", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-edit", step: 0, flags: 0, check: 0 })
+native Extra reader | SettingExtra(SettingExtra { name: "status.bottom-left", unit: "", section: "reader.status.section.bottom", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-edit", step: 0, flags: 0, check: 0 })
+native Extra reader | SettingExtra(SettingExtra { name: "status.bottom-center", unit: "", section: "reader.status.section.bottom", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-edit", step: 0, flags: 0, check: 0 })
+native Extra reader | SettingExtra(SettingExtra { name: "status.bottom-right", unit: "", section: "reader.status.section.bottom", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "status-edit", step: 0, flags: 0, check: 0 })
 native Extra sleep | SettingExtra(SettingExtra { name: "folder", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 2, editor: "core.choose-folder", step: 0, flags: 0, check: 0 })
 native Extra sleep | SettingExtra(SettingExtra { name: "widgets", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 2, editor: "core.edit-widgets", step: 0, flags: 0, check: 0 })
 native Extra sleep | SettingExtra(SettingExtra { name: "overlay-picture", unit: "", section: "", follows: "", shown_id: "", shown_value: "", editor_kind: 1, editor: "pick-overlay", step: 0, flags: 0, check: 0 })
@@ -2375,6 +2376,7 @@ native Screen reader | ScreenSpec(ScreenSpec { name: "annotations", title: "read
 native Screen reader | ScreenSpec(ScreenSpec { name: "skim-screen", title: "reader.skim", token: 13, flags: 4 })
 native Screen reader | ScreenSpec(ScreenSpec { name: "footnote", title: "reader.title", token: 14, flags: 4 })
 native Screen reader | ScreenSpec(ScreenSpec { name: "search-results", title: "reader.search", token: 15, flags: 0 })
+native Screen reader | ScreenSpec(ScreenSpec { name: "status-edit", title: "core.group.status", token: 41, flags: 0 })
 native Screen settings | ScreenSpec(ScreenSpec { name: "list", title: "settings.title", token: 10, flags: 0 })
 native Screen settings | ScreenSpec(ScreenSpec { name: "group", title: "settings.title", token: 11, flags: 0 })
 native Screen settings | ScreenSpec(ScreenSpec { name: "themes", title: "settings.theme", token: 13, flags: 0 })
@@ -2787,6 +2789,7 @@ native Subscription power | RegistrationStage(RegistrationStage { stage: "core.s
 native Subscription vocabulary | RegistrationStage(RegistrationStage { stage: "reader.word-looked-up", token: 6, order: 0, signature: 0 })
 native Subscription vocabulary | RegistrationStage(RegistrationStage { stage: "reader.decorations", token: 8, order: 0, signature: 0 })
 native SetupStep keyboard | SetupStep(SetupStep { name: "setup", title: "keyboard.setting.layouts", help: "", order: 60, page_kind: 0, page: "keyboard.layouts", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
+native SetupStep lock | SetupStep(SetupStep { name: "setup", title: "lock.setting.kind", help: "", order: 70, page_kind: 0, page: "lock.kind", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
 native SetupStep reader | SetupStep(SetupStep { name: "setup.font-size", title: "core.setting.font-size", help: "", order: 30, page_kind: 0, page: "core.font-size", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
 native SetupStep store | SetupStep(SetupStep { name: "setup", title: "store.offer.title", help: "store.offer.help", order: 55, page_kind: 1, page: "store.offer", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
 native SetupStep store | SetupStep(SetupStep { name: "template", title: "store.template.title", help: "store.template.help", order: 52, page_kind: 1, page: "store.templates", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })

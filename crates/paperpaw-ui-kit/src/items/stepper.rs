@@ -8,6 +8,44 @@ use paperpaw_sdk::{
     native::{Error, canvas::PartRole, fonts::Font},
 };
 
+/// The width of a stepper's buttons in `band`, the room of `value` between
+/// them and the air after them: square tap targets in the row's end margin, or,
+/// where they are shown for the buttons alone (`tight`,
+/// [`RowItem::focus_steps`]), circles as high as a line of text ending where
+/// values end, as Beta 3 drew them.
+fn sizes(
+    font: &Font<'_>,
+    style: &Style,
+    band: Rect,
+    value: &str,
+    tight: bool,
+) -> Result<(u16, u16, u16), Error> {
+    let (high, air) = if tight {
+        let line = crate::geometry::line_px(font, style.text)?;
+        (line.min(band.height), style.margin)
+    } else {
+        (band.height, style.margin / 2)
+    };
+    let side = high.min(band.width / 4);
+    let wide = font.measure_text(style.text, value)?.max(0.0) as u16 + 1;
+    Ok((side, wide.saturating_add(style.gap), air))
+}
+
+/// How much of the end of a row's first line `band` the − and + a number
+/// shows with the focus take round `value`: both buttons, the value between
+/// them and the air after them.
+pub(super) fn stepper_width(
+    font: &Font<'_>,
+    style: &Style,
+    band: Rect,
+    value: &str,
+) -> Result<u16, Error> {
+    let (side, room, air) = sizes(font, style, band, value, true)?;
+    Ok(air
+        .saturating_add(side.saturating_mul(2))
+        .saturating_add(room))
+}
+
 /// Draws the − and + buttons at the end of a stepper row's first line `band`,
 /// round, with the row's value between them; where the title goes, and the
 /// buttons.
@@ -20,13 +58,8 @@ pub(super) fn draw_stepper(
 ) -> Result<(Rect, (Rect, Rect)), Error> {
     // Square tap targets at the right end of the row's first line; the value
     // sits between them, so the number is read where the finger is.
-    let side = band.height.min(band.width / 4);
-    let wide = font.measure_text(style.text, &row.value)?.max(0.0) as u16 + 1;
-    let room = wide.saturating_add(style.gap);
-    let right = band
-        .x
-        .saturating_add(band.width)
-        .saturating_sub(style.margin / 2);
+    let (side, room, air) = sizes(font, style, band, &row.value, !row.stepper)?;
+    let right = band.x.saturating_add(band.width).saturating_sub(air);
     let plus = Rect::new(right.saturating_sub(side), band.y, side, band.height);
     let minus = Rect::new(
         plus.x.saturating_sub(room).saturating_sub(side),
