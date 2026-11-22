@@ -759,6 +759,32 @@ fn the_card_is_marked_in_use_only_while_it_is() {
 }
 
 #[test]
+fn a_volume_dropped_is_marked_no_longer_in_use() {
+    let card = filled(512);
+    let flags = |card: &Card| u16_at(&card.image(), 106) & layout::VOLUME_DIRTY;
+    {
+        let fs = card.mount();
+        write(&fs.root_dir(), "x", &[1]);
+        assert_ne!(flags(&card), 0);
+    }
+    assert_eq!(flags(&card), 0);
+    assert_eq!(tree(&card.mount())["x"], [1]);
+    // A mount that fails (here: no bitmap) writes nothing as it goes.
+    {
+        let fs = card.mount();
+        let base = fs.cluster_offset(fs.root()).unwrap();
+        let mut kind = [0u8; 1];
+        fs.read_at(base, &mut kind).unwrap();
+        assert_eq!(kind[0], layout::ENTRY_BITMAP);
+        fs.write_at(base, &[ENTRY_UNUSED]).unwrap();
+        fs.write_at(base + ENTRY as u64, &[0]).unwrap();
+    }
+    card.log.borrow_mut().clear();
+    assert!(ExFat::mount(card.disk()).is_err());
+    assert!(card.log.borrow().is_empty());
+}
+
+#[test]
 fn a_full_card_says_so_and_keeps_its_files() {
     let card = Card::new(1 << 20, 4096);
     let fs = card.mount();
