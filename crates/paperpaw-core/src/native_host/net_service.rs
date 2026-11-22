@@ -258,8 +258,8 @@ pub(crate) trait NetHost {
         None
     }
     /// Whether [`Self::current_run`] can tell now: `false` while the
-    /// scheduler is in use or none is attached, and then a call outside a
-    /// screen does not count as outside a run.
+    /// scheduler is in use, and then a call outside a screen does not count
+    /// as outside a run. A scheduler not made yet has no runs (known).
     fn run_known(&self) -> bool {
         true
     }

@@ -290,14 +290,13 @@ impl OwnerDirectory {
             .any(|row| screens.has_screen(row.key).unwrap_or(true))
     }
 
-    /// Whether the work scheduler can be asked now (attached and not in use):
-    /// when it cannot, a caller that needs to know that no run is current
-    /// fails closed (`current_run` alone says `None` for both).
+    /// Whether [`Self::current_run`] can tell now: `false` only while the
+    /// scheduler is in use, and then a caller that needs to know that no run
+    /// is current fails closed (`current_run` alone says `None` for both). No
+    /// scheduler attached is known: `core.work` is made at its first call
+    /// (#248) and attached then, a scheduler not made has no runs (#469).
     pub(crate) fn run_known(&self) -> bool {
-        self.sched
-            .try_borrow()
-            .ok()
-            .is_some_and(|sched| sched.is_some())
+        self.sched.try_borrow().is_ok()
     }
 
     /// The work run `owner`'s running callback belongs to.
@@ -556,9 +555,10 @@ mod tests {
             work_sched::Limits,
         };
         let dir = OwnerDirectory::new();
-        // Nothing attached: nothing is known, nothing is showing.
+        // Nothing attached: nothing is showing, and no scheduler has no run.
         assert_eq!(dir.topmost_screen(9), None);
-        assert!(!dir.run_known());
+        assert!(dir.run_known());
+        assert_eq!(dir.current_run(9), None);
         let rows = Rc::new(StackRows::default());
         dir.attach_screens(&rows);
         rows.update([StackRow {
