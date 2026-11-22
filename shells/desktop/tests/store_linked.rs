@@ -222,17 +222,24 @@ impl Shop {
         screen
     }
 
-    /// Moves the focus down to the row that begins with `label` and chooses it.
+    /// Moves the focus to the row that begins with `label` and chooses it: the
+    /// page key to its page, then down to it (the arrow keys stay on the page,
+    /// #465).
     fn choose(&mut self, label: &str) {
         for _ in 0..80 {
             let shown = self.shown();
-            if shown
-                .split(" | ")
+            let mut parts = shown.split(" | ");
+            if parts
+                .clone()
                 .any(|part| part.strip_prefix('*').is_some_and(|p| p.starts_with(label)))
             {
                 return self.keys("run:core.confirm");
             }
-            self.keys("run:core.down");
+            if parts.any(|part| part.trim_start_matches('*').starts_with(label)) {
+                self.keys("run:core.down");
+            } else {
+                self.keys("run:core.next-page");
+            }
         }
         panic!("{label} is not on the screen: {}", self.shown());
     }

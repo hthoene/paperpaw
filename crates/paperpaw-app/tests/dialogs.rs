@@ -319,9 +319,10 @@ fn every_option_on_pages_is_reached_by_touch_and_by_buttons() {
         parts(&mut kernel, Role::Row).len() < options.len(),
         "the options take more than a page"
     );
-    // The last one: the page buttons, then down to the end.
+    // The last one: the page button to the last page and its end (the arrow
+    // keys stay on the page, #465).
     for at in 0..options.len() {
-        run(&mut kernel, 200 + at as u64, actions::DOWN);
+        run(&mut kernel, 200 + at as u64, actions::NEXT_PAGE);
     }
     run(&mut kernel, 300, actions::CONFIRM);
     assert_eq!(picked(&harness), ["o29"]);

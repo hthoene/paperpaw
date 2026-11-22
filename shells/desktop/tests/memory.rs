@@ -589,7 +589,7 @@ fn installing_flow() -> String {
     [
         "run:store.open,wait:3000",
         "run:core.down,run:core.down,run:core.confirm,wait:2000",
-        "run:core.down,run:core.down,run:core.confirm,wait:3000",
+        "run:core.down,run:core.confirm,wait:3000",
         "run:core.confirm,wait:5000,run:core.up,run:core.confirm,wait:3000",
         "run:core.down,run:core.confirm,wait:3000",
         "run:core.back,run:core.back,run:core.back,run:core.back,run:core.home,wait:300",
@@ -704,7 +704,7 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
     let parts = [
         "run:store.open,wait:3000",
         "run:core.down,run:core.down,run:core.confirm,wait:2000",
-        "run:core.down,run:core.down,run:core.confirm,wait:3000",
+        "run:core.down,run:core.confirm,wait:3000",
         "run:core.confirm,wait:5000,run:core.up,run:core.confirm,wait:3000",
         "run:core.down,run:core.confirm,wait:3000",
         // Home (not one `back`: the store's page stays on the stack under
