@@ -3,7 +3,6 @@
 
 use super::*;
 
-use paperpaw_hid::ReportMap;
 use paperpaw_sdk::bluetooth::{GattRequest, Handle};
 
 impl Radio {
@@ -69,9 +68,7 @@ impl Radio {
                     let event = BtEvent::hid_report_map(device, map.clone());
                     out.push(tell(&user.events, event));
                 }
-                let decoder =
-                    ReportMap::parse(&map).map_or_else(|_| Decoder::boot_keyboard(), Decoder::new);
-                self.links[at].decoder = Some(decoder);
+                self.links[at].decoder = Some(Decoder::for_descriptor(&map));
             }
             BtReport::HidReport {
                 link,

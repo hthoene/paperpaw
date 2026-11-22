@@ -38,6 +38,17 @@ impl Decoder {
         Self::new(ReportMap::boot_keyboard())
     }
 
+    /// A decoder for the device whose report descriptor is `descriptor`:
+    /// the boot keyboard's ([`Decoder::boot_keyboard`]) where it tells of
+    /// no input report (empty, as for a device without a report map) or
+    /// cannot be read.
+    pub fn for_descriptor(descriptor: &[u8]) -> Self {
+        match ReportMap::parse(descriptor) {
+            Ok(map) if !map.reports.is_empty() => Self::new(map),
+            _ => Self::boot_keyboard(),
+        }
+    }
+
     /// The changes a report makes: releases of keys that are no longer
     /// down, then presses of keys that are newly down. `data` is the
     /// report without its id, which is `report_id` (`None` if the device

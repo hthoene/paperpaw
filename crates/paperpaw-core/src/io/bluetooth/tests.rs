@@ -560,6 +560,41 @@ fn a_remotes_reports_become_keys_and_its_link_slows_when_quiet() {
 }
 
 #[test]
+fn a_remote_without_a_report_map_types_as_a_boot_keyboard() {
+    let mut radio = radio();
+    radio.load([("core.bluetooth.1", "aa\tRemote\tremote\t0\t\tkeys")].into_iter());
+    let mut out = Vec::new();
+    run(
+        &mut radio,
+        "a",
+        bt::remote_keys(DeviceId::new(1), &DONE),
+        readers(0),
+        &mut out,
+    )
+    .unwrap();
+    let link = link_of(&radio.take());
+    radio.report(connected(link), Instant(10), &mut out);
+    // The shell tells an empty map where the device has none (#456).
+    radio.report(
+        BtReport::HidMap {
+            link,
+            map: Vec::new(),
+        },
+        Instant(15),
+        &mut out,
+    );
+    let report = |key: u8| BtReport::HidReport {
+        link,
+        report: None,
+        bytes: vec![0, 0, key, 0, 0, 0, 0, 0],
+    };
+    radio.report(report(0x51), Instant(20), &mut out);
+    assert_eq!(radio.take_keys(), [("hid.down", true)]);
+    radio.report(report(0), Instant(30), &mut out);
+    assert_eq!(radio.take_keys(), [("hid.down", false)]);
+}
+
+#[test]
 fn a_link_is_let_go_when_its_user_is_idle_as_long_as_it_allows() {
     let mut radio = radio();
     let mut out = Vec::new();
