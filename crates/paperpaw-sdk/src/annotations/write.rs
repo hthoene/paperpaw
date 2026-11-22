@@ -305,15 +305,18 @@ fn each_line(storage: &dyn Storage, file: &str, visit: &mut LineVisit<'_>) -> Re
     lines(storage, file, visit, &mut sink)
 }
 
-/// Calls `visit` with each line of `file` (without its newline), at most
-/// [`LINE_MAX`] bytes of it; a longer line gives `visit` nothing but is
-/// passed to `long` (its bytes, in pieces, then `None` at its end).
+/// Calls `visit` with each line of `file` (without its line break, `\n` or
+/// `\r\n`, and the first without a UTF-8 byte order mark, as the reader
+/// takes them), at most [`LINE_MAX`] bytes of it; a longer line gives
+/// `visit` nothing but is passed to `long` (its bytes, in pieces, then
+/// `None` at its end).
 fn lines(
     storage: &dyn Storage,
     file: &str,
     visit: &mut LineVisit<'_>,
     long: &mut LongSink<'_>,
 ) -> Result<(), Error> {
+    // A row and the `\r` of a `\r\n` break.
     let mut line = Vec::new();
     line.try_reserve_exact(LINE_MAX + 1)
         .map_err(|_| Error::OutOfMemory)?;
@@ -328,8 +331,13 @@ fn lines(
         if n == 0 {
             break;
         }
+        let text = if at == 0 {
+            crate::files::without_bom(&chunk[..n])
+        } else {
+            &chunk[..n]
+        };
         at += n as u64;
-        for piece in chunk[..n].split_inclusive(|b| *b == b'\n') {
+        for piece in text.split_inclusive(|b| *b == b'\n') {
             let ended = piece.last() == Some(&b'\n');
             let body = if ended {
                 &piece[..piece.len() - 1]
@@ -344,7 +352,7 @@ fn lines(
                 }
                 continue;
             }
-            if line.len() + body.len() > LINE_MAX {
+            if line.len() + body.len() > LINE_MAX + 1 {
                 over = true;
                 long(Some(&line))?;
                 long(Some(body))?;
@@ -357,7 +365,7 @@ fn lines(
             }
             line.extend_from_slice(body);
             if ended {
-                if visit(&line)?.is_break() {
+                if line_end(&line, visit, long)?.is_break() {
                     return Ok(());
                 }
                 line.clear();
@@ -368,9 +376,26 @@ fn lines(
         long(None)?;
     } else if !line.is_empty() {
         // The last line has no newline.
-        let _ = visit(&line)?;
+        let _ = line_end(&line, visit, long)?;
     }
     Ok(())
+}
+
+/// A line of [`lines`] at its end (`line`, without its `\n`): given to
+/// `visit` without a `\r` that ends it (its break, `\r\n`), or to `long`
+/// where it is longer than [`LINE_MAX`] even so.
+fn line_end(
+    line: &[u8],
+    visit: &mut LineVisit<'_>,
+    long: &mut LongSink<'_>,
+) -> Result<ControlFlow<()>, Error> {
+    let body = line.strip_suffix(b"\r").unwrap_or(line);
+    if body.len() > LINE_MAX {
+        long(Some(line))?;
+        long(None)?;
+        return Ok(ControlFlow::Continue(()));
+    }
+    visit(body)
 }
 
 /// The output file, written in chunks of at most 4 KiB.
