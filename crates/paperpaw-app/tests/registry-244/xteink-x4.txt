@@ -154,7 +154,7 @@ setting core.group.controls | core.tap-layout Choice(Fixed(["core.tap-thirds", "
 setting core.group.controls | core.tap-swap Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=core.setting.tap-swap
 setting core.group.controls | core.button-hints Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=core.setting.button-hints
 setting core.group.controls | core.swap-page-buttons Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=core.setting.swap-page-buttons
-setting core.group.controls | core.arrows-stay-on-page Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=core.setting.arrows-stay-on-page
+setting core.group.controls | core.arrows-stay-on-page Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=core.setting.arrows-stay-on-page
 setting core.group.controls | core.long-press-ms Int { min: 200, max: 3000 } default=Int(500) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.long-press-ms
 setting core.group.controls | core.double-tap-ms Int { min: 150, max: 1000 } default=Int(300) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.double-tap-ms
 setting core.group.controls | core.tap-slop Int { min: 1, max: 20 } default=Int(3) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.tap-slop

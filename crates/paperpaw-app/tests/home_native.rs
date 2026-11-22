@@ -18,6 +18,8 @@ mod x4_ink;
 
 #[path = "home_native/arrange.rs"]
 mod arrange;
+#[path = "home_native/arrows_stay.rs"]
+mod arrows_stay;
 #[path = "home_native/colours.rs"]
 mod colours;
 #[path = "home_native/data.rs"]
