@@ -32,7 +32,7 @@
 mod imap_session;
 mod smtp_session;
 
-pub use imap_session::{Imap, Task};
+pub use imap_session::{Imap, SEEN, Task};
 pub use smtp_session::{Outgoing, Smtp};
 
 use super::fail::Fail;

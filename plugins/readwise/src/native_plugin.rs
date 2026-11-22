@@ -15,11 +15,15 @@ use paperpaw_sdk::native::{
     registrations,
     reply::Reply,
     secrets::{SecretName, SecretWrite, Secrets, wipe},
-    storage::{self, Root},
+    storage::Root,
     ui::{Notify, Question, RequestId as AskId, Ui},
     work::{Moment, Work, WorkSpec},
 };
-use paperpaw_ui_kit::{Messages, files::Volume, mem, read_event, text};
+use paperpaw_ui_kit::{
+    Messages,
+    files::{self, Volume},
+    mem, read_event, text,
+};
 
 use crate::declarations::{EXPORT_TOKEN, HTTP_TOKEN, STARTED_TOKEN, WORK_TOKEN};
 use crate::native_export;
@@ -65,24 +69,28 @@ struct Handles {
     ui: Option<Ui>,
 }
 
-/// The host as the sending uses it.
-struct HostWire<'a, 'h> {
+/// The host as the sending uses it: `V` is its storage on one root.
+struct HostWire<'a, 'h, V> {
     host: &'a Host<'h>,
     handles: &'a mut Handles,
-    data: RootVolume<'a, 'h>,
-    card: RootVolume<'a, 'h>,
+    data: V,
+    card: V,
 }
 
-impl<'a, 'h> HostWire<'a, 'h> {
-    fn new(host: &'a Host<'h>, handles: &'a mut Handles) -> Self {
-        Self {
-            host,
-            handles,
-            data: RootVolume(host, Root::Data),
-            card: RootVolume(host, Root::Files),
-        }
+/// The host as the sending uses it, now.
+fn host_wire<'a, 'h>(
+    host: &'a Host<'h>,
+    handles: &'a mut Handles,
+) -> HostWire<'a, 'h, impl Volume + use<'a, 'h>> {
+    HostWire {
+        host,
+        handles,
+        data: files::volume(host, Root::Data),
+        card: files::volume(host, Root::Files),
     }
+}
 
+impl<V> HostWire<'_, '_, V> {
     fn net(&mut self) -> Result<&Net, Error> {
         if self.handles.net.is_none() {
             self.handles.net = Some(Net::open(self.host)?);
@@ -125,7 +133,7 @@ impl<'a, 'h> HostWire<'a, 'h> {
     }
 }
 
-impl Wire for HostWire<'_, '_> {
+impl<V: Volume> Wire for HostWire<'_, '_, V> {
     fn data(&self) -> &dyn Volume {
         &self.data
     }
@@ -189,33 +197,6 @@ impl Wire for HostWire<'_, '_> {
     }
 }
 
-/// The storage calls on one root.
-struct RootVolume<'a, 'h>(&'a Host<'h>, Root);
-
-impl Volume for RootVolume<'_, '_> {
-    fn size(&self, name: &str) -> Result<u64, Error> {
-        storage::size(self.0, self.1, name)
-    }
-    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.0, self.1, name, at, out)
-    }
-    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.0, self.1, name, data)
-    }
-    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.0, self.1, name, data)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        storage::rename(self.0, self.1, from, to)
-    }
-    fn remove(&self, name: &str) -> Result<(), Error> {
-        storage::remove(self.0, self.1, name)
-    }
-    fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.0)
-    }
-}
-
 impl Plugin for NativeReadwise {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
         for batch in image::EVENTS {
@@ -252,19 +233,23 @@ impl Plugin for NativeReadwise {
             }
             Event::Started { .. } if token == STARTED_TOKEN => self.retry_later(host),
             Event::WorkDue(_) if token == WORK_TOKEN => {
-                let step = self.sender.start(
-                    &mut HostWire::new(host, &mut self.handles),
+                let step = match self.sender.start(
+                    &mut host_wire(host, &mut self.handles),
                     Start::Retry,
                     None,
-                );
+                ) {
+                    // A sending that runs by itself says only what went well.
+                    Err(Error::NoMemory) => Ok(Step::Quiet),
+                    step => step,
+                };
                 self.stepped(host, step)
             }
             Event::HttpDone(done) if token == HTTP_TOKEN => {
                 let done = Done::new(done.id(), done.token(), done.reason(), done.status());
                 let step = self
                     .sender
-                    .done(&mut HostWire::new(host, &mut self.handles), &done);
-                self.stepped(host, step)
+                    .done(&mut host_wire(host, &mut self.handles), &done);
+                self.stepped(host, Ok(step))
             }
             Event::Answered { answer, .. } => self.answered(host, answer),
             _ => Ok(()),
@@ -281,7 +266,7 @@ impl NativeReadwise {
     pub fn exported(&mut self, host: &Host<'_>, path: &str) -> Result<(), Error> {
         let step = self
             .sender
-            .exported(&mut HostWire::new(host, &mut self.handles), path);
+            .exported(&mut host_wire(host, &mut self.handles), path);
         self.stepped(host, step)
     }
 
@@ -320,7 +305,7 @@ impl NativeReadwise {
 
     /// Declares the next try while exports wait.
     fn retry_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let mut wire = HostWire::new(host, &mut self.handles);
+        let mut wire = host_wire(host, &mut self.handles);
         match waiting(wire.data()) {
             Ok(waiting) if waiting.is_empty() => Ok(()),
             Ok(_) => match wire.declare_retry() {
@@ -350,7 +335,7 @@ impl NativeReadwise {
             mem::buffer(mem::SERVICE_BUFFER)?,
             mem::buffer(mem::SERVICE_BUFFER)?,
         );
-        let asked = HostWire::new(host, &mut self.handles)
+        let asked = host_wire(host, &mut self.handles)
             .ui()
             .and_then(|ui| ui.ask(host, question, &mut input, &mut out));
         wipe(&mut input);
@@ -377,7 +362,7 @@ impl NativeReadwise {
             return Err(Error::NoMemory);
         }
         let step = self.sender.start(
-            &mut HostWire::new(host, &mut self.handles),
+            &mut host_wire(host, &mut self.handles),
             Start::Export,
             Some(typed),
         );
@@ -391,7 +376,7 @@ impl NativeReadwise {
             mem::buffer(mem::SERVICE_BUFFER)?,
             mem::buffer(mem::SERVICE_BUFFER)?,
         );
-        let read = HostWire::new(host, &mut self.handles).ui().and_then(|ui| {
+        let read = host_wire(host, &mut self.handles).ui().and_then(|ui| {
             let part = ui.text_read(host, request.text(), 0, &mut input, &mut out)?;
             let total = usize::try_from(part.total()).map_err(|_| Error::NoSpace)?;
             if total > MAX_TOKEN + 64 {
@@ -414,7 +399,7 @@ impl NativeReadwise {
     /// Keeps the token with the secrets, to be changed or removed in the list
     /// of passwords and keys.
     fn keep_token(&mut self, host: &Host<'_>, token: &Secret) -> Result<(), Error> {
-        let mut wire = HostWire::new(host, &mut self.handles);
+        let mut wire = host_wire(host, &mut self.handles);
         let secrets = wire.secrets()?;
         let mut input = mem::buffer(SERVICE_BUFFER)?;
         let mut reply = mem::buffer(REPLY)?;
