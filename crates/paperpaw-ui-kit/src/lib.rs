@@ -38,6 +38,7 @@ pub mod dialog;
 pub mod event;
 pub mod files;
 pub mod focus;
+pub mod font_sizes;
 pub mod geometry;
 pub mod header;
 pub mod icons;

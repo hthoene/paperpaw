@@ -19,14 +19,14 @@ use paperpaw_sdk::{
         reply::Reply,
         settings::SettingValue,
         snapshot,
-        ui::{ButtonHint, Instance, Notify, Open, Question, QuestionKind, RequestId, Ui},
+        ui::{ButtonHint, Instance, Notify, Open, Param, Question, QuestionKind, RequestId, Ui},
     },
 };
 use paperpaw_ui_kit::{
-    Messages, Screens, Style,
+    Messages, Screens, Style, font_sizes,
     mem::{SERVICE_BUFFER, buffer},
     paint,
-    text::concat,
+    text::{concat, copy},
 };
 
 mod image {
@@ -43,6 +43,8 @@ const GUIDE: u32 = 20;
 const LANGUAGE: &str = "core.language";
 /// The slot the guide fills.
 const SLOT: &str = "core.setup";
+/// The slot of the screen that lists a setting's options to choose from.
+const CHOOSE_VALUE: &str = "core.choose-value";
 
 /// The interface-7 Setup plugin.
 #[derive(Debug, Default)]
@@ -107,7 +109,7 @@ impl Plugin for NativeSetup {
                 screen: "setup.guide",
                 instance: Some(instance),
                 ..
-            } => self.screens.shown(GUIDE, instance),
+            } => self.shown(host, instance),
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
@@ -228,6 +230,8 @@ fn texts(host: &Host<'_>) -> Result<Texts, Error> {
         sample: m.copy(host, "setup.sample")?,
         end_title: m.copy(host, "setup.end.title")?,
         end_help: m.copy(host, "setup.end.help")?,
+        keep: m.copy(host, "core.hint.keep")?,
+        cancel: m.copy(host, "core.hint.cancel")?,
     })
 }
 
@@ -277,6 +281,25 @@ impl NativeSetup {
         Ok(())
     }
 
+    /// The guide shows again: back from a screen opened from its page (the
+    /// list of a choice, an editor), the page's setting is read again, as
+    /// it was chosen there.
+    fn shown(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        self.screens.shown(GUIDE, instance)?;
+        let Some(guide) = self.screens.get(instance) else {
+            return Ok(());
+        };
+        if !guide.away {
+            return Ok(());
+        }
+        let loaded = read_page(host, guide, guide.page)?;
+        Self::redraw(host, RedrawMode::Partial)?;
+        guide.commit(guide.page, loaded.gone, (loaded.setting, loaded.help));
+        guide.away = false;
+        key_bar(host, guide);
+        Ok(())
+    }
+
     fn redraw(host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).queue_redraw(mode)
@@ -297,8 +320,12 @@ impl NativeSetup {
                 guide.shown = true;
                 Ok(())
             }
-            Act::Turn(page) if page > guide.steps.len() => finish(host),
+            Act::Turn(page) if page > guide.steps.len() => {
+                keep_edited(host, guide)?;
+                finish(host)
+            }
             Act::Turn(page) => {
+                keep_edited(host, guide)?;
                 let loaded = read_page(host, guide, page)?;
                 Self::redraw(host, RedrawMode::Partial)?;
                 guide.commit(page, loaded.gone, (loaded.setting, loaded.help));
@@ -331,26 +358,62 @@ impl NativeSetup {
                 setting.apply(&value);
                 Ok(())
             }
+            Act::Step(delta) => step(host, guide, delta),
+            Act::Edit => start_edit(host, guide),
+            Act::EndEdit(keep) => end_edit(host, guide, keep),
             Act::OpenScreen => {
                 let Some(screen) = guide.screen_step() else {
                     return Ok(());
                 };
                 let mut scratch = [0; 256];
-                CommandSender::new(host, &mut scratch).open(Open::screen(screen)?)
+                CommandSender::new(host, &mut scratch).open(Open::screen(screen)?)?;
+                guide.away = true;
+                Ok(())
             }
             Act::OpenEditor => {
-                let Some((slot, id)) = guide.editor() else {
+                let (Some((slot, id)), Some(setting)) = (guide.editor(), guide.setting.as_ref())
+                else {
                     return Ok(());
                 };
-                let mut scratch = [0; 256];
+                let (id, key) = (copy(id)?, copy(&setting.key)?);
                 let open = if slot {
-                    Open::slot(id)?
+                    Open::slot(&id)?
                 } else {
-                    Open::screen(id)?
+                    Open::screen(&id)?
                 };
-                CommandSender::new(host, &mut scratch).open(open)
+                self.open_for(host, instance, open, &key)
+            }
+            Act::OpenList => {
+                let Some(setting) = guide.setting.as_ref() else {
+                    return Ok(());
+                };
+                let key = copy(&setting.key)?;
+                self.open_for(host, instance, Open::slot(CHOOSE_VALUE)?, &key)
             }
         }
+    }
+
+    /// Opens `open` for setting `key` (handed over as `id`, as the settings
+    /// pages do): its editor, or the list of its options.
+    fn open_for(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        open: Open<'_>,
+        key: &str,
+    ) -> Result<(), Error> {
+        self.ensure_ui(host)?;
+        let params = [Param::new("id", key)?];
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let handover = ui.handover(host, &params, &mut input, &mut output)?;
+        let mut scratch = buffer(1024)?;
+        CommandSender::new(host, &mut scratch).open(open.handover(handover))?;
+        if let Some(guide) = self.screens.get(instance) {
+            guide.away = true;
+        }
+        Ok(())
     }
 
     /// Asks whether to skip the setup: going on comes first.
@@ -398,6 +461,82 @@ impl NativeSetup {
     }
 }
 
+/// Moves the number shown `delta` steps: the size of book text to the next
+/// size the reading font draws differently ([`font_sizes`]). While it is
+/// changed with the buttons only the page shows it; otherwise it is set.
+fn step(host: &Host<'_>, guide: &mut Guide, delta: i64) -> Result<(), Error> {
+    let Some(setting) = guide.setting.as_mut() else {
+        return Ok(());
+    };
+    let Control::Number {
+        value, min, max, ..
+    } = setting.control
+    else {
+        return Ok(());
+    };
+    let Some(NewValue::Int(to)) = setting.next(delta) else {
+        return Ok(());
+    };
+    let next = font_sizes::step(host, &setting.key, (value, to), (min, max))?;
+    if next == value {
+        return Ok(());
+    }
+    if guide.editing.is_none() {
+        let mut scratch = [0; 512];
+        CommandSender::new(host, &mut scratch)
+            .set_setting(&setting.key, SettingValue::Int(next))?;
+    }
+    NativeSetup::redraw(host, RedrawMode::Fast)?;
+    setting.apply(&NewValue::Int(next));
+    Ok(())
+}
+
+/// Starts changing the number with the buttons.
+fn start_edit(host: &Host<'_>, guide: &mut Guide) -> Result<(), Error> {
+    let Some(Setting {
+        control: Control::Number { value, .. },
+        ..
+    }) = guide.setting
+    else {
+        return Ok(());
+    };
+    NativeSetup::redraw(host, RedrawMode::Fast)?;
+    guide.editing = Some(value);
+    key_bar(host, guide);
+    Ok(())
+}
+
+/// Ends changing the number with the buttons: keeps the value shown, or goes
+/// back to the one before.
+fn end_edit(host: &Host<'_>, guide: &mut Guide, keep: bool) -> Result<(), Error> {
+    if keep {
+        keep_edited(host, guide)?;
+    } else if let (Some(before), Some(setting)) = (guide.editing, guide.setting.as_mut()) {
+        setting.apply(&NewValue::Int(before));
+    }
+    NativeSetup::redraw(host, RedrawMode::Partial)?;
+    guide.editing = None;
+    key_bar(host, guide);
+    Ok(())
+}
+
+/// Ends changing the number with the buttons, keeping the value shown: set
+/// where it changed.
+fn keep_edited(host: &Host<'_>, guide: &mut Guide) -> Result<(), Error> {
+    let (Some(before), Some(setting)) = (guide.editing, guide.setting.as_ref()) else {
+        return Ok(());
+    };
+    if let Control::Number { value, .. } = setting.control
+        && value != before
+    {
+        let mut scratch = [0; 512];
+        CommandSender::new(host, &mut scratch)
+            .set_setting(&setting.key, SettingValue::Int(value))?;
+    }
+    guide.editing = None;
+    Ok(())
+}
+
 /// Leaves the guide, the setup done or skipped; what tells that it was not
 /// kept shows over the screen below.
 fn finish(host: &Host<'_>) -> Result<(), Error> {
@@ -431,17 +570,33 @@ fn screen_help(host: &Host<'_>, id: &str) -> String {
 }
 
 /// The key bar of the page: on the first, *Back* asks to skip and says so
-/// (*Skip*, as in Beta 3); anywhere else the buttons have their usual names. A
-/// hint the host refuses leaves the bar as it was.
+/// (*Skip*, as in Beta 3); while a number is changed with the buttons they say
+/// *Cancel*, *Keep*, − and +; anywhere else the buttons have their usual
+/// names. A hint the host refuses leaves the bar as it was.
 fn key_bar(host: &Host<'_>, guide: &Guide) {
-    let hint = if guide.page == 0 && !guide.texts.skip_short.is_empty() {
-        ButtonHint::words("core.back", &guide.texts.skip_short)
+    let t = &guide.texts;
+    let words = if guide.editing.is_some() {
+        [
+            Some(t.cancel.as_str()),
+            Some(t.keep.as_str()),
+            Some("\u{2212}"),
+            Some("+"),
+        ]
+    } else if guide.page == 0 && !t.skip_short.is_empty() {
+        [Some(t.skip_short.as_str()), None, None, None]
     } else {
-        ButtonHint::usual("core.back")
+        [None; 4]
     };
-    if let Ok(hint) = hint {
-        match CommandSender::new(host, &mut [0; 256]).set_hint(hint) {
-            Ok(()) | Err(_) => {}
+    let actions = ["core.back", "core.confirm", "core.left", "core.right"];
+    for (action, word) in actions.into_iter().zip(words) {
+        let hint = match word {
+            Some(word) => ButtonHint::words(action, word),
+            None => ButtonHint::usual(action),
+        };
+        if let Ok(hint) = hint {
+            match CommandSender::new(host, &mut [0; 256]).set_hint(hint) {
+                Ok(()) | Err(_) => {}
+            }
         }
     }
 }

@@ -43,6 +43,9 @@ pub struct Texts {
     pub sample: String,
     pub end_title: String,
     pub end_help: String,
+    /// The key bar's words while a number is changed.
+    pub keep: String,
+    pub cancel: String,
 }
 
 /// What an input means, for the plugin to carry out.
@@ -60,10 +63,20 @@ pub enum Act {
     AskSkip,
     /// Set the shown setting to this.
     Set(NewValue),
+    /// Move the number shown by this many steps: at once, or while it is
+    /// changed with the buttons only on the page until it is kept.
+    Step(i64),
+    /// Start changing the number with the buttons ([`Guide::editing`]).
+    Edit,
+    /// Stop changing the number: keep the value shown (`true`) or go back
+    /// to the one before.
+    EndEdit(bool),
     /// Open the screen of a screen step ([`Guide::screen_step`]).
     OpenScreen,
     /// Open the editor of the shown setting ([`Guide::editor`]).
     OpenEditor,
+    /// Open the list of the options of the shown setting to choose from.
+    OpenList,
 }
 
 /// The guide's state.
@@ -79,6 +92,12 @@ pub struct Guide {
     pub focus: Target,
     /// Whether the focus shows (once a button was used; at once without touch).
     pub shown: bool,
+    /// The number's value before, while it is changed with the buttons
+    /// (Select on its card, as in Beta 3 and on the settings pages).
+    pub editing: Option<i64>,
+    /// Whether a screen was opened from the page (a list, an editor, a
+    /// step's screen): its setting is read again once the guide shows.
+    pub away: bool,
     pub texts: Texts,
     /// The screen's size in pixels and its dots per inch.
     pub display: (u16, u16, u16),
@@ -94,6 +113,8 @@ impl Guide {
             help: String::new(),
             focus: Target::Next,
             shown: !touch,
+            editing: None,
+            away: false,
             texts,
             display,
         }
@@ -105,6 +126,7 @@ impl Guide {
         self.steps.drain(page.min(end)..end);
         self.page = page;
         self.focus = Target::Next;
+        self.editing = None;
         self.setting = setting;
         self.help = help;
     }
@@ -207,7 +229,9 @@ impl Guide {
         }
     }
 
-    /// What choosing the card does.
+    /// What choosing the card does, as on the settings pages: its editor; a
+    /// choice of more than two opens the list of its options; a switch or a
+    /// choice of two changes at once. A number changes with its − and +.
     fn card_act(&self) -> Act {
         if self.screen_step().is_some() {
             return Act::OpenScreen;
@@ -215,10 +239,12 @@ impl Guide {
         let Some(setting) = &self.setting else {
             return Act::Keep;
         };
+        if setting.editor.is_some() {
+            return Act::OpenEditor;
+        }
         match &setting.control {
-            Control::Number { .. } => Act::Keep,
-            Control::Value(_) if setting.editor.is_some() => Act::OpenEditor,
-            Control::Value(_) => Act::Keep,
+            Control::Number { .. } | Control::Value(_) => Act::Keep,
+            Control::Choice { options, .. } if options.len() > 2 => Act::OpenList,
             _ => setting.next(1).map_or(Act::Keep, Act::Set),
         }
     }
@@ -279,14 +305,17 @@ impl Guide {
     }
 
     fn on_action(&self, layout: &Layout, action: &str) -> Act {
+        if self.editing.is_some() {
+            return Self::on_edit_action(action, self.page);
+        }
         match action {
-            "core.confirm" => {
-                if self.shown {
-                    self.choose(self.focus)
-                } else {
-                    Act::Focus(self.focus)
-                }
+            "core.confirm" if !self.shown => Act::Focus(self.focus),
+            "core.confirm"
+                if self.focus == Target::Card && matches!(self.answer(), Answer::Number { .. }) =>
+            {
+                Act::Edit
             }
+            "core.confirm" => self.choose(self.focus),
             "core.down" | "core.next" => self.moved(layout, 1),
             "core.up" | "core.previous" => self.moved(layout, -1),
             "core.left" | "core.right" => {
@@ -301,21 +330,26 @@ impl Guide {
         }
     }
 
-    /// Left and right: on a number's card they change it; on a choice of two
-    /// they pick; anywhere else they move the focus.
+    /// The buttons while a number is changed, as in Beta 3: the arrows move
+    /// it, Select keeps it, Back goes back to the value before (and only
+    /// that: one key, one step); the page buttons keep it and turn the page.
+    fn on_edit_action(action: &str, page: usize) -> Act {
+        match action {
+            "core.right" | "core.up" | "core.next" => Act::Step(1),
+            "core.left" | "core.down" | "core.previous" => Act::Step(-1),
+            "core.confirm" => Act::EndEdit(true),
+            "core.back" => Act::EndEdit(false),
+            "core.next-page" => Act::Turn(page + 1),
+            "core.prev-page" if page > 0 => Act::Turn(page - 1),
+            _ => Act::Keep,
+        }
+    }
+
+    /// Left and right: on a choice of two they pick; anywhere else they move
+    /// the focus (a number is changed after Select on its card).
     fn sideways(&self, layout: &Layout, delta: isize) -> Act {
-        if self.shown && self.focus == Target::Card {
-            match self.answer() {
-                Answer::Number { .. } => {
-                    return self
-                        .setting
-                        .as_ref()
-                        .and_then(|s| s.next(delta as i64))
-                        .map_or(Act::Keep, Act::Set);
-                }
-                Answer::Two => return self.pick(usize::from(delta > 0)),
-                _ => {}
-            }
+        if self.shown && self.focus == Target::Card && self.answer() == Answer::Two {
+            return self.pick(usize::from(delta > 0));
         }
         self.moved(layout, delta)
     }
@@ -335,6 +369,10 @@ impl Guide {
     }
 
     fn on_tap(&self, layout: &Layout, position: Point) -> Act {
+        // A finger ends changing with the buttons, keeping the value shown.
+        if self.editing.is_some() {
+            return Act::EndEdit(true);
+        }
         let at = Point::new(position.x, position.y);
         if layout.next.contains(at) {
             return self.choose(Target::Next);
@@ -342,12 +380,10 @@ impl Guide {
         if layout.other.contains(at) {
             return self.choose(Target::Other);
         }
-        if let Some((less, more)) = layout.stepper
-            && let Some(setting) = &self.setting
-        {
+        if let Some((less, more)) = layout.stepper {
             for (rect, delta) in [(less, -1), (more, 1)] {
                 if rect.contains(at) {
-                    return setting.next(delta).map_or(Act::Keep, Act::Set);
+                    return Act::Step(delta);
                 }
             }
         }
@@ -553,8 +589,10 @@ impl Guide {
                 ) else {
                     return Ok(());
                 };
-                button(ops, fonts.ui, style, less, "−", false, false)?;
-                button(ops, fonts.ui, style, more, "+", false, false)?;
+                // Filled while the buttons change it, as in Beta 3.
+                let editing = self.editing.is_some();
+                button(ops, fonts.ui, style, less, "−", false, editing)?;
+                button(ops, fonts.ui, style, more, "+", false, editing)?;
                 let between = Rect::new(
                     less.x.saturating_add(less.width),
                     less.y,
@@ -594,7 +632,7 @@ impl Guide {
                 let shown = setting.label(&self.texts.on, &self.texts.off)?;
                 opens(ops, fonts.ui, style, card, &shown, ink)
             }
-            // More than two options: the card opens the next, shown with an arrow.
+            // More than two options: the card opens their list, shown with an arrow.
             Control::Choice { .. } => {
                 let shown = setting.label(&self.texts.on, &self.texts.off)?;
                 opens(ops, fonts.ui, style, card, &shown, ink)
@@ -961,8 +999,9 @@ mod tests {
     }
 
     #[test]
-    fn a_number_changes_with_side_buttons_and_taps_on_its_ends() {
+    fn a_number_is_changed_after_select_and_back_only_ends_that() {
         let mut g = guide(false);
+        g.page = 1;
         g.setting = Some(Setting {
             control: Control::Number {
                 value: 12,
@@ -974,17 +1013,57 @@ mod tests {
         });
         g.focus = Target::Card;
         let l = laid(&g);
-        let (less, more) = l.stepper.unwrap();
+        // As in Beta 3: the arrows move the focus on, Select starts changing it.
         assert_eq!(
             g.decide(&l, &action("core.right")),
-            Act::Set(NewValue::Int(14))
+            Act::Focus(Target::Next)
         );
         assert_eq!(
             g.decide(&l, &action("core.left")),
-            Act::Set(NewValue::Int(10))
+            Act::Focus(Target::Other)
         );
-        assert_eq!(g.decide(&l, &tap(more)), Act::Set(NewValue::Int(14)));
-        assert_eq!(g.decide(&l, &tap(less)), Act::Set(NewValue::Int(10)));
+        assert_eq!(g.decide(&l, &action("core.confirm")), Act::Edit);
+        g.editing = Some(12);
+        assert_eq!(g.decide(&l, &action("core.right")), Act::Step(1));
+        assert_eq!(g.decide(&l, &action("core.left")), Act::Step(-1));
+        assert_eq!(g.decide(&l, &action("core.confirm")), Act::EndEdit(true));
+        // Back leaves the change only, not the page as well.
+        assert_eq!(g.decide(&l, &action("core.back")), Act::EndEdit(false));
+        assert_eq!(g.decide(&l, &action("core.next-page")), Act::Turn(2));
+        assert_eq!(g.decide(&l, &tap(l.next)), Act::EndEdit(true));
+        // A finger changes it with its − and + at once.
+        g.editing = None;
+        let (less, more) = l.stepper.unwrap();
+        assert_eq!(g.decide(&l, &tap(more)), Act::Step(1));
+        assert_eq!(g.decide(&l, &tap(less)), Act::Step(-1));
+    }
+
+    #[test]
+    fn a_choice_of_more_than_two_opens_its_list() {
+        let mut g = guide(false);
+        g.setting = Some(Setting {
+            key: "core.time-zone".into(),
+            control: Control::Choice {
+                options: ["UTC", "Europe/Berlin", "Europe/Paris"]
+                    .iter()
+                    .map(|v| Choice {
+                        value: (*v).into(),
+                        title: (*v).into(),
+                    })
+                    .collect(),
+                at: Some(1),
+            },
+            ..two()
+        });
+        g.focus = Target::Card;
+        let l = laid(&g);
+        let card = l.card.unwrap();
+        assert_eq!(g.decide(&l, &action("core.confirm")), Act::OpenList);
+        assert_eq!(g.decide(&l, &tap(card)), Act::OpenList);
+        assert_eq!(
+            g.decide(&l, &action("core.right")),
+            Act::Focus(Target::Next)
+        );
     }
 
     #[test]

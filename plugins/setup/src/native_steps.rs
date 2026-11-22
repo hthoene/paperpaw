@@ -169,8 +169,16 @@ impl<'h, 'cb> Reader<'h, 'cb> {
             (RegistrySettingKind::Bool, Value::Bool(on)) => Control::Switch(on),
             (RegistrySettingKind::Bool, _) => Control::Switch(false),
             (RegistrySettingKind::Int, value) => Control::Number {
+                // A size of book text the reading font draws as a smaller
+                // one shows as that one (only sizes that look different are
+                // offered); the value kept stays.
                 value: match value {
-                    Value::Int(number) => number,
+                    Value::Int(number) => paperpaw_ui_kit::font_sizes::shown(
+                        self.host,
+                        key,
+                        number,
+                        (bounds.0, bounds.1),
+                    )?,
                     _ => bounds.0,
                 },
                 min: bounds.0,
