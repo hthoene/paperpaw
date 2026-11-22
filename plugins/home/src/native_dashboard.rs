@@ -968,8 +968,10 @@ impl Dashboard {
             paperpaw_ui_kit::parts::bar_button(&mut below, font, style, rect, "+", false)?;
         }
         if let Some(nav) = self.nav {
-            for dot in dash::dots(laid.footer_area(), style.gap, laid.pages, nav.page) {
-                if laid.dots {
+            // Editing, the dots show which page is being arranged, whatever
+            // the setting says (Beta 3).
+            if laid.dots || self.editing {
+                for dot in dash::dots(laid.footer_area(), style.gap, laid.pages, nav.page) {
                     self::dot(&mut below, &dot, style)?;
                 }
             }

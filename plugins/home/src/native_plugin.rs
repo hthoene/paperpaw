@@ -201,7 +201,7 @@ impl Plugin for NativeHome {
                 self.covers_now();
                 self.widgets
                     .tick(host, self.ui.as_ref().ok_or(Error::State)?);
-                Ok(())
+                self.tick_page(host)
             }
             Event::WidgetChanged { instance, .. } if token == WIDGET_CHANGED => {
                 self.widget_changed(host, instance)
@@ -414,6 +414,31 @@ impl NativeHome {
             dashboard.mark_stale();
         }
         redraw(host)
+    }
+
+    /// The minute on Home's own page: its clock, date and status line draw
+    /// their own places again where they show something new. They are this
+    /// plugin's own, not the host's instances, so no `widget_changed` comes
+    /// for them (#308 left the page's own clock at the minute it was drawn).
+    fn tick_page(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(top) = self.screens.top_instance(DASHBOARD) else {
+            return Ok(());
+        };
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let Some(Slot::Dashboard(dashboard)) = self.screens.get(top) else {
+            return Ok(());
+        };
+        let areas = dashboard.ticked(host, ui)?;
+        // Under another screen it is drawn when it shows again.
+        if areas.is_empty() || self.stack_top(host)? != Some(top) {
+            return Ok(());
+        }
+        let mut scratch = [0; 64];
+        let mut commands = CommandSender::new(host, &mut scratch);
+        for area in areas {
+            commands.queue_redraw_area(RedrawMode::Partial, area)?;
+        }
+        Ok(())
     }
 
     /// A widget shows something new. One whose height does not depend on what it
