@@ -1,4 +1,5 @@
-//! Interface-7 host adapter components, not activated in dispatch yet.
+//! Interface-7 host adapter components: the call context, the frames, the
+//! handle tables, the queries and the generated wire codecs.
 pub(crate) mod calls;
 pub(crate) mod context;
 pub(crate) mod core_frame;
@@ -35,7 +36,8 @@ pub(crate) mod color_wire;
     clippy::all,
     clippy::pedantic,
     missing_docs,
-    reason = "generated slot-15 command batch codec"
+    dead_code,
+    reason = "generated slot-15 command batch codec (the item flags are the SDK's, the host reads the bits)"
 )]
 pub(crate) mod commands_wire;
 #[rustfmt::skip]

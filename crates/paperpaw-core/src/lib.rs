@@ -37,7 +37,6 @@
 
 extern crate alloc;
 
-#[allow(dead_code, reason = "M1 adapters compile before host table activation")]
 mod abi7;
 mod accessors;
 mod areas;
