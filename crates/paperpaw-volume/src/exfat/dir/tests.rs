@@ -640,6 +640,64 @@ fn a_set_with_a_wrong_checksum_is_left_alone() {
 }
 
 #[test]
+fn a_set_that_runs_past_the_folder_end_is_left_alone() {
+    let card = filled(512);
+    let fs = card.mount();
+    // The root's last cluster, its free slots taken by entries not in use, and in its last slot
+    // a file entry that counts two entries more: past the end of the root's chain.
+    let mut last = fs.root();
+    while let Some(next) = fs.fat_next(last).unwrap() {
+        last = next;
+    }
+    let base = fs.cluster_offset(last).unwrap();
+    let slot = base + fs.cluster_size() - ENTRY as u64;
+    for at in (base..slot).step_by(ENTRY) {
+        let mut kind = [0u8; 1];
+        fs.read_at(at, &mut kind).unwrap();
+        if kind[0] == 0 {
+            fs.write_at(at, &[ENTRY_UNUSED]).unwrap();
+        }
+    }
+    fs.write_at(slot, &[ENTRY_FILE, 2]).unwrap();
+    fs.flush().unwrap();
+    let before = card.image();
+    let files = tree(&fs);
+    assert_eq!(files["first.txt"], data(700, 1));
+    assert_eq!(files.len(), 5);
+    let root = fs.root_dir();
+    write(&root, "another.txt", &data(50, 1));
+    fs.flush().unwrap();
+    let at = slot as usize;
+    assert_eq!(card.image()[at..at + ENTRY], before[at..at + ENTRY]);
+    assert_eq!(tree(&fs)["another.txt"], data(50, 1));
+    // In a folder of one cluster (its size says where it ends), a whole set whose file entry is
+    // its last slot and whose other entries are the next cluster's first bytes (another file's).
+    let books = root.find("books").unwrap().unwrap();
+    assert!(books.contiguous);
+    let base = fs.cluster_offset(books.first).unwrap();
+    let slot = base + fs.cluster_size() - ENTRY as u64;
+    for at in (base..slot).step_by(ENTRY) {
+        let mut kind = [0u8; 1];
+        fs.read_at(at, &mut kind).unwrap();
+        if kind[0] == 0 {
+            fs.write_at(at, &[ENTRY_UNUSED]).unwrap();
+        }
+    }
+    let (units, hash) = encode::<io::Error>("hidden.txt").unwrap();
+    let set = build(&units, hash, &Fresh::empty(ATTR_ARCHIVE));
+    fs.write_at(slot, &set.used()[..ENTRY]).unwrap();
+    fs.write_at(slot + ENTRY as u64, &set.used()[ENTRY..])
+        .unwrap();
+    fs.flush().unwrap();
+    let names: Vec<String> = books
+        .to_dir()
+        .iter()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["inside.txt"]);
+}
+
+#[test]
 fn the_bitmap_is_looked_for_and_walked_only_as_far_as_the_volume_needs() {
     // A bitmap entry whose length is far past what the volume's clusters need: the clusters
     // that hold their bits are walked, no more.
