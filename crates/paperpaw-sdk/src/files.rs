@@ -417,17 +417,33 @@ pub fn for_each_line(
     path: &str,
     visit: &mut dyn FnMut(&str) -> ControlFlow<()>,
 ) -> Result<(), StorageError> {
+    each_line(storage, path, &mut |line, _| visit(line))
+}
+
+/// [`for_each_line`], telling `visit` too whether the line was cut (it was
+/// longer than [`MAX_LINE`] bytes): who writes the lines back must not
+/// write a cut one, or what was past the cut is lost.
+pub(crate) fn each_line(
+    storage: &dyn Storage,
+    path: &str,
+    visit: &mut dyn FnMut(&str, bool) -> ControlFlow<()>,
+) -> Result<(), StorageError> {
     let mut chunk = [0u8; 512];
     let mut line: Vec<u8> = Vec::new();
+    // How many bytes of the line were left out, and the last of them.
+    let mut left_out = (0_usize, 0_u8);
     let mut at = 0u64;
     let mut first = true;
-    let mut emit = |line: &mut Vec<u8>| {
+    let mut emit = |line: &mut Vec<u8>, left_out: &mut (usize, u8)| {
+        // A `\r` alone left out is the line's break (`\r\n`), not a byte of it.
+        let cut = !matches!(*left_out, (0, _) | (1, b'\r'));
+        *left_out = (0, 0);
         if line.last() == Some(&b'\r') {
             line.pop();
         }
         let text = if first { without_bom(line) } else { &line[..] };
         first = false;
-        let flow = visit(&String::from_utf8_lossy(text));
+        let flow = visit(&String::from_utf8_lossy(text), cut);
         line.clear();
         flow
     };
@@ -443,14 +459,18 @@ pub fn for_each_line(
                 _ => (piece, false),
             };
             let room = MAX_LINE.saturating_sub(line.len());
-            line.extend_from_slice(&text[..text.len().min(room)]);
-            if ends && emit(&mut line).is_break() {
+            let (kept, left) = text.split_at(text.len().min(room));
+            line.extend_from_slice(kept);
+            if let Some(&last) = left.last() {
+                left_out = (left_out.0.saturating_add(left.len()), last);
+            }
+            if ends && emit(&mut line, &mut left_out).is_break() {
                 return Ok(());
             }
         }
     }
     if !line.is_empty() {
-        let _ = emit(&mut line);
+        let _ = emit(&mut line, &mut left_out);
     }
     Ok(())
 }
