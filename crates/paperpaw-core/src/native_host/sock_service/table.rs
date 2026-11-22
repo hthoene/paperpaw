@@ -1193,5 +1193,6 @@ pub(super) fn owner_stopped(host: &dyn SockHost, owner: u64) -> Result<(), i32> 
     freed = freed.saturating_add(inner.cast_owner_stopped(host, owner));
     inner.release(host, freed);
     inner.sync_demand(host);
+    host.owner_gone(owner);
     Ok(())
 }

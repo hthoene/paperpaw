@@ -339,6 +339,9 @@ pub(crate) trait SockHost {
     /// The plugin started: a staged file kept after a failed rename is tried
     /// again.
     fn recover_saves(&self, _owner: u64) {}
+    /// The owner's last cleanup is done (it stopped): what was kept of it for
+    /// that cleanup (its plugin id) is let go.
+    fn owner_gone(&self, _owner: u64) {}
     /// Append `data` to the staged file of `path` (`<path>.pp-staged`); `first` creates it empty first (an
     /// older staged file goes). Whole or an error.
     fn staged_write(
