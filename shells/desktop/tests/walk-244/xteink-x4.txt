@@ -172,8 +172,8 @@ Text "Join a Wi-Fi network in the settings" at 94,392 292x29
 Text "under Wi-Fi, then open Wi-Fi transfer" at 86,420 307x29
 Text "again." at 214,448 52x29
 Text "Without a router" at 171,684 138x29
-Text "Back" at 39,758 97x42
-Text "Select" at 154,758 115x42
+Text "Back" at 39,758 72x42
+Text "Without a router" at 111,758 360x42
 Heading "Plugin store" at 0,0 480x58
 Row "Search" (focused) at 0,75 480x61
 Row "New" at 0,136 480x61
