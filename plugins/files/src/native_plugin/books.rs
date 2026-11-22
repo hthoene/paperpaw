@@ -19,12 +19,12 @@ impl NativeFiles {
     }
 
     /// Whether the arrow keys stay on the page (`core.arrows-stay-on-page`,
-    /// off unless the reader turned it on).
+    /// on unless the reader turned it off).
     pub(super) fn arrows_stay(host: &Host<'_>) -> Result<bool, Error> {
         let mut scratch = [0; 32];
-        Ok(matches!(
+        Ok(!matches!(
             settings::read_setting(host, ARROWS_STAY, &mut scratch)?,
-            SettingValue::Bool(true)
+            SettingValue::Bool(false)
         ))
     }
 

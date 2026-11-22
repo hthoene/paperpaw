@@ -176,7 +176,7 @@ impl HostSource {
         let pencil = on(PENCIL, true)?;
         let dots = on(DOTS, true)?;
         let focus_at_once = on(FOCUS_AT_ONCE, false)?;
-        let arrows_stay = on(ARROWS_STAY, false)?;
+        let arrows_stay = on(ARROWS_STAY, true)?;
         let mut text = |key: &str| -> Result<String, Error> {
             Ok(match settings::read_setting(host, key, &mut scratch)? {
                 SettingValue::Text(text) => copy(text)?,
