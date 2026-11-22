@@ -28,3 +28,7 @@
   size was not whole clusters could, when it grew, link its new cluster in place of one it
   already had, losing the entries there; such a folder now reads as damaged and is left
   alone.
+- **One bad entry at the end of an exFAT folder no longer makes the whole folder unreadable**
+  (#484). An entry whose parts ran past the folder's end made listing the folder fail (on the
+  card's top folder: the whole library); it is now passed over, and nothing past the folder's
+  end is taken for a part of it.

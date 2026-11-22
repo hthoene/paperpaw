@@ -1090,8 +1090,16 @@ impl<'a, IO: ReadWriteSeek> XIter<'a, IO> {
             if entry[0] != ENTRY_FILE {
                 continue;
             }
-            let Some((set, cut)) = self.fs.load(&loc)? else {
+            // A set whose entries run past the directory's end (its size, or the end of its
+            // chain) is no set either: not shown and not touched, as one with a wrong checksum.
+            let end = loc.at + u64::from(loc.count) * ENTRY as u64;
+            if self.len != 0 && end > self.len {
                 continue;
+            }
+            let (set, cut) = match self.fs.load(&loc) {
+                Ok(Some(found)) => found,
+                Ok(None) | Err(Error::CorruptedFileSystem) => continue,
+                Err(e) => return Err(e),
             };
             if cut {
                 // Finished here, for every other reader of the card; where
