@@ -113,6 +113,13 @@ sign() { (cd "$root" && cargo run -q --release -p paperpaw-sign -- "$@"); }
 
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
+# Every plugin in one cargo run first, so that cargo builds them side by side (one
+# run for each of them, below, was one plugin at a time). The loop below builds
+# each again: it finds it built, or says why it did not, plugin by plugin.
+bins=()
+for id in $ids; do bins+=(--bin "$id"); done
+(cd "$here" && env -u RUSTFLAGS "${build[@]}" "${bins[@]}") ||
+    echo "not all plugins built together; the loop below names those that did not" >&2
 refused=() broken=()
 for id in $ids; do
     file="$out/$id-$(version_of "$id")-$device.ppn"
