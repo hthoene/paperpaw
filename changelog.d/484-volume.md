@@ -6,3 +6,7 @@
   read as entries that named other files' clusters (removing the folder then freed them).
   The cluster is now cleared before it is linked, and one taken but not linked yet is freed
   at the next start.
+- **A damaged FAT card can no longer have a file's data written over its FAT** (#484). A
+  file or a link in the FAT that named a cluster the card does not have (1, or one past its
+  end) was read and written at a place computed from it, which could be the FAT itself. It
+  now reads as a damaged card, and nothing is written.

@@ -542,6 +542,8 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         self.bpb.bytes_from_sectors(sector)
     }
 
+    // Modified for PaperPaw: for one of the volume's clusters only (`offset_from_cluster`): it lies
+    // in the data area, which the boot sector's checks keep within `u32` sectors.
     fn sector_from_cluster(&self, cluster: u32) -> u32 {
         self.first_data_sector
             + self
@@ -656,8 +658,15 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         *self.dir_notes.borrow_mut() = [None; DIR_NOTES];
     }
 
-    pub(crate) fn offset_from_cluster(&self, cluster: u32) -> u64 {
-        self.offset_from_sector(self.sector_from_cluster(cluster))
+    // Modified for PaperPaw: checked to be one of the volume's clusters. A number read from the
+    // card (a directory entry's first cluster, a link in the FAT) may be none: 1 or one past the
+    // end wrapped round to a place in the FAT (or overflowed), and a file's data was written
+    // there.
+    pub(crate) fn offset_from_cluster(&self, cluster: u32) -> Result<u64, Error<IO::Error>> {
+        if !self.is_cluster(cluster) {
+            return Err(Error::CorruptedFileSystem);
+        }
+        Ok(self.offset_from_sector(self.sector_from_cluster(cluster)))
     }
 
     pub(crate) fn bytes_from_clusters(&self, clusters: u32) -> u64 {
@@ -679,7 +688,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         cluster: u32,
     ) -> ClusterIterator<impl ReadWriteSeek<Error = Error<IO::Error>> + '_, IO::Error> {
         let disk_slice = self.fat_slice();
-        ClusterIterator::new(disk_slice, self.fat_type, cluster)
+        ClusterIterator::new(disk_slice, self.fat_type, cluster, self.total_clusters)
     }
 
     // Modified for PaperPaw: the clusters freed counted (see `cluster_changes`), also of a chain
@@ -902,7 +911,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         };
         {
             let mut disk = self.disk.borrow_mut();
-            disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster)))?;
+            disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster)?))?;
             write_zeros(&mut *disk, u64::from(self.cluster_size()))?;
         }
         if let Some(prev) = prev_cluster {
