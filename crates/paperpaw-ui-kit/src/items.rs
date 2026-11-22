@@ -90,8 +90,10 @@ pub struct RowItem {
     /// Text the page reads out, not a row to choose: passed by the focus and
     /// not chosen by a tap, but in the full ink, not faint like `disabled`.
     pub plain: bool,
-    /// A value too long for the line of its title is wrapped to a line of
-    /// its own under it, at the right (as in Beta 3), not cut with "…".
+    /// Its title and value are kept whole, as Beta 3's settings kept them: the
+    /// title wrapped beside the value (or the switch) to [`WHOLE_TITLE_LINES`],
+    /// and a value too long for that on a line of its own under it, at the
+    /// right, not cut with "…".
     pub wrap_value: bool,
 }
 
@@ -158,7 +160,8 @@ impl Item {
         Ok(Self::Row(row))
     }
 
-    /// This item with a value too long for its title's line wrapped under it,
+    /// This item with its title and value kept whole (see
+    /// [`RowItem::wrap_value`]): a long title wrapped, a long value under it,
     /// not cut.
     #[must_use]
     pub fn with_wrapped_value(mut self) -> Self {
@@ -982,7 +985,7 @@ pub(crate) fn item_height(
         Item::Row(row) => {
             let own = looked(style, row);
             let style = own.as_ref().unwrap_or(style);
-            let (_, band) = title_lines(font, style, width, row)?;
+            let (_, band, _) = title_lines(font, style, width, row)?;
             // The track of a slider has a row of its own under the title.
             let band = if row.track().is_some() {
                 band.saturating_add(style.row)

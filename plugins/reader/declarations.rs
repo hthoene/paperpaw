@@ -7,10 +7,10 @@
 //! the help's wait for the book) is listed in `PORTING-7.md`.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, HelpHintDecl, HintRow, Instances,
-    KeyBindingDecl, Kind, MenuEntryDecl, ReaderDecl, ScreenDecl, SetupPage, SetupStepDecl,
-    SlotOfferDecl, SpecDecl, StageDecl, StatusBar, StatusItemDecl, StatusLineDecl, StatusPlaceDecl,
-    WidgetDecl,
+    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, HelpHintDecl,
+    HintRow, Instances, KeyBindingDecl, Kind, MenuEntryDecl, ReaderDecl, ScreenDecl, SetupPage,
+    SetupStepDecl, SlotOfferDecl, SpecDecl, StageDecl, StatusBar, StatusItemDecl, StatusLineDecl,
+    StatusPlaceDecl, WidgetDecl,
 };
 use paperpaw_sdk::native::ui::HintInput;
 
@@ -74,6 +74,8 @@ pub const FIRST_ACTION: u32 = 100;
 /// The sample widget above the reading settings (`native_sample`): its draws
 /// and its `core.widget` stage calls.
 pub const SAMPLE: u32 = 40;
+/// The editor of a status lines setting (`native_status_edit`).
+pub const STATUS_EDIT: u32 = 41;
 
 const BEHAVIOUR: &str = "core.group.reading-behaviour";
 const CONTROLS: &str = "core.group.controls";
@@ -255,8 +257,10 @@ pub fn status_settings<F: FnMut(&[u8]) -> Result<(), i32>>(
         let mut spec = SpecDecl::new(name, Kind::List(default), STATUS_GROUP, title);
         spec.help = "reader.status.lines.help";
         d.spec(spec)?;
+        // Chosen on the reader's own screen, as in Beta 3.
         let mut extra = ExtraDecl::new(name);
         extra.section = section;
+        extra.editor = Some(EditorDecl::Screen("status-edit"));
         d.extra(extra)?;
     }
     for (at, (name, title, default)) in PARTS.into_iter().enumerate() {
@@ -265,6 +269,7 @@ pub fn status_settings<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.spec(spec)?;
         let mut extra = ExtraDecl::new(name);
         extra.section = if at < 3 { SECTION_TOP } else { SECTION_BOTTOM };
+        extra.editor = Some(EditorDecl::Screen("status-edit"));
         d.extra(extra)?;
     }
     let mut percent = SpecDecl::new(
@@ -366,6 +371,10 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
             decl
         })?;
     }
+    // The editor of the status lines' settings: one for each setting.
+    d.screen(
+        ScreenDecl::new("status-edit", STATUS_GROUP, STATUS_EDIT).instances(Instances::PerParams),
+    )?;
     // The reading app `reader.app` (interface 6 `ReaderSpec`): its screen shows
     // books of every format. The host counts a book's reading session only for
     // a reader it knows: without this, no progress, "Continue reading" or book

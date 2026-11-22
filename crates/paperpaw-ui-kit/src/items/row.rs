@@ -54,7 +54,7 @@ pub(super) fn draw_row_as(
     } else {
         ink(style, focused)
     };
-    let (title_block, band_height) = title_lines(font, style, rect.width, row)?;
+    let (title_block, band_height, below) = title_lines(font, style, rect.width, row)?;
     let mut band = Rect::new(rect.x, rect.y, rect.width, band_height.min(rect.height));
     let mut note_at = rect;
     if let Some(zone) = row.zone {
@@ -94,7 +94,7 @@ pub(super) fn draw_row_as(
         buttons = Some((minus, plus, track));
     }
     let mut value = shown_value(row);
-    if !value.is_empty() && value_below(font, style, rect.width, row)? {
+    if !value.is_empty() && below {
         // The value on a line of its own under the title, at the right.
         let line = crate::geometry::line_px(font, style.text)?.min(cols.height);
         let strip = Rect::new(
@@ -334,17 +334,21 @@ pub(super) fn note_lines(
     )
 }
 
-/// The lines of a row's title and the height of its first band: one line in
-/// a row, or, where the row shows its text whole and the title is too long
-/// for its column, the lines the title wraps to.
+/// The lines of a row's title, the height of its first band and whether its
+/// value is on a line of its own under the title: one line in a row, or, where
+/// the row shows its text whole or keeps its title whole (`wrap_value`) and the
+/// title is too long for its column, the lines the title wraps to.
 pub(super) fn title_lines(
     font: &Font<'_>,
     style: &Style,
     width: u16,
     row: &RowItem,
-) -> Result<(Vec<String>, u16), Error> {
-    let mut lines = Vec::new();
-    if row.whole && !row.stepper && !row.title.is_empty() {
+) -> Result<(Vec<String>, u16, bool), Error> {
+    let (lines, below) = if row.stepper || row.title.is_empty() {
+        (Vec::new(), false)
+    } else if row.wrap_value {
+        kept_title(font, style, width, row)?
+    } else if row.whole {
         // Text a page reads out takes both margins; any other row also the gap
         // before its value.
         let margins = if page_text(row) && row.value.is_empty() {
@@ -361,39 +365,43 @@ pub(super) fn title_lines(
         let value = font.measure_text(style.text, &row.value)?.min(room * 0.4);
         let title_room = (room - value).max(1.0);
         let most = title_most(row);
-        lines = wrap_title(
+        let lines = wrap_title(
             |line| font.measure_text(style.text, line),
             &row.title,
             title_room,
             most,
         )?;
-    }
+        (lines, false)
+    } else {
+        (Vec::new(), false)
+    };
     // The value on a line of its own takes one more.
-    let below = if value_below(font, style, width, row)? {
+    let extra = if below {
         crate::geometry::line_px(font, style.text)?
     } else {
         0
     };
     if lines.len() < 2 {
-        return Ok((Vec::new(), style.row.saturating_add(below)));
+        return Ok((Vec::new(), style.row.saturating_add(extra), below));
     }
     let line = crate::geometry::line_px(font, style.text)?;
     let block = line.saturating_mul(lines.len() as u16);
     let band = style.row.max(block.saturating_add(style.gap));
-    Ok((lines, band.saturating_add(below)))
+    Ok((lines, band.saturating_add(extra), below))
 }
 
-/// Whether the value of a row that asks for it is too long for the line of
-/// its title, and goes to a line of its own.
-pub(super) fn value_below(
+/// How a row that keeps its title whole (`wrap_value`) lays out its title and
+/// value, as Beta 3's settings did: side by side where both fit; else the title
+/// wrapped beside the value where the value takes at most 60 % of the room and
+/// every word of the title fits beside it; else the title wrapped across the
+/// row and the value on a line of its own under it (`true`). A switch keeps its
+/// room at the end of the first line.
+fn kept_title(
     font: &Font<'_>,
     style: &Style,
     width: u16,
     row: &RowItem,
-) -> Result<bool, Error> {
-    if !row.wrap_value || row.stepper || row.on.is_some() || row.value.is_empty() {
-        return Ok(false);
-    }
+) -> Result<(Vec<String>, bool), Error> {
     let lead = if row.icon.is_some() {
         icon_room(style)
     } else if row.zone.is_some() {
@@ -401,7 +409,35 @@ pub(super) fn value_below(
     } else {
         0
     };
-    let room = (f32::from(width.saturating_sub(lead)) - 3.0 * f32::from(style.margin)).max(1.0);
-    let title = font.measure_text(style.text, &row.title)?.min(room * 0.6);
-    Ok(font.measure_text(style.text, &row.value)? > room - title)
+    let control = if row.on.is_some() {
+        switch_room(style)
+    } else {
+        0
+    };
+    let room = f32::from(width.saturating_sub(lead).saturating_sub(control));
+    let room = (room - 3.0 * f32::from(style.margin)).max(1.0);
+    let value = shown_value(row);
+    let value_width = font.measure_text(style.text, value)?;
+    let most = title_most(row);
+    let measure = |line: &str| font.measure_text(style.text, line);
+    let beside = room - value_width;
+    if font.measure_text(style.text, &row.title)? <= beside {
+        return Ok((Vec::new(), false));
+    }
+    // Each word measured is a call to the host: none once one is too long.
+    let mut words_fit = value_width <= room * 0.6;
+    for word in row.title.split_whitespace() {
+        if !words_fit {
+            break;
+        }
+        words_fit = measure(word)? <= beside;
+    }
+    if words_fit {
+        return Ok((
+            wrap_title(measure, &row.title, beside.max(1.0), most)?,
+            false,
+        ));
+    }
+    let lines = wrap_title(measure, &row.title, room, most)?;
+    Ok((lines, !value.is_empty()))
 }
