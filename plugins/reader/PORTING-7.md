@@ -757,11 +757,11 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
 - **Hooks:** `native_view.rs` (`Setup::room`, `area()`, one call in `draw_with`, one in `input`, the field
   `Open::status`; the glue is `native_view/status.rs`) and `native_plugin.rs` (the `STATUS` batch; `draw` hands the
   view the `Ui`). Metadata asks `core.registry` and `ui.compose` (all four files regenerated).
+- **Editors** (#472): interface 6 used the kernel's `core.status-lines` and `core.status-items` screens, which are
+  not slots of the native host; the reader's own screen `status-edit` (`native_status_edit.rs`, one per setting) is
+  the editor of the eight settings, built on the kit's `status_items` (as picture-home does, Kernel's ruling todo
+  121): the status lines for a place's lines, the status items for a part.
 - **Not yet (named):**
-  - The editors of the lines and the parts: interface 6 used the kernel's `core.status-lines` and
-    `core.status-items` screens, which are not slots of the native host; a plugin names its own screen built on the
-    kit's `status_items` (as picture-home does, Kernel's ruling todo 121). The settings are declared without an
-    editor (plain lists) until the reader has those two screens.
   - `status.battery-percent` is declared and kept, but the kit's items line has no way to hand it to the kernel's
     battery item.
   - The items `status.aloud`, `status.printed-page`, `status.chapter-page`, `status.chapter-left` and

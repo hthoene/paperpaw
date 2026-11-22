@@ -1,7 +1,7 @@
 //! The screen lock's native declarations: its page of settings (the kind of
 //! lock, whether waking up asks for it, the touch lock's switch), the lock
-//! screen, the action *Lock now* and the events that lock the device. The
-//! first-run step is pending on host setup support. The touch lock's actions,
+//! screen, the action *Lock now*, the events that lock the device and the
+//! first-run setup's step (the kind of lock, as in Beta 3). The touch lock's actions,
 //! menu entries, key, status item and input filter (`touch_ui`, `touch_events`)
 //! are declared everywhere (`make` cannot tell whether there is touch): the
 //! entries carry the need for touch, so a device without it shows none, and the
@@ -9,7 +9,8 @@
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl,
-    KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SpecDecl, StatusItemDecl, SubscribeDecl,
+    KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SetupPage, SetupStepDecl, SpecDecl,
+    StatusItemDecl, SubscribeDecl,
 };
 
 /// Callback tokens, as the plugin's callbacks take them.
@@ -76,6 +77,14 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.spec(touch)?;
     // Devices without a touch screen do not show a switch for the touch lock.
     d.menu_need("lock.touch", MenuNeed::Touch)?;
+    // The first-run setup offers a lock, off unless one is chosen on its screen.
+    let mut step = SetupStepDecl::new(
+        "setup",
+        "lock.setting.kind",
+        SetupPage::Setting("lock.kind"),
+    );
+    step.order = 70;
+    d.setup_step(step)?;
     d.submit()?;
     Ok(())
 }

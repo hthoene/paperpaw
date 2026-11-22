@@ -138,11 +138,21 @@ pub(super) fn on_off(messages: &mut Messages, host: &Host<'_>, on: bool) -> Resu
     messages.copy(host, if on { "core.on" } else { "core.off" })
 }
 
-/// A list keeps ids in storage and shows their catalogue names in order.
-fn list_value_text(messages: &mut Messages, host: &Host<'_>, value: &str) -> Result<String, Error> {
+/// A list keeps ids in storage and shows their names in order: those the
+/// registry gives its items (`names`, as Beta 3 showed status items and
+/// widgets), else their catalogue names.
+fn list_value_text(
+    messages: &mut Messages,
+    host: &Host<'_>,
+    value: &str,
+    names: &[(String, String)],
+) -> Result<String, Error> {
     let mut text = String::new();
-    for id in value.split(',').map(str::trim).filter(|id| !id.is_empty()) {
-        let name = translate(messages, host, id)?;
+    for id in native_data::list_ids(value) {
+        let name = match names.iter().find(|(of, _)| of == native_data::base_id(id)) {
+            Some((_, name)) => copy(name)?,
+            None => translate(messages, host, id)?,
+        };
         text.try_reserve(name.len().saturating_add(2))
             .map_err(|_| Error::NoMemory)?;
         if !text.is_empty() {
@@ -170,7 +180,7 @@ pub(super) fn value_text(
         (Some(Val::Bool(on)), _) => on_off(messages, host, *on)?,
         (Some(Val::Int(v)), _) => messages.with_unit(host, *v, &entry.detail.unit)?,
         (Some(Val::Text(v)), _) if setting.kind == Kind::List => {
-            list_value_text(messages, host, v)?
+            list_value_text(messages, host, v, &entry.options)?
         }
         (Some(Val::Text(v)), _) => match entry.options.iter().find(|(value, _)| value == v) {
             Some((_, name)) => copy(name)?,
@@ -304,7 +314,6 @@ type Placed = (i32, bool, Option<Link>, (String, String));
 /// opens: headings with nothing under them go.
 fn main_items(
     host: &Host<'_>,
-    messages: &mut Messages,
     placed: Vec<Placed>,
     advanced: bool,
 ) -> Result<(Vec<Item>, Vec<Option<Link>>), Error> {
@@ -322,7 +331,14 @@ fn main_items(
         }
         let item = match &link {
             None => Item::heading(&title)?,
-            Some(Link::Advanced) => Item::row(&title, &on_off(messages, host, advanced)?)?,
+            // A switch, as it was in Beta 3.
+            Some(Link::Advanced) => {
+                let mut item = Item::row(&title, "")?;
+                if let Item::Row(row) = &mut item {
+                    row.on = Some(advanced);
+                }
+                item
+            }
             // The search looks like the field it opens, as it did in Beta 3.
             Some(Link::Search) => Item::field(&title)?,
             Some(Link::Reset | Link::Restart) => Item::row(&title, "")?,
@@ -421,7 +437,7 @@ pub(super) fn build_list(
         ),
     )?;
     paperpaw_ui_kit::mem::stable_sort_by(&mut placed, |a, b| (a.0, a.1).cmp(&(b.0, b.1)));
-    let (items, links) = main_items(host, &mut messages, placed, cx.advanced)?;
+    let (items, links) = main_items(host, placed, cx.advanced)?;
     // Made aside; the page changes once it is whole.
     view.links = links;
     view.list.replace(items);
@@ -450,11 +466,6 @@ fn entry_of(
     placement: Option<(&str, &str, &[String])>,
 ) -> Result<Entry, Error> {
     let detail = reader.detail(&s.key)?;
-    let options = if matches!(s.kind, Kind::Choice | Kind::Language) {
-        reader.choices(&s.key)?
-    } else {
-        Vec::new()
-    };
     let mut setting = s.try_clone()?;
     if let Some((of, placed, set)) = placement
         && let Some(key) = model::placed(&s.key, of, placed)?
@@ -463,7 +474,19 @@ fn entry_of(
         setting.is_default = !set.contains(&key);
         setting.in_scope = false;
         setting.key = key;
+    } else if setting.value.is_none()
+        && matches!(setting.kind, Kind::Text | Kind::List)
+        && !setting.has(flag::SECRET)
+    {
+        // The registry's row leaves out a value too long for it: read whole.
+        setting.value = native_data::read(host, &setting.key)?;
     }
+    let options = match (setting.kind, &setting.value) {
+        (Kind::Choice | Kind::Language, _) => reader.choices(&s.key)?,
+        // A list shows the names of its items, as the registry has them.
+        (Kind::List, Some(Val::Text(ids))) => reader.item_names(ids)?,
+        _ => Vec::new(),
+    };
     Ok(Entry {
         setting,
         detail,

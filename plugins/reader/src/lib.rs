@@ -118,6 +118,7 @@ pub mod native_speech;
 pub mod native_start;
 pub mod native_state;
 pub mod native_status;
+pub mod native_status_edit;
 #[cfg(test)]
 mod native_tests;
 pub mod native_toc;

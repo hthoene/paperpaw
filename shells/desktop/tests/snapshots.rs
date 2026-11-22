@@ -444,6 +444,27 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // The status lines' settings in German: a title too long for the line wraps
+    // beside its switch, and a list's long value shows the names of its items
+    // with the › of its editor, as in Beta 3 (#472).
+    Case {
+        name: "x4-settings-status-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:core.settings,wait:300,open:settings.group:id=core.group.status,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-settings-status-lines-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:core.settings,wait:300,open:settings.group:id=core.group.status,wait:300,page-forward,page-forward,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     // The light's page: on a touch screen (X4 Pro) its numbers have round − and +
     // tight round their value and the track of a slider under them; on the X4
     // (buttons) the compact row.

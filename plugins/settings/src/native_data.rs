@@ -6,7 +6,7 @@ use paperpaw_sdk::native::{
     Error, Host,
     registry::{
         MenuQuery, PageCursor, Registry, RegistryMenuKind, RegistrySetting, RegistrySettingKind,
-        RegistryValueSource, ValuesQuery,
+        RegistryValueSource, StatusScope, ValuesQuery,
     },
     settings::{self, SettingValue},
 };
@@ -224,6 +224,28 @@ impl<'h, 'cb> Reader<'h, 'cb> {
         Ok(found)
     }
 
+    /// The names of the status items, status lines and widgets among `ids` (a
+    /// list setting's value): id and name in the user's language, as a list of
+    /// them is shown. Ids the registry does not know (their plugin is not there)
+    /// have none.
+    pub fn item_names(&mut self, ids: &str) -> Result<Vec<(String, String)>, Error> {
+        let listed = |id: &str| list_ids(ids).any(|listed| base_id(listed) == id);
+        let mut found = Vec::new();
+        rows!(cursor => self.registry.status(self.host, StatusScope::All, cursor, &mut self.input, &mut self.output), |row| {
+            if listed(row.id()) {
+                push(&mut found, (copy(row.id())?, copy(row.title())?))?;
+            }
+            Ok(())
+        })?;
+        rows!(cursor => self.registry.widgets(self.host, "", cursor, &mut self.input, &mut self.output), |row| {
+            if listed(row.id()) {
+                push(&mut found, (copy(row.id())?, copy(row.title())?))?;
+            }
+            Ok(())
+        })?;
+        Ok(found)
+    }
+
     /// The rows of a menu as the user sees them.
     pub fn menu(&mut self, menu: &str) -> Result<Vec<PageRow>, Error> {
         let mut found = Vec::new();
@@ -292,6 +314,16 @@ impl<'h, 'cb> Reader<'h, 'cb> {
         })?;
         Ok(found)
     }
+}
+
+/// The ids a list setting's value holds, in their order.
+pub fn list_ids(value: &str) -> impl Iterator<Item = &str> {
+    value.split(',').map(str::trim).filter(|id| !id.is_empty())
+}
+
+/// What an id of a list names: the id before its placement (`home.clock@2`).
+pub fn base_id(id: &str) -> &str {
+    id.split_once('@').map_or(id, |(base, _)| base)
 }
 
 /// Room for the longest value of a setting and its frame: the most `settings.read`

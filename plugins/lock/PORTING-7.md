@@ -36,6 +36,8 @@ cannot take yet is listed under *What is pending*; each has an ignored case in
   **every input is gated by `Flow::waiting`**, only *Back* works while waiting, and the next input
   after the wait forgets the tries first (`Flow::wait_over`).
 - What passes the lock: sleep, refresh the screen, night mode.
+- The first-run setup's step (order 70, page = the kind setting, #472): its card opens the lock's
+  own screen, where a lock is chosen or left off.
 - Every callback allocates fallibly (refusal sweeps in `tests/native_alloc_refusal.rs`); a
   code, a hash and the typed password are wiped as soon as they are done with (buffers of the secrets
   and ui calls too); no `Debug` shows a code.
@@ -68,8 +70,6 @@ Wired (#234). Ways out, none of which needs touch except the last: the power but
   `lock.now`. (Ignored case `lock-now-locks-from-any-button-gesture-menu-or-rule`.)
 - **The page's icon (`lock`)** is declared, as is the `lock.now` icon. The Settings
   group registry reply still needs to carry the icon to the Settings plugin (#268).
-- **The first-run step** (order 70, page = the kind setting) needs host op 22
-  (Host todo 99), so it is not submitted.
 - **Host acceptance** (draw, input, secrets, ui and storage through a scripted host, H1/H3/H4): the
   scripted host answers none of `core.secrets`, `core.ui` and storage yet.
 - "How it works" (`how/`): the help plugin's text slot.
