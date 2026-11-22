@@ -127,6 +127,14 @@ impl<S: Source> Roots<S> {
         self.source.read_exact_at(0, &mut header).then_some(header)
     }
 
+    /// The signed list in `source` again, its signature not checked again:
+    /// for a file [`Roots::open_signed`] took a moment ago that nothing can
+    /// have changed since (the card's list within one step of the network).
+    /// The layout is still checked; `None` where it is no signed list.
+    pub fn open_signed_again(source: S) -> Option<Self> {
+        Self::open_part(source, true)
+    }
+
     fn open_part(source: S, signed: bool) -> Option<Self> {
         let mut header = [0; HEADER];
         if !source.read_exact_at(0, &mut header)
@@ -353,6 +361,11 @@ mod tests {
         // built-in list does not take one.
         assert!(Roots::open_signed(list().as_slice(), &key()).is_none());
         assert!(Roots::open(file.as_slice()).is_none());
+        // Taken again within the step, without the signature's check: the
+        // same list, and still no unsigned one.
+        let again = Roots::open_signed_again(file.as_slice()).unwrap();
+        assert!(again.has(b"root one", b"key one"));
+        assert!(Roots::open_signed_again(list().as_slice()).is_none());
     }
 
     #[test]

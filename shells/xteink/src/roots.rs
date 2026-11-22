@@ -115,16 +115,20 @@ impl Source for File {
 }
 
 /// The list on the card where there is one, signed by the plugin key. The
-/// signature is checked at the first use in a [`Scope`] only.
+/// signature is checked at the first use in a [`Scope`] only: a handshake
+/// looks up a root twice or more, each check reads and hashes the whole file.
 fn card() -> Option<Roots<File>> {
     // SAFETY: set by a live `Scope` (see there).
     let storage: &'static dyn Storage = unsafe { &*CARD.storage.get()? };
-    if CARD.sound.get() == Some(false) {
-        return None;
+    match CARD.sound.get() {
+        Some(false) => None,
+        Some(true) => Roots::open_signed_again(File(storage)),
+        None => {
+            let roots = Roots::open_signed(File(storage), &PLUGIN_KEY);
+            CARD.sound.set(Some(roots.is_some()));
+            roots
+        }
     }
-    let roots = Roots::open_signed(File(storage), &PLUGIN_KEY);
-    CARD.sound.set(Some(roots.is_some()));
-    roots
 }
 
 /// Whether a root with this name and key is in the built-in list or on the card.
