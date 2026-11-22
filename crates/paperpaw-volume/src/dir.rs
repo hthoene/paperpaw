@@ -1,14 +1,9 @@
-use alloc::vec::Vec;
-use core::num;
 use core::str;
-use core::{iter, slice};
 
+use crate::dir_entry::SFN_SIZE;
 use crate::dir_entry::{
-    DIR_ENTRY_SIZE, DirEntry, DirEntryData, DirFileEntryData, DirLfnEntryData, FileAttributes,
-    ShortName,
+    DIR_ENTRY_SIZE, DirEntry, DirEntryData, DirFileEntryData, FileAttributes, ShortName,
 };
-use crate::dir_entry::{LFN_ENTRY_LAST_FLAG, LFN_PART_LEN};
-use crate::dir_entry::{SFN_PADDING, SFN_SIZE};
 use crate::error::{Error, IoError};
 use crate::file::File;
 use crate::fs::{DiskSlice, FileSystem, FsIoAdapter, OemCpConverter, ReadWriteSeek, Referrer};
