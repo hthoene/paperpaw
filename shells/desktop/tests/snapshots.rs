@@ -456,11 +456,16 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // The lines below the text set to the reader's own (a value longer than the
+    // registry's row holds).
     Case {
         name: "x4-settings-status-lines-de",
         profile: "xteink-x4",
         book: None,
-        sets: &["core.language=de"],
+        sets: &[
+            "core.language=de",
+            "reader.status.bottom-lines=reader.status-line.chapter, reader.status-line.progress, reader.status-line.empty",
+        ],
         script: "run:core.settings,wait:300,open:settings.group:id=core.group.status,wait:300,page-forward,page-forward,wait:300",
         colour: 0,
         fixtures: false,
