@@ -843,8 +843,8 @@ fn prepare() -> Ready {
 /// The name of this device in the note on the card.
 /// The sleep screen can be drawn again while asleep (`command.show_again`,
 /// the `core.device` caps bit 15): where the light sleep wakes now and then
-/// and the wake is written (the X4 and X3).
-const REFRESH_ASLEEP: bool = cfg!(all(feature = "asleep-light", not(feature = "x4-pro")));
+/// and the wake is written (the X4 and X3; not yet on the ESP32-S3 devices).
+const REFRESH_ASLEEP: bool = cfg!(all(feature = "asleep-light", not(feature = "esp32s3")));
 
 const DEVICE_NAME: &str = if cfg!(feature = "x3") {
     "Xteink X3"
