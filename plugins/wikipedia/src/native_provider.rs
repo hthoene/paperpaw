@@ -12,7 +12,7 @@
 //! at most one summary is held. A request the host refuses leaves the kept
 //! answer as it was.
 use crate::{
-    native_model::{self, Outcome},
+    native_model::{self, Outcome, PROVIDER_REQUEST},
     native_view::{SCREEN, read_body, request_summary},
 };
 use alloc::string::String;
@@ -125,7 +125,7 @@ impl Provider {
         } else {
             language
         };
-        let request = request_summary(host, net, wiki_language, ask.text())?;
+        let request = request_summary(host, net, PROVIDER_REQUEST, wiki_language, ask.text())?;
         // The answer to another ask is not kept beside the one fetched.
         self.kept = None;
         self.asked = Some(Asked {

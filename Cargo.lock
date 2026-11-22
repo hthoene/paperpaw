@@ -2374,7 +2374,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-joplin"
-version = "1.0.11"
+version = "1.0.12"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2661,7 +2661,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-read-later-cloud"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2776,7 +2776,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-smart-home"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2857,7 +2857,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-translate"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2916,7 +2916,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-weather"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2960,7 +2960,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wikipedia"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",

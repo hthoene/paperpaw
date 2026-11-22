@@ -92,8 +92,7 @@ fn put<T>(list: &mut Vec<T>, item: T) -> Result<(), Error> {
 ///
 /// # Errors
 /// `NoMemory`, or what the host says.
-pub fn height(cx: &mut Cx<'_>, shown: &Shown<'_>, width: u16) -> Result<u16, Error> {
-    let _ = (shown, width);
+pub fn height(cx: &mut Cx<'_>) -> Result<u16, Error> {
     let set = setup(cx)?;
     let size = set.fixed.unwrap_or(set.title * 2.4);
     let lines = line_px(&cx.font, sane(set.small))?.saturating_mul(3);
