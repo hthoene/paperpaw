@@ -245,3 +245,50 @@ fn dates_and_quotes_are_the_same() {
     }
     pin.finish();
 }
+
+#[test]
+fn the_largest_draft_kept_is_read_back_and_one_that_cannot_be_is_set_aside() {
+    use new_store::KeptDraft;
+    use paperpaw_sdk::Storage;
+    let storage = MemoryStorage::new();
+    let file = new_store::draft_file(1).unwrap();
+    assert_eq!(new_store::open_draft(&storage, 1).unwrap(), KeptDraft::None);
+    // The most each part of a draft holds: the text as typed (twice the most
+    // that is sent, so that it is said too long), the rows typed, and what a
+    // reply takes from its letter.
+    let mut draft = new::Draft::with_sender("", "ada@example.org").unwrap();
+    draft.body = "é".repeat(new::MAX_BODY);
+    draft.to = "b".repeat(2048);
+    draft.cc = "c".repeat(2048);
+    draft.subject = "s".repeat(2048);
+    draft.in_reply_to = "i".repeat(998);
+    draft.references = "r".repeat(2048);
+    let text = draft.to_text().unwrap();
+    assert!(text.len() > new::MAX_BODY + 4096, "over the old cap");
+    assert!(text.len() <= new::MAX_DRAFT);
+    storage.write(&file, text.as_bytes()).unwrap();
+    let KeptDraft::Text(read) = new_store::open_draft(&storage, 1).unwrap() else {
+        panic!("the draft is read back");
+    };
+    assert_eq!(new::Draft::from_text(&read).unwrap().body, draft.body);
+    // A file over the cap, or not text: moved aside whole (never written
+    // over), each to a name of its own, and the account's draft is free.
+    let large = vec![b'x'; new::MAX_DRAFT + 1];
+    storage.write(&file, &large).unwrap();
+    assert_eq!(
+        new_store::open_draft(&storage, 1).unwrap(),
+        KeptDraft::SetAside("a1/draft-unreadable.txt".into())
+    );
+    assert_eq!(storage.get("a1/draft-unreadable.txt"), Some(large));
+    assert!(!storage.exists(&file));
+    assert_eq!(new_store::open_draft(&storage, 1).unwrap(), KeptDraft::None);
+    storage.write(&file, &[0xff, 0xfe]).unwrap();
+    assert_eq!(
+        new_store::open_draft(&storage, 1).unwrap(),
+        KeptDraft::SetAside("a1/draft-unreadable-2.txt".into())
+    );
+    assert_eq!(
+        storage.get("a1/draft-unreadable-2.txt"),
+        Some(vec![0xff, 0xfe])
+    );
+}

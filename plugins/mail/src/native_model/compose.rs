@@ -14,6 +14,10 @@ use alloc::vec::Vec;
 
 /// The most text of a message written here, in bytes.
 pub const MAX_BODY: usize = 16 * 1024;
+/// The most a draft kept by [`Draft::to_text`] is: the text as typed (up to
+/// twice [`MAX_BODY`], so that one too long is said so), the headers a reply
+/// takes from its letter (at most 24 KiB) and the rows typed (2 KiB each).
+pub const MAX_DRAFT: usize = 64 * 1024;
 /// The longest line of a mail, without its line break (RFC 5322).
 const MAX_LINE: usize = 998;
 /// The most recipients of one message.

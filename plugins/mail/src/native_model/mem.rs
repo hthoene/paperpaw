@@ -209,6 +209,13 @@ fn fits(len: usize, add: usize, capacity: usize) -> bool {
     len.checked_add(add).is_some_and(|total| total <= capacity)
 }
 
+impl From<Vec<u8>> for SecretBytes {
+    /// `bytes` themselves, not a copy: wiped when the buffer is dropped.
+    fn from(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+}
+
 impl core::fmt::Debug for SecretBytes {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("SecretBytes(..)")
