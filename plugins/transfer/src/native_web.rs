@@ -30,6 +30,35 @@ pub const PAGE_FILE: &str = "page.html";
 pub const INLINE: usize = 2_000;
 /// Numbered names tried for a name that is taken (`name (2)`, ...).
 const FREE_NAMES: u32 = 1_000;
+/// The room the end of a part of a listing takes at most: `]`, the place it
+/// goes on from (two numbers of up to 20 digits) and `}`.
+const LISTING_END: usize = 56;
+
+/// Where a listing goes on: the host's place of a page of the folder (opaque,
+/// `docs/abi/files.md` 2.1) and how many entries of that page came before.
+/// The page sends it back as it got it, so the next part is read from there,
+/// not from the start of the folder again.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Place {
+    pub page: u64,
+    pub skip: usize,
+}
+
+/// What [`Card::list`] hands each entry to: its place, its name, whether it
+/// is a folder and its size; `false` ends the listing.
+pub type Take<'a> = dyn FnMut(Place, &str, bool, u64) -> Result<bool, Error> + 'a;
+
+impl Place {
+    /// The place as the page sends it back (`<page>.<skip>`); `None` for
+    /// anything else.
+    fn parse(text: &str) -> Option<Self> {
+        let (page, skip) = text.split_once('.')?;
+        Some(Self {
+            page: page.parse().ok()?,
+            skip: skip.parse().ok()?,
+        })
+    }
+}
 
 /// What the transfer needs of the card (`core.files` root 1 and the request
 /// bodies in the data folder).
@@ -41,15 +70,12 @@ pub trait Card {
     /// The host's refusal (`Invalid` for a path it does not take).
     fn stat(&mut self, path: &str) -> Result<Option<(bool, u64)>, Error>;
     /// Hands the entries of `dir` that can be named (hidden ones included) to
-    /// `take` in the storage's order, until it says `false`.
+    /// `take` in the storage's order, from `from` on, each with its place,
+    /// until it says `false`.
     ///
     /// # Errors
     /// What `take` or the host refuses.
-    fn list(
-        &mut self,
-        dir: &str,
-        take: &mut dyn FnMut(&str, bool, u64) -> Result<bool, Error>,
-    ) -> Result<(), Error>;
+    fn list(&mut self, dir: &str, from: Place, take: &mut Take<'_>) -> Result<(), Error>;
     /// Makes the folder `path`.
     ///
     /// # Errors
@@ -266,8 +292,8 @@ fn route(
             None,
         )),
         ("GET", "/api/list") => {
-            let from = param(query, "from")?.and_then(|from| from.parse().ok());
-            listing(card, &wanted, from.unwrap_or(0)).map(|answer| (answer, None))
+            let from = param(query, "from")?.and_then(|from| Place::parse(&from));
+            listing(card, &wanted, from.unwrap_or_default()).map(|answer| (answer, None))
         }
         ("GET", "/api/file") => {
             let file = locate(card, &wanted, false)?;
@@ -399,25 +425,20 @@ fn same_name(a: &str, b: &str) -> bool {
         .eq(b.chars().flat_map(char::to_lowercase))
 }
 
-/// The entries of the folder `wanted` from the `from`th on (hidden ones left
-/// out), as JSON that fits an inline answer: `{"entries":[{"name":…,"dir":…,
-/// "size":…},…]}` with `"next":n` where more follow from the `n`th. In the
-/// storage's order; the page sorts them.
-fn listing(card: &mut dyn Card, wanted: &str, from: usize) -> Result<Answer, Fail> {
+/// The entries of the folder `wanted` from the place `from` on (hidden ones
+/// left out), as JSON that fits an inline answer: `{"entries":[{"name":…,
+/// "dir":…,"size":…},…]}` with `"next":"<page>.<skip>"` where more follow from
+/// that place ([`Place`]). In the storage's order; the page sorts them.
+fn listing(card: &mut dyn Card, wanted: &str, from: Place) -> Result<Answer, Fail> {
     let dir = locate(card, wanted, false)?;
     if dir.is_dir != Some(true) {
         return Err(NOT_FOUND);
     }
     let mut json = String::new();
     push(&mut json, "{\"entries\":[")?;
-    let (mut index, mut taken, mut next) = (0usize, 0usize, None);
-    card.list(&dir.path, &mut |name, is_dir, size| {
+    let (mut taken, mut next) = (0usize, None);
+    card.list(&dir.path, from, &mut |place, name, is_dir, size| {
         if name.starts_with('.') {
-            return Ok(true);
-        }
-        let at = index;
-        index += 1;
-        if at < from {
             return Ok(true);
         }
         let mut entry = String::new();
@@ -434,10 +455,9 @@ fn listing(card: &mut dyn Card, wanted: &str, from: usize) -> Result<Answer, Fai
         push(&mut entry, ",\"size\":")?;
         push(&mut entry, decimal_u64(size, &mut [0; 20]))?;
         push(&mut entry, "}")?;
-        // The end and `next` need up to 32 bytes.
-        if json.len() + 1 + entry.len() + 32 > INLINE {
+        if json.len() + 1 + entry.len() + LISTING_END > INLINE {
             if taken > 0 {
-                next = Some(at);
+                next = Some(place);
                 return Ok(false);
             }
             // Not even one fits (a name of many escapes): left out.
@@ -452,8 +472,11 @@ fn listing(card: &mut dyn Card, wanted: &str, from: usize) -> Result<Answer, Fai
     })?;
     push(&mut json, "]")?;
     if let Some(next) = next {
-        push(&mut json, ",\"next\":")?;
-        push(&mut json, decimal_u64(next as u64, &mut [0; 20]))?;
+        push(&mut json, ",\"next\":\"")?;
+        push(&mut json, decimal_u64(next.page, &mut [0; 20]))?;
+        push(&mut json, ".")?;
+        push(&mut json, decimal_u64(next.skip as u64, &mut [0; 20]))?;
+        push(&mut json, "\"")?;
     }
     push(&mut json, "}")?;
     Ok(Answer {
