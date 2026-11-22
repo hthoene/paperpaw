@@ -10,7 +10,17 @@ use alloc::{format, vec};
 const OWN: &str = "Test device";
 
 fn phone() -> Phone {
-    Phone::new(Some(OWN), "tok3n", false, 100).unwrap()
+    Phone::new(false, 100)
+}
+
+/// The setup shown with the radio on, the scan back and the own network
+/// drawn (`token` its page's).
+fn drawn(token: &str, manual: bool, now: u64) -> Result<Phone, Error> {
+    let mut p = Phone::new(manual, now);
+    p.shown(true)?;
+    p.scanned()?;
+    p.drawn(Some((OWN, token)))?;
+    Ok(p)
 }
 
 fn hosting(guests: u32) -> Radio<'static> {
@@ -36,7 +46,11 @@ fn open() -> Phone {
             Effect::Scan
         ]
     );
-    assert_eq!(p.scanned().unwrap(), [Effect::Redraw, Effect::Host]);
+    assert_eq!(p.scanned().unwrap(), [Effect::Draw]);
+    assert_eq!(
+        p.drawn(Some((OWN, "tok3n"))).unwrap(),
+        [Effect::Redraw, Effect::Host]
+    );
     assert_eq!(
         p.radio_changed(200, &hosting(0)).unwrap(),
         [Effect::Serve, Effect::WakeAt(200 + IDLE_MS), Effect::Redraw]
@@ -167,9 +181,7 @@ fn next_goes_on_where_the_phone_does_not_say_it_joined() {
 
 #[test]
 fn a_phone_there_when_the_network_opens_shows_the_page_at_once() {
-    let mut p = phone();
-    p.shown(true).unwrap();
-    p.scanned().unwrap();
+    let mut p = drawn("tok3n", false, 100).unwrap();
     p.radio_changed(200, &hosting(1)).unwrap();
     assert_eq!(p.step(), Step::Open);
     // Not again when it goes back.
@@ -194,9 +206,7 @@ fn a_password_not_taken_opens_the_own_network_again() {
 
 #[test]
 fn the_own_network_that_cannot_open_ends_the_setup_by_itself() {
-    let mut p = phone();
-    p.shown(true).unwrap();
-    p.scanned().unwrap();
+    let mut p = drawn("tok3n", false, 100).unwrap();
     let effects = p.failed(300, OWN, "unused").unwrap();
     assert_eq!(effects, [Effect::WakeAt(300 + IDLE_MS), Effect::Redraw]);
     assert!(matches!(p.stage(), Stage::Failed(Failed::NotOpened)));
@@ -233,12 +243,33 @@ fn the_own_network_left_alone_closes_after_ten_minutes() {
 }
 
 #[test]
-fn without_a_password_for_the_own_network_nothing_opens() {
-    let mut p = Phone::new(None, "t", false, 0).unwrap();
-    assert_eq!(p.shown(false).unwrap(), [Effect::Redraw]);
-    // As on interface 6: drawn again, but the own network is not opened.
-    assert_eq!(p.scanned().unwrap(), [Effect::Redraw]);
+fn the_radio_off_is_switched_on_and_the_own_network_drawn_only_after_a_scan() {
+    let mut p = phone();
+    // Nothing is drawn while the radio is off: the chip's numbers are not
+    // random then.
+    let effects = p.shown(false).unwrap();
+    assert!(effects.contains(&Effect::RadioOn) && !effects.contains(&Effect::Draw));
     assert!(matches!(p.stage(), Stage::Searching));
+    assert_eq!(p.scanned().unwrap(), [Effect::Draw]);
+    assert_eq!(
+        p.drawn(Some((OWN, "tok3n"))).unwrap(),
+        [Effect::Redraw, Effect::Host]
+    );
+    assert_eq!(p.token(), "tok3n");
+    assert!(matches!(p.stage(), Stage::Opening));
+}
+
+#[test]
+fn a_weak_draw_stops_the_setup_and_opens_nothing() {
+    let mut p = phone();
+    p.shown(false).unwrap();
+    p.scanned().unwrap();
+    assert_eq!(p.drawn(None).unwrap(), [Effect::Redraw]);
+    assert!(matches!(p.stage(), Stage::Failed(Failed::NoRandom)));
+    // Nothing is drawn or opened after.
+    assert!(p.scanned().unwrap().is_empty());
+    assert!(p.drawn(Some((OWN, "t"))).unwrap().is_empty());
+    assert!(p.token().is_empty());
 }
 
 #[test]
@@ -250,8 +281,7 @@ fn the_server_failing_shows_why() {
 
 #[test]
 fn what_the_radio_keeps_after_the_screen_is_what_the_user_had() {
-    let mut p = Phone::new(Some(OWN), "t", true, 0).unwrap();
-    p.shown(true).unwrap();
+    let mut p = drawn("t", true, 0).unwrap();
     let effects = p.action(Action::Back, &Radio::default()).unwrap().unwrap();
     assert!(effects.contains(&Effect::Policy {
         manual: true,
@@ -282,7 +312,7 @@ fn requests_are_answered_as_the_old_screen_answers_them() {
     let long = format!("t=tok3n&other={}", "n".repeat(33));
     assert_eq!(status(&mut p, "POST", "/join", Some(&long)), 400);
     // An empty token never matches.
-    let mut p = Phone::new(Some(OWN), "", false, 0).unwrap();
+    let mut p = Phone::new(false, 0);
     assert_eq!(status(&mut p, "POST", "/join", Some("t=&ssid=a")), 403);
 }
 
@@ -370,9 +400,10 @@ fn the_form_is_read_as_the_old_screen_read_it() {
 #[test]
 fn refused_allocations_are_errors_and_change_nothing() {
     sweep(|| {
-        let mut p = Phone::new(Some(OWN), "tok3n", false, 100)?;
+        let mut p = Phone::new(false, 100);
         p.shown(false)?;
         p.scanned()?;
+        p.drawn(Some((OWN, "tok3n")))?;
         p.radio_changed(200, &hosting(0))?;
         p.server_started("192.168.4.1:80")?;
         p.request(300, 1, "GET", "/", None)?;
@@ -396,9 +427,10 @@ fn refused_allocations_are_errors_and_change_nothing() {
 fn a_refused_allocation_leaves_the_stage_where_it_was() {
     let mut refused = 0;
     sweep(|| {
-        let mut p = Phone::new(Some(OWN), "tok3n", false, 100)?;
+        let mut p = Phone::new(false, 100);
         p.shown(false)?;
         p.scanned()?;
+        p.drawn(Some((OWN, "tok3n")))?;
         p.radio_changed(200, &hosting(0))?;
         p.request(
             300,
@@ -430,7 +462,7 @@ fn a_password_that_is_no_utf8_is_read_like_the_old_screen_reads_it_and_refusals_
         let (ssid, password) = chosen(form)?.ok_or(Error::NotFound)?;
         assert_eq!(ssid, "Home");
         assert_eq!(password.as_str(), "\u{fffd}\u{fffd}ab\u{fffd}");
-        let mut p = Phone::new(Some(OWN), "tok3n", false, 100)?;
+        let mut p = drawn("tok3n", false, 100)?;
         p.request(300, 1, "POST", "/join", Some(form))?;
         Ok(())
     });

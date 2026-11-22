@@ -1,0 +1,3 @@
+### Fixed
+
+- **Wi-Fi setup with a phone works with Wi-Fi off, and its messages are shown in full** (#468). With Wi-Fi off, *Set up with a phone* said "This device cannot make a safe …": the password of the reader's own network is drawn only from fully random numbers, and the chip's are random only while the radio is on. The setup now switches Wi-Fi on itself and draws the password once the radio was on for a whole scan; if Wi-Fi does not come on, it says so, and still never makes a password from weaker numbers. The lines on that screen (steps, errors such as "The page could not be served: There is no network.") now wrap instead of being cut with "…". Wi-Fi plugin 1.0.7.
