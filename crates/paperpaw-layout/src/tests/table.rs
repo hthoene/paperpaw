@@ -107,6 +107,23 @@ fn a_table_too_wide_for_the_page_is_set_as_its_text() {
     assert!(tall.rules.is_empty());
 }
 
+/// A position in a row set as its text starts the page with its line, as a
+/// paragraph's does; in a row set in columns, with the row.
+#[test]
+fn a_row_set_as_its_text_is_found_by_its_lines() {
+    let wide = row(&["aaaa bbbb cccc", "dddd eeee ffff"], &[1, 1], 0);
+    let doc = Blocks::new(move |at: Locator| (at.offset < wide.end).then(|| wide.clone()));
+    let storage = paperpaw_document::NoStorage;
+    let narrow = LayoutContext::new(&doc, &storage, 30.0, &STYLE, &Units);
+    let page = layout_page(&narrow, Locator::START, 100.0).unwrap();
+    assert!(page.rules.is_empty() && page.lines.len() > 1);
+    let second = Locator::new(0, page.lines[1].words[0].0);
+    let inside = Locator::new(0, second.offset + 2);
+    assert_eq!(line_start(&narrow, inside).unwrap(), second);
+    let columns = LayoutContext::new(&doc, &storage, 100.0, &STYLE, &Units);
+    assert_eq!(line_start(&columns, inside).unwrap(), Locator::START);
+}
+
 #[test]
 fn a_quote_has_a_rule_beside_its_lines() {
     let mut quote = block("aaaa bbbb cccc dddd eeee ffff gggg", 0, 34);
