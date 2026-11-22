@@ -363,6 +363,23 @@ pub fn forward(variant: &Variant) -> Vec<String> {
         .collect()
 }
 
+/// The page key that goes on where the arrow key `mover` went round a page
+/// (`core.arrows-stay-on-page`, #465): page forward after right and down, page
+/// back after left and up; `None` for the page keys and where the device has
+/// none.
+pub fn page_key(variant: &Variant, mover: &str) -> Option<String> {
+    let page = match mover {
+        buttons::RIGHT | buttons::DOWN => buttons::PAGE_FORWARD,
+        buttons::LEFT | buttons::UP => buttons::PAGE_BACK,
+        _ => return None,
+    };
+    variant
+        .profile
+        .buttons
+        .contains(&page)
+        .then(|| page.to_string())
+}
+
 /// The presses that act on the part with the focus (rather than move
 /// it, or go back): confirm; on a device without a confirm button, the
 /// long presses (but back's).
@@ -560,7 +577,22 @@ pub fn near(driver: &mut Driver<'_>, wanted: &HashSet<String>, limits: &Limits) 
                     break;
                 }
                 if !focused.insert(current.focused().map(name)) {
-                    break;
+                    // Round the page (the arrow keys stay on it, #465): the
+                    // page key turns to the next one, where the arrow goes on.
+                    let Some(page) = page_key(&driver.variant, mover) else {
+                        break;
+                    };
+                    before = current.state();
+                    driver.step(&page);
+                    at.push(page);
+                    current = driver.observe();
+                    if current.stack != seen.stack {
+                        note(&current, at.clone(), &mut found, &mut queue);
+                        break;
+                    }
+                    if !focused.insert(current.focused().map(name)) {
+                        break;
+                    }
                 }
                 let here = current.state();
                 for action in &actions {

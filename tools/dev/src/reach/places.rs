@@ -17,9 +17,11 @@
 //! Every button is pressed in every place, short and long, but in turns
 //! through the whole app, what finds screens first:
 //!
-//! 1. confirm, and the button that moves the focus forward: every part
-//!    of every screen is acted on. On a device without a confirm button,
-//!    every long press but back's (they act there).
+//! 1. confirm, and the button that moves the focus forward, with the page
+//!    key that goes on where it goes round a page (the arrow keys stay on
+//!    the page, #465): every part of every screen is acted on. On a device
+//!    without a confirm button, every long press but back's (they act
+//!    there).
 //! 2. confirm held, the other buttons that move the focus forward (a
 //!    page of a list at a time), and what a device has besides (a menu
 //!    button).
@@ -47,7 +49,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use paperpaw_platform::buttons;
 
-use super::{Driver, Found, Limits, Seen, focus_like, forward, movers};
+use super::{Driver, Found, Limits, Seen, focus_like, forward, movers, page_key};
 
 /// A place and what was learnt of it.
 struct Place {
@@ -99,6 +101,7 @@ struct Walk<'d, 'c> {
 fn turn(variant: &super::Variant, key: &str) -> u8 {
     let has = |button: &str| variant.profile.buttons.contains(&button);
     let forward = forward(variant);
+    let page = forward.first().and_then(|f| page_key(variant, f));
     let long = key.starts_with("long:");
     let button = key.strip_prefix("long:").unwrap_or(key);
     let moves = movers(variant).iter().any(|m| m == button);
@@ -108,6 +111,7 @@ fn turn(variant: &super::Variant, key: &str) -> u8 {
     match (long, moves) {
         (false, false) if button == buttons::CONFIRM || !has(buttons::CONFIRM) => 0,
         (false, true) if forward.first().is_some_and(|f| f == button) => 0,
+        (false, true) if page.as_deref() == Some(button) => 0,
         (true, _) if !has(buttons::CONFIRM) => 0,
         (true, false) | (false, false) => 1,
         (false, true) if forward.iter().any(|f| f == button) => 1,
