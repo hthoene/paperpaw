@@ -562,4 +562,15 @@ fn a_spec_left_out_for_lack_of_room_is_noted_until_the_next_rest() {
     assert!(!s.went_short());
     assert_eq!(s.specs().count(), 2);
     assert!(s.went_short());
+    // A value previewed or worn for it is left out, and that is noted too.
+    let goal = || Id::new_static("stats.goal");
+    s.rest();
+    s.set_preview(alloc::vec![(goal(), None)]);
+    assert!(s.went_short());
+    s.rest();
+    let worn = s.wear(alloc::vec![(goal(), SettingValue::Int(50))], Vec::new());
+    assert!(worn.is_empty() && s.went_short());
+    s.rest();
+    let limited = s.wear(Vec::new(), alloc::vec![(goal(), 50)]);
+    assert!(limited.is_empty() && s.went_short());
 }
