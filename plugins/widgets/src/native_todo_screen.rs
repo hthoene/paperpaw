@@ -384,8 +384,11 @@ impl State {
         let Some(view) = self.screens.top(SCREEN) else {
             return Ok(());
         };
+        // A notice the host refuses (low memory, as often as the save) must
+        // not keep the rows from being made anew: they would act on items
+        // other than the ones shown.
         if save(host, &view.list).is_err() {
-            Self::notify(host, "widgets.todo.not-saved")?;
+            Self::notify(host, "widgets.todo.not-saved").ok();
         }
         let rebuilt = view.rebuild_or_drop(host);
         if rebuilt.is_ok() {

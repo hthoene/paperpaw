@@ -245,10 +245,8 @@ fn newest(
     library: &Library,
     sides: (&mut [u8], &mut [u8]),
 ) -> Result<Option<Row>, Error> {
-    let query = Query::new()
-        .show(Show::New)
-        .sort(Sort::Added)
-        .descending(true);
+    // Added last first: the host's own order.
+    let query = Query::new().show(Show::New).sort(Sort::Added);
     first_unread(host, library, &query, sides)
 }
 

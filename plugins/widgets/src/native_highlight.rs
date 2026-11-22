@@ -138,7 +138,9 @@ impl Scan<'_, '_> {
             let query = if all {
                 Query::new()
             } else {
-                Query::new().sort(Sort::RecentlyOpened).descending(true)
+                // Opened last first (the host's order; `descending` would put
+                // the books never opened first).
+                Query::new().sort(Sort::RecentlyOpened)
             };
             let query = query.exclude_archive(false).cursor(cursor);
             let page = self
