@@ -190,7 +190,12 @@ impl<'cb> Font<'cb> {
     /// Returns Invalid for a nonpositive or nonfinite size or text over 4096
     /// UTF-8 bytes, or the host refusal, including a stale handle.
     pub fn measure_text(&self, size: f32, text: impl AsRef<str>) -> Result<f32, Error> {
-        let text = text.as_ref();
+        self.measure_str(size, text.as_ref())
+    }
+
+    /// [`Self::measure_text`] for `&str` only: one copy of the host call in
+    /// the image, however many text types and crates measure.
+    fn measure_str(&self, size: f32, text: &str) -> Result<f32, Error> {
         validate_text(size, text, TEXT_MEASURE_MAX_BYTES)?;
         let handle = self.handle.ok_or(Error::State)?;
         let mut out = 0.0;
@@ -276,7 +281,20 @@ impl<'cb> Font<'cb> {
         text: impl AsRef<str>,
         ink: Ink,
     ) -> Result<f32, Error> {
-        let text = text.as_ref();
+        self.draw_inked_str(canvas, size, origin, color, text.as_ref(), ink)
+    }
+
+    /// [`Self::draw_inked`] for `&str` only: one copy of the host call in the
+    /// image, however many text types and crates draw.
+    fn draw_inked_str(
+        &self,
+        canvas: &Canvas<'_>,
+        size: f32,
+        origin: TextOrigin,
+        color: Color,
+        text: &str,
+        ink: Ink,
+    ) -> Result<f32, Error> {
         let handle = self.drawable(canvas, size, origin, text)?;
         let target = canvas.host();
         let tone: &[u8] = match &ink.tone {
