@@ -11,3 +11,7 @@
   list with nothing to choose on it (only text, such as the start of a
   message) was skipped by the next and previous page keys; it is shown
   again, as in Beta 3.
+- **A section card goes on closed under its repeated heading** (#484). With
+  section cards, a section that went on over a page break was drawn open at
+  the top of the next page although its heading is shown again above it;
+  it is closed there now, as in Beta 3.
