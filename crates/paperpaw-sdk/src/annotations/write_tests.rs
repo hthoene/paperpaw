@@ -104,6 +104,31 @@ fn a_version_2_file_is_converted_with_ids_by_place_and_a_generation_of_3() {
     assert_eq!((again.version, again.generation, again.next_id), (3, 3, 4));
 }
 
+/// A byte order mark before the mark of version 2 goes with that line: the
+/// file of version 3 has no second, older mark that would say version 2.
+#[test]
+fn a_version_2_file_with_a_byte_order_mark_is_converted_whole() {
+    let v2 = alloc::format!("\u{feff}{V2}").replace('\n', "\r\n");
+    let storage = MemoryStorage::new().with(&file(), v2.as_str());
+    let info = try_info(&storage, &file()).unwrap();
+    assert_eq!((info.version, info.rows), (2, 2));
+    rewrite(&storage, &file(), TMP, (&info, 0), &mut nothing()).unwrap();
+    let after = text(&storage);
+    assert!(
+        after.starts_with("# format 3\n# next-id 3\n# generation 3\n# book 10 abcd\n"),
+        "{after}"
+    );
+    assert!(
+        !after.contains("format 2") && !after.contains('\r'),
+        "{after}"
+    );
+    assert_eq!(try_info(&storage, &file()).unwrap().version, 3);
+    assert_eq!(
+        rows(&storage),
+        vec![(1, 1, 10, "first".into()), (2, 3, 0, "second".into())]
+    );
+}
+
 #[test]
 fn a_version_3_file_keeps_its_rows_byte_for_byte_and_drops_the_removed() {
     let v3 = "# format 3\n# next-id 5\n# generation 7\n\

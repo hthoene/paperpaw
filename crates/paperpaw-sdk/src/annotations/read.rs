@@ -282,6 +282,14 @@ impl Slot {
     }
     pub(super) fn part<'a>(&self, scratch: &'a [u8]) -> Part<'a> {
         let bytes = &scratch[self.at..self.at + self.filled];
+        // A window that starts inside a character starts at the next one
+        // (a character has at most three bytes after its first).
+        let inside = bytes
+            .iter()
+            .take(3)
+            .take_while(|b| **b & 0xC0 == 0x80)
+            .count();
+        let bytes = &bytes[inside..];
         let text = match core::str::from_utf8(bytes) {
             Ok(text) => text,
             Err(e) => core::str::from_utf8(&bytes[..e.valid_up_to()]).unwrap_or_default(),
@@ -348,6 +356,18 @@ impl<'s> Reader<'s> {
     }
 }
 
+/// A reader of `file` from its text on: past a UTF-8 byte order mark, which
+/// some editors put first and [`files::for_each_line`](crate::files::for_each_line)
+/// leaves out too, so that the first line reads alike on both paths.
+fn text_reader<'s>(storage: &'s dyn Storage, file: &'s str) -> Result<Reader<'s>, Error> {
+    let mut reader = Reader::new(storage, file, 0);
+    // The first chunk is read; its first byte is given back with the mark's.
+    let _ = reader.next()?;
+    let chunk = &reader.chunk[..reader.len];
+    reader.used = chunk.len() - crate::files::without_bom(chunk).len();
+    Ok(reader)
+}
+
 pub(super) fn file_of(book: &str) -> Result<alloc::string::String, Error> {
     let mut digits = [0_u8; crate::library::KEY_LEN];
     let key = crate::library::key_into(book, &mut digits);
@@ -362,13 +382,17 @@ pub(super) fn file_of(book: &str) -> Result<alloc::string::String, Error> {
     Ok(name)
 }
 
-/// What a header line `# ...` says: the version and the generation.
-fn header(line: &[u8], head: &mut Head, generation: &mut Option<u32>) {
+/// What a header line `# ...` says: the version, on the `first` line only
+/// (as [`Format::version_of`](crate::data::Format::version_of) and the
+/// plain readers take it), and the generation.
+fn header(line: &[u8], first: bool, head: &mut Head, generation: &mut Option<u32>) {
     let Ok(line) = core::str::from_utf8(line) else {
         return;
     };
     if let Some(n) = line.strip_prefix(MARK) {
-        head.version = n.trim().parse().unwrap_or(1);
+        if first {
+            head.version = n.trim().parse().unwrap_or(1);
+        }
     } else if let Some(g) = line.strip_prefix("# generation ") {
         *generation = g.trim().parse().ok();
     }
@@ -385,38 +409,29 @@ pub fn try_head(storage: &dyn Storage, book: &str) -> Result<Head, Error> {
 }
 
 pub(super) fn head_of(storage: &dyn Storage, file: &str) -> Result<Head, Error> {
+    // A file without a mark (also an empty or a missing one) is version 1.
     let mut head = Head {
-        version: 0,
+        version: 1,
         generation: 1,
     };
     let mut generation = None;
-    let mut reader = Reader::new(storage, file, 0);
+    let mut reader = text_reader(storage, file)?;
     // The header lines come first; at most this many are looked at.
-    for _ in 0..8 {
-        let (mut line, mut len, mut any) = ([0_u8; 48], 0_usize, false);
-        loop {
-            match reader.next()? {
-                Some(b'\n') | None => break,
-                Some(byte) => {
-                    any = true;
-                    if len < line.len() {
-                        line[len] = byte;
-                        len += 1;
-                    }
-                }
+    for index in 0..8 {
+        let (mut line, mut len) = ([0_u8; 48], 0_usize);
+        while let Some(byte) = reader.next()? {
+            if byte == b'\n' {
+                break;
+            }
+            if len < line.len() {
+                line[len] = byte;
+                len += 1;
             }
         }
-        if head.version == 0 && (any || reader.done) {
-            // A file without a mark is version 1.
-            head.version = 1;
-        }
-        let text = line[..len]
-            .strip_prefix(b"\xEF\xBB\xBF")
-            .unwrap_or(&line[..len]);
-        if !text.starts_with(b"# ") {
+        if !line[..len].starts_with(b"# ") {
             break;
         }
-        header(text, &mut head, &mut generation);
+        header(&line[..len], index == 0, &mut head, &mut generation);
     }
     if head.version > FILE_VERSION {
         return Err(Error::Newer(head.version));
@@ -449,7 +464,7 @@ pub fn try_rows(
     }
     let file = file_of(book)?;
     let head = head_of(storage, &file)?;
-    let mut reader = Reader::new(storage, &file, 0);
+    let mut reader = text_reader(storage, &file)?;
     let mut seen = 0_u32;
     // Lines are read twice: the first to count the fields (the role of a
     // field depends on how many there are), the second for the fields.
@@ -505,18 +520,18 @@ enum Shape {
 /// Reads one line: how many fields it has, or what it is instead. `None` at
 /// the end of the file.
 fn measure_shape(reader: &mut Reader<'_>, version: u32) -> Result<Option<Shape>, Error> {
-    let most = match version {
-        0..=1 => 10,
-        2 => 13,
-        _ => 15,
-    };
+    let most = most_fields(version);
     let (mut tabs, mut length, mut comment) = (0_usize, 0_usize, false);
     let mut head = [0_u8; 2];
+    // A `\r` that ends the line is its break (`\r\n`), not a byte of it.
+    let mut cr = false;
     loop {
         let Some(byte) = reader.next()? else {
+            let length = length - usize::from(cr);
             return Ok((length > 0).then(|| line_shape(tabs, length, comment, most)));
         };
         if byte == b'\n' {
+            let length = length - usize::from(cr);
             return Ok(Some(line_shape(tabs, length, comment, most)));
         }
         if length < head.len() {
@@ -526,7 +541,18 @@ fn measure_shape(reader: &mut Reader<'_>, version: u32) -> Result<Option<Shape>,
         if byte == TAB {
             tabs += 1;
         }
+        cr = byte == b'\r';
         length += 1;
+    }
+}
+
+/// The most fields a line of a file of `version` is split into: tabs past
+/// them belong to the last field.
+fn most_fields(version: u32) -> usize {
+    match version {
+        0..=1 => 10,
+        2 => 13,
+        _ => 15,
     }
 }
 
@@ -681,20 +707,48 @@ fn capture(
 ) -> Result<Option<Captured>, Error> {
     let mut line = Fields::new(windows).ok_or(Error::Unreadable)?;
     let mut index = 0_usize;
+    // Whether the byte goes into a field (`false`: the line is no row).
+    let mut take = |byte: u8| {
+        if byte == TAB && index + 1 < fields {
+            index += 1;
+            return true;
+        }
+        let Some(role) = field_role(index, fields, version) else {
+            return false;
+        };
+        line.take(role, byte, scratch);
+        true
+    };
+    // A `\r` waits for the next byte: before the line break (`\r\n`) or at
+    // the end it is no byte of the line.
+    let mut cr = false;
     while let Some(byte) = next()? {
         if byte == b'\n' {
             break;
         }
-        if byte == TAB && index + 1 < fields {
-            index += 1;
-            continue;
-        }
-        let Some(role) = field_role(index, fields, version) else {
+        if core::mem::take(&mut cr) && !take(b'\r') {
             return Ok(None);
-        };
-        line.take(role, byte, scratch);
+        }
+        if byte == b'\r' {
+            cr = true;
+        } else if !take(byte) {
+            return Ok(None);
+        }
     }
     Ok(line.finish(fields, version))
+}
+
+/// `line` (without its newline; a `\r` that ends it is its break, `\r\n`)
+/// without that `\r`, and how many fields it has in a file of `version`;
+/// `None` where its shape is no row.
+fn row_shape(line: &[u8], version: u32) -> Option<(&[u8], usize)> {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let tabs = line.iter().filter(|b| **b == TAB).count();
+    let comment = line.starts_with(b"# ");
+    match line_shape(tabs, line.len(), comment, most_fields(version)) {
+        Shape::Line { fields } => Some((line, fields)),
+        Shape::Other => None,
+    }
 }
 
 /// The row `line` (without its newline) is in a file of `version`, its texts
@@ -706,16 +760,7 @@ pub(super) fn parse_line(
     windows: &Windows,
     scratch: &mut [u8],
 ) -> Option<Captured> {
-    let most = match version {
-        0..=1 => 10,
-        2 => 13,
-        _ => 15,
-    };
-    let tabs = line.iter().filter(|b| **b == TAB).count();
-    let comment = line.starts_with(b"# ");
-    let Shape::Line { fields } = line_shape(tabs, line.len(), comment, most) else {
-        return None;
-    };
+    let (line, fields) = row_shape(line, version)?;
     let mut bytes = line.iter().copied();
     let mut next = || Ok(bytes.next());
     capture(&mut next, fields, version, windows, scratch)
@@ -730,14 +775,7 @@ pub(super) fn parse_line(
 /// never given to a line the reader does not count.
 #[must_use]
 pub fn is_row(line: &[u8], version: u32) -> bool {
-    let most = match version {
-        0..=1 => 10,
-        2 => 13,
-        _ => 15,
-    };
-    let tabs = line.iter().filter(|b| **b == TAB).count();
-    let comment = line.starts_with(b"# ");
-    let Shape::Line { fields } = line_shape(tabs, line.len(), comment, most) else {
+    let Some((line, fields)) = row_shape(line, version) else {
         return false;
     };
     let mut bytes = line.iter().copied();
