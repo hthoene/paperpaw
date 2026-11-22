@@ -547,6 +547,11 @@ impl NativeMenu {
                     r.on = Some(true);
                 }
             }
+            // Without touch, Left and Right change a number: its − and + show
+            // with the focus, as in Beta 3.
+            if !touch && info.is_some_and(|i| i.kind == SettingKind::Int) {
+                item = item.with_focus_steps()?;
+            }
             items.push(item);
         }
         Ok(items)

@@ -36,7 +36,7 @@ pub use extra::RowExtra;
 use grip::{draw_drag, draw_row_with_grip};
 use head::Head;
 use row::{note_line_count, title_lines};
-use stepper::draw_stepper;
+use stepper::{draw_stepper, stepper_width};
 use track::Stepped;
 pub use track::Track;
 
@@ -1296,10 +1296,11 @@ fn icon_room(style: &Style) -> u16 {
     ((style.text * 1.2) as u16).saturating_add(style.margin / 2)
 }
 
-/// The value a row shows at the right: none for a switch, which shows its state.
-fn shown_value(row: &RowItem) -> &str {
+/// The value a row shows at the right: none for a switch, which shows its
+/// state, nor where its − and + show (`stepper`).
+fn shown_value(row: &RowItem, stepper: bool) -> &str {
     // A stepper draws its value between its buttons.
-    if row.on.is_some() || row.stepper {
+    if row.on.is_some() || stepper {
         ""
     } else {
         &row.value
