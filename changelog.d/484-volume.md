@@ -17,3 +17,6 @@
   A file entry that named cluster 1 cleared the card's clean-shutdown mark in the FAT when it
   was removed, so computers asked to check the card. Only the card's own clusters are freed
   now.
+- **A FAT card whose boot sector does not add up is refused** (#484). Numbers in the boot
+  sector that overflowed, or a FAT too small for the card's clusters, could place the FAT
+  over the data or make looking for free space fail; such a card now reads as damaged.

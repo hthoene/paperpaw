@@ -251,7 +251,17 @@ impl BiosParameterBlock {
             return Err(Error::CorruptedFileSystem);
         }
         let total_sectors = self.total_sectors();
-        let first_data_sector = self.first_data_sector();
+        // Modified for PaperPaw: summed checked, each number is the card's: overflowed, it was a
+        // panic in debug builds, and wrapped, it placed the FAT over the data. Checked here, the
+        // unchecked `first_data_sector` is used after.
+        let first_data_sector = u32::from(self.fats)
+            .checked_mul(self.sectors_per_fat())
+            .and_then(|fats| fats.checked_add(self.reserved_sectors()))
+            .and_then(|sectors| sectors.checked_add(self.root_dir_sectors()));
+        let Some(first_data_sector) = first_data_sector else {
+            error!("Invalid BPB: the FATs and the sectors before them overflow");
+            return Err(Error::CorruptedFileSystem);
+        };
         if total_sectors <= first_data_sector {
             error!(
                 "Invalid total_sectors value in BPB: expected value > {} but got {}",
@@ -289,15 +299,20 @@ impl BiosParameterBlock {
             return Err(Error::CorruptedFileSystem);
         }
 
-        let bits_per_fat_entry = fat_type.bits_per_fat_entry();
+        // Modified for PaperPaw: counted in 64 bits (the product overflowed `u32`), and a FAT too
+        // small for the clusters is an error, not a warning: the search for a free cluster ran
+        // off its end.
+        let bits_per_fat_entry = u64::from(fat_type.bits_per_fat_entry());
         let total_fat_entries =
-            self.sectors_per_fat() * u32::from(self.bytes_per_sector) * 8 / bits_per_fat_entry;
-        let usable_fat_entries = total_fat_entries - RESERVED_FAT_ENTRIES;
-        if usable_fat_entries < total_clusters {
-            warn!(
-                "FAT is too small (allows allocation of {} clusters) compared to the total number of clusters ({})",
+            u64::from(self.sectors_per_fat()) * u64::from(self.bytes_per_sector) * 8
+                / bits_per_fat_entry;
+        let usable_fat_entries = total_fat_entries.saturating_sub(u64::from(RESERVED_FAT_ENTRIES));
+        if usable_fat_entries < u64::from(total_clusters) {
+            error!(
+                "Invalid BPB: the FAT is too small (allows allocation of {} clusters) for the total number of clusters ({})",
                 usable_fat_entries, total_clusters
             );
+            return Err(Error::CorruptedFileSystem);
         }
         Ok(())
     }
@@ -480,6 +495,57 @@ impl Default for BootSector {
             bpb: BiosParameterBlock::default(),
             boot_code: [0; 448],
             boot_sig: Default::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::format::{FormatVolumeOptions, format_volume};
+    use crate::io::{Seek, SeekFrom, StdIoWrapper};
+    use std::io::Cursor;
+
+    #[test]
+    fn a_boot_sector_whose_sums_overflow_or_whose_fat_is_too_small_is_refused() {
+        let mut disk = StdIoWrapper::new(Cursor::new(vec![0u8; 40 << 20]));
+        format_volume(
+            &mut disk,
+            FormatVolumeOptions::new()
+                .fat_type(FatType::Fat32)
+                .bytes_per_cluster(512),
+        )
+        .unwrap();
+        disk.seek(SeekFrom::Start(0)).unwrap();
+        let formatted = BootSector::deserialize(&mut disk).unwrap();
+        assert!(formatted.validate::<()>(true).is_ok());
+        let changes: [fn(&mut BiosParameterBlock); 3] = [
+            // The FATs' sectors overflow.
+            |bpb| {
+                bpb.fats = 255;
+                bpb.sectors_per_fat_32 = 0x0100_0000;
+            },
+            // The FAT's bits overflow `u32` (2^27 entries, too few for the clusters).
+            |bpb| {
+                bpb.fats = 1;
+                bpb.sectors_per_fat_32 = 1 << 20;
+                bpb.sectors_per_cluster = 16;
+                bpb.total_sectors_32 = u32::MAX;
+            },
+            // One sector of FAT for every cluster.
+            |bpb| bpb.sectors_per_fat_32 = 1,
+        ];
+        for (n, change) in changes.into_iter().enumerate() {
+            let mut boot = BootSector {
+                bpb: formatted.bpb.clone(),
+                ..BootSector::default()
+            };
+            boot.boot_sig = formatted.boot_sig;
+            change(&mut boot.bpb);
+            assert!(
+                matches!(boot.validate::<()>(true), Err(Error::CorruptedFileSystem)),
+                "change {n}"
+            );
         }
     }
 }
