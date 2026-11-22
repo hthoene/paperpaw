@@ -731,6 +731,9 @@ pub(crate) fn build(
     write_styles(storage, archive, cache, &items.stylesheets, &identifier)?;
     let sections = items.spine.len();
     let cover = items.cover.as_deref();
+    // `package.ini` marks the files appended before it complete: they reach
+    // the card first (see `CachePaths::complete`).
+    storage.sync()?;
     write_ini(storage, cache, &metadata, sections, toc_len, cover, book)?;
     Ok(Package {
         metadata,

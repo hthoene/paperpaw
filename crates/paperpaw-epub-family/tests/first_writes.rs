@@ -29,6 +29,12 @@ struct Card {
     /// Path and length of each whole write.
     writes: RefCell<Vec<(String, usize)>>,
     appends: Cell<usize>,
+    /// Appends since the last flush (`sync`): a FAT card may keep them back.
+    unsynced: Cell<usize>,
+    /// The marks of a complete conversion (a chapter's `end`, the book's
+    /// `package.ini`) written, and those written over appends kept back.
+    marks: Cell<usize>,
+    early_marks: RefCell<Vec<String>>,
     left: Cell<Option<usize>>,
 }
 
@@ -38,6 +44,9 @@ impl Card {
             inner: MemoryStorage::new().with(PATH, book),
             writes: RefCell::new(Vec::new()),
             appends: Cell::new(0),
+            unsynced: Cell::new(0),
+            marks: Cell::new(0),
+            early_marks: RefCell::new(Vec::new()),
             left: Cell::new(None),
         }
     }
@@ -90,12 +99,23 @@ impl Storage for Card {
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         self.change()?;
         self.writes.borrow_mut().push((path.into(), data.len()));
+        if path.ends_with("/end") || path.ends_with("/package.ini") {
+            self.marks.set(self.marks.get() + 1);
+            if self.unsynced.get() > 0 {
+                self.early_marks.borrow_mut().push(path.into());
+            }
+        }
         self.inner.write(path, data)
     }
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         self.change()?;
         self.appends.set(self.appends.get() + 1);
+        self.unsynced.set(self.unsynced.get() + 1);
         self.inner.append(path, data)
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        self.unsynced.set(0);
+        Ok(())
     }
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         self.inner.list(dir, visit)
@@ -236,4 +256,17 @@ fn a_conversion_cut_off_anywhere_is_never_read_as_complete() {
             break;
         }
     }
+}
+
+/// A chapter's end mark and the book's `package.ini` are whole writes that
+/// call what was appended before them complete. A FAT card keeps appended
+/// bytes back until a flush, so each mark comes after one: a power cut
+/// never leaves a mark over files cut short.
+#[test]
+fn what_a_mark_calls_complete_reaches_the_card_before_it() {
+    let card = Card::with(book(&chapters(), &[]));
+    read(&card).unwrap();
+    // Three chapters and the package.
+    assert_eq!(card.marks.get(), 4);
+    assert_eq!(*card.early_marks.borrow(), Vec::<String>::new());
 }
