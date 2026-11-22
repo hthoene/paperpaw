@@ -1,6 +1,6 @@
 //! A volume in memory for the tests: the storage calls over files in a map.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -14,6 +14,8 @@ pub(crate) struct Mem {
     pub(crate) files: RefCell<BTreeMap<String, Vec<u8>>>,
     /// Every append is at most one call's data.
     pub(crate) longest: RefCell<usize>,
+    /// Files that cannot be removed (the card is busy with them).
+    pub(crate) stuck: RefCell<BTreeSet<String>>,
 }
 
 impl Mem {
@@ -68,6 +70,9 @@ impl Volume for Mem {
     }
 
     fn remove(&self, name: &str) -> Result<(), Error> {
+        if self.stuck.borrow().contains(name) {
+            return Err(Error::Io);
+        }
         self.files
             .borrow_mut()
             .remove(name)

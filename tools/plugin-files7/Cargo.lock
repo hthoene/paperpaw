@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-calibre"
-version = "1.0.15"
+version = "1.0.16"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -233,7 +233,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-file-sync"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -473,7 +473,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-koreader"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -481,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-kosync"
-version = "1.0.15"
+version = "1.0.16"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -554,7 +554,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-opds"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

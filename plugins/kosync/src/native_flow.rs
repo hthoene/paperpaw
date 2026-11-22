@@ -6,6 +6,8 @@
 use alloc::{string::String, vec::Vec};
 
 use paperpaw_sdk::native::{Error, net::RequestId};
+
+use crate::native_sync::Position;
 use paperpaw_ui_kit::{
     mem::{push, wipe_text},
     text::{concat, copy},
@@ -142,6 +144,8 @@ pub struct Pending {
     pub local: f64,
     /// A fetch the user asked for.
     pub manual: bool,
+    /// A push: the position it sends.
+    pub sent: Option<Position>,
 }
 
 /// The most requests waiting at once (the service lets a plugin have 4).
@@ -261,6 +265,7 @@ mod tests {
                     path: String::new(),
                     local: 0.0,
                     manual: false,
+                    sent: None,
                 })
                 .unwrap();
         }
@@ -271,6 +276,7 @@ mod tests {
             path: String::new(),
             local: 0.0,
             manual: false,
+            sent: None,
         };
         assert_eq!(table.add(again), Err(Error::Busy));
         assert!(table.take(RequestId::new(2).unwrap()).is_some());

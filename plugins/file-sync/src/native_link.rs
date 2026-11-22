@@ -6,8 +6,9 @@
 use alloc::{string::String, vec::Vec};
 
 use paperpaw_sdk::native::Error;
-use paperpaw_ui_kit::files::Volume;
+use paperpaw_ui_kit::{files::Volume, mem::push, text::copy};
 
+use crate::native_names::left_out;
 use crate::native_plan::Side;
 
 /// The token of the one request that is under way.
@@ -26,11 +27,12 @@ pub trait Link {
     /// The plugin's data folder.
     fn data(&self) -> &dyn Volume;
     /// The entries of the card's folder `folder` into `out`, at most `most`
-    /// of them (the sync tells a longer folder by more than it asked for).
+    /// of them, without the names a sync leaves out ([`take`]); `true` where
+    /// the folder holds more.
     ///
     /// # Errors
     /// [`Error::NotFound`] for a folder that is not there; the host's refusal.
-    fn list(&mut self, folder: &str, out: &mut Vec<Entry>, most: usize) -> Result<(), Error>;
+    fn list(&mut self, folder: &str, out: &mut Vec<Entry>, most: usize) -> Result<bool, Error>;
     /// A file of the card; `None` where there is none.
     ///
     /// # Errors
@@ -86,4 +88,36 @@ pub trait Link {
     fn mkcol(&mut self, url: &str) -> Result<(), Error>;
     /// Cancels the request under way.
     fn cancel(&mut self);
+}
+
+/// Takes the entries of one page of a card's folder (name, folder or not,
+/// size and time) into `out`, at most `most` of them. A name a sync leaves out
+/// ([`left_out`]) takes no room: counted, the hidden names of a folder would
+/// crowd out the files it syncs, and those would be taken as deleted.
+/// `true` where an entry was left over: the folder holds more than `most`.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn take<'a>(
+    rows: impl IntoIterator<Item = (&'a str, bool, Side)>,
+    out: &mut Vec<Entry>,
+    most: usize,
+) -> Result<bool, Error> {
+    for (name, folder, side) in rows {
+        if left_out(name) {
+            continue;
+        }
+        if out.len() >= most {
+            return Ok(true);
+        }
+        push(
+            out,
+            Entry {
+                name: copy(name)?,
+                folder,
+                side,
+            },
+        )?;
+    }
+    Ok(false)
 }

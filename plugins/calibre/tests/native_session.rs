@@ -569,3 +569,17 @@ fn a_connection_that_ends_says_why() {
         metadata: String::new(),
     };
 }
+
+#[test]
+fn a_book_the_card_cannot_take_ends_the_connection_and_says_why() {
+    let mut device = Fake::default();
+    for (no_room, ending) in [(true, Ending::NoRoom), (false, Ending::NotReceived)] {
+        let mut s = session();
+        s.connected().unwrap();
+        says(&mut s, &mut device, op::SEND_BOOK, &book_args("a.epub", ""));
+        assert!(matches!(s.state, State::Receiving { .. }), "{:?}", s.state);
+        let steps = s.not_received(no_room).unwrap();
+        assert_eq!(steps, [Step::Disconnect, Step::Redraw]);
+        assert_eq!(s.state, State::Ended(ending));
+    }
+}

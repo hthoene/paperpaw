@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-file-sync"
 description = "PaperPaw File sync: keep folders of the card in sync with your own WebDAV server, in both directions, without losing a file"
-version = "1.0.1"
+version = "1.0.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

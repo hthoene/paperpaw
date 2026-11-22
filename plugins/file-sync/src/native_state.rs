@@ -22,6 +22,7 @@ use paperpaw_ui_kit::{
 
 use crate::native_names::order;
 use crate::native_plan::{Kept, Side};
+use crate::native_sync::Totals;
 
 /// Files of a folder kept at most; the state's own, listings and the engine's
 /// tables stay within it.
@@ -182,7 +183,8 @@ fn flush(volume: &dyn Volume, temp: &str, part: &str, first: bool) -> Result<(),
 /// What the last sync of all the pairs said.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Last {
-    /// When it ended, Unix seconds (0: never).
+    /// When the last run ended that synced every pair, Unix seconds (0:
+    /// never): the widget's *Last sync*, and what an automatic sync waits from.
     pub time: i64,
     /// Files fetched and sent.
     pub down: u32,
@@ -200,6 +202,22 @@ pub struct Last {
 const LAST: &str = "last.txt";
 
 impl Last {
+    /// What a run that ended says: its totals, the card's `pending` changes,
+    /// and `synced` as its time where it synced every pair. A run that failed
+    /// keeps the time of the last one that did not.
+    #[must_use]
+    pub fn ended(self, total: Totals, pending: u32, synced: Option<i64>) -> Self {
+        Self {
+            time: synced.unwrap_or(self.time),
+            down: total.down,
+            up: total.up,
+            deleted: total.deleted,
+            conflicts: total.conflicts,
+            errors: total.errors,
+            pending,
+        }
+    }
+
     /// What was kept.
     #[must_use]
     pub fn read(volume: &dyn Volume) -> Self {
@@ -364,5 +382,24 @@ mod tests {
         assert!(trash(&volume).unwrap().is_empty());
         write_trash(&volume, &["x/1".into(), "x/2".into()]).unwrap();
         assert_eq!(trash(&volume).unwrap(), ["x/1", "x/2"]);
+    }
+
+    #[test]
+    fn a_run_that_failed_keeps_the_time_of_the_last_sync() {
+        let synced = Last {
+            time: 1_700_000_000,
+            ..Last::default()
+        };
+        let total = crate::native_sync::Totals {
+            errors: 2,
+            ..Default::default()
+        };
+        let failed = synced.ended(total, 3, None);
+        assert_eq!(failed.time, 1_700_000_000);
+        assert_eq!((failed.errors, failed.pending), (2, 3));
+        assert_eq!(
+            failed.ended(total, 0, Some(1_700_009_000)).time,
+            1_700_009_000
+        );
     }
 }
