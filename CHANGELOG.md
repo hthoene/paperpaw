@@ -4932,6 +4932,8 @@ change the plugin SDK.
 
 - **Setup: on the X4, X4 Classic and X3 you could not leave the language card again** (#476). Left and right chose a language there instead of moving on, and since the focus stays on the answer chosen, Next could no longer be reached. As in Beta 3, the arrows move the focus and Select changes a choice of two (setup 1.0.8).
 
+- **X4 Classic: waking after Power was a fresh start** (#478). Power put it into a deep sleep, so the next press started the reader anew (about 4 s to the first picture). It now sleeps lightly as the X4, the X3 and the X4 Pro do: the next press wakes it at once on the same page. After a while asleep (*Switch off after sleeping*, 30 minutes by default) it switches off as before; *At once* keeps the old behaviour.
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
