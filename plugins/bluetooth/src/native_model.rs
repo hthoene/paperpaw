@@ -278,7 +278,7 @@ pub enum Step {
     Nothing,
     /// Pair with the device that connected.
     Pair(u32),
-    /// Paired: its keys go to the key maps if it types; disconnect it; say so; go back.
+    /// Paired: its keys go to the key maps if it types; disconnect it; say so.
     Paired {
         id: u32,
         typing: bool,

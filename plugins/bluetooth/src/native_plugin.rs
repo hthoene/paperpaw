@@ -554,7 +554,9 @@ impl NativeBluetooth {
                     CommandSender::new(host, &mut scratch).bt_keys(id, true)?;
                 }
                 CommandSender::new(host, &mut scratch).bt_disconnect(id)?;
-                CommandSender::new(host, &mut scratch).back()?;
+                // The search stays: an event's callback has no screen stack,
+                // so a `back` here is refused, and the failed callback would
+                // drop the commands above with it (#456).
                 // The notice is last and best effort: if it cannot be said, the
                 // pairing is done all the same.
                 native_model::best_effort(Self::tell(host, "bluetooth.paired", &name));
