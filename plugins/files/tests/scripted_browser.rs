@@ -741,12 +741,14 @@ fn the_focus_starts_on_the_first_book_so_one_press_of_the_menu_button_holds_it()
 /// from and the search (as in Beta 3), not only the next filter (#480).
 #[test]
 fn the_filter_row_shows_every_filter_to_choose_from_with_the_buttons() {
+    // With every book in the archive the list shows none, so the focus rests
+    // on the filter row (a step to it would ask for a redraw, which this host
+    // refuses: it has no screens).
     let world = World::default();
     world.phase.set(2);
+    world.archived.set(true);
     let host = setup(&world);
     let plugin = open_browser(&host);
-    // From the first book a step back is the filter row.
-    plugin.input(BROWSER_TOKEN, &action("core.left")).unwrap();
     plugin
         .input(BROWSER_TOKEN, &action("core.confirm"))
         .unwrap();
