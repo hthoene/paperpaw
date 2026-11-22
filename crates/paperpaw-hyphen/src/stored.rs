@@ -9,31 +9,35 @@
 //!
 //! # Memory and reads (measured with the 13 shipped tables)
 //!
-//! Kept: the index (4 bytes per block), the fences (4 bytes per block: the
-//! first four bytes of each block's first key, so a search is decided in
-//! memory and reads only the one block it needs), the exceptions whole, and
-//! `cache` slots of the table's largest block each.
+//! Kept: the index (about 2.25 bytes per block: a whole offset every 16
+//! blocks and a 16-bit step for each, `Offsets`, #306), the fences (4 bytes
+//! per block: the first four bytes of each block's first key, so a search is
+//! decided in memory and reads only the one block it needs), the exceptions
+//! whole, the filter of a small table or the short patterns of a large one
+//! (see below), and `cache` slots of the table's largest block each.
 //!
 //! | table | file | index+fences | exceptions | blocks | max / avg block | heap, cache 4 | heap, cache 8 |
 //! |-------|-----:|-----:|-----:|-----:|-----:|-----:|-----:|
-//! | de | 351,145 | 18,360 | 0 | 2,295 | 214 / 148 | 19,376 | 20,392 |
-//! | nb | 251,949 | 13,728 | 17 | 1,716 | 184 / 142 | 14,641 | 15,537 |
-//! | ru (most exceptions) | 74,905 | 3,512 | 3,192 | 439 | 220 / 159 | 7,744 | 8,784 |
-//! | en | 41,460 | 1,352 | 1,260 | 169 | 309 / 129 | 3,457 | 4,273 |
-//! | it (smallest) | 2,341 | 192 | 120 | 24 | 145 / 92 | 932 | 1,672 |
+//! | de | 351,145 | 14,344 | 0 | 2,295 | 214 / 148 | 19,456 | 19,456 |
+//! | nb | 251,949 | 10,726 | 17 | 1,716 | 184 / 142 | 15,735 | 15,735 |
+//! | ru (most exceptions) | 74,905 | 2,744 | 3,192 | 439 | 220 / 159 | 14,000 | 15,040 |
+//! | en | 41,460 | 1,932 | 169 | 309 | 164 / 129 | 7,861 | 8,677 |
+//! | it (smallest) | 2,341 | 150 | 0 | 24 | 145 / 92 | 1,274 | 2,014 |
 //!
-//! The retained heap is the file's pattern data replaced by 8 bytes per
-//! block: at most about 20 KB for the largest table (`de`), against 351 KB
-//! on the card. The caps are those of the shared check: [`MAX_BLOCKS`] (4,096,
-//! the most shipped is 2,295, `de`), [`MAX_BLOCK_BYTES`] (512, the largest
-//! shipped is 346, `uk`) and [`MAX_EXCEPTION_BYTES`] (8 KiB, the largest shipped
-//! is 3,192, `ru`); larger tables are refused at open with
-//! [`TableError::TooLarge`], before anything grows with them. With them the
-//! retained heap of any table is at most: index and fences 32 KiB, exceptions
-//! 8 KiB, and the cache, one [`MAX_BLOCK_BYTES`] slot per cached block. That is
-//! about 44 KiB with [`CACHE_BLOCKS`] (8) and about 72 KiB with
+//! The retained heap is the file's pattern data replaced by about 6.25 bytes
+//! per block, and the filter or the short patterns: at most about 20 KB for
+//! the largest table (`de`), against 351 KB on the card. The caps are those
+//! of the shared check: [`MAX_BLOCKS`] (4,096, the most shipped is 2,295,
+//! `de`), [`MAX_BLOCK_BYTES`] (512, the largest shipped is 346, `uk`) and
+//! [`MAX_EXCEPTION_BYTES`] (8 KiB, the largest shipped is 3,192, `ru`);
+//! larger tables are refused at open with [`TableError::TooLarge`], before
+//! anything grows with them. With them the retained heap of any table is at
+//! most: index and fences 25 KiB, the short patterns 4 KiB (or, for at most
+//! 512 blocks, a filter of 8 KiB), exceptions 8 KiB, and the cache, one
+//! [`MAX_BLOCK_BYTES`] slot per cached block (at most 4 above 512 blocks).
+//! That is about 39 KiB with [`CACHE_BLOCKS`] (8) and about 53 KiB with
 //! [`MAX_CACHE_BLOCKS`] (64). On the X4 (about 256 KiB of heap) the caller
-//! passes [`CACHE_BLOCKS`] or fewer: the worst case is then 44 KiB, against
+//! passes [`CACHE_BLOCKS`] or fewer: the worst case is then 39 KiB, against
 //! about 20 KB measured for `de`, the largest shipped table.
 //!
 //! Reads: opening reads the fences in sector-aligned 512-byte windows, so
@@ -62,11 +66,13 @@
 //! without a read, a pattern or not. Their cache is 4 blocks, not 8 (about
 //! 1 KB back): measured heap at cache 8, `de` 16,376 to 19,456, `nb` 12,535 to
 //! 15,735, `nl` 7,306 to 10,574 (+3.1 to +3.3 KB; the other ten tables are
-//! unchanged, the bound of the two largest together is 45.7 KB of the 48 KiB). Reads a word (1,000 words of 6 to 14 letters, cache 8): `de`
-//! 30 to 14, `nb` 28 to 13, `nl` 25 to 11; the other tables are unchanged. The
-//! opening is one pass over the patterns for the fences, the filter and the
-//! short patterns together (it was two for a table with a filter): a little
-//! over one read per sector, as a window ends before the block that does not fit.
+//! unchanged, the bound of the two largest together was 45.7 KB of the 48 KiB;
+//! 38.7 KB since the index is charged as `Offsets` keeps it). Reads a word
+//! (1,000 words of 6 to 14 letters, cache 8): `de` 30 to 14, `nb` 28 to 13,
+//! `nl` 25 to 11; the other tables are unchanged. The opening is one pass
+//! over the patterns for the fences, the filter and the short patterns
+//! together (it was two for a table with a filter): a little over one read
+//! per sector, as a window ends before the block that does not fit.
 //!
 //! What this does not say: the time of a read on the X4 (a FAT read of 5 to
 //! 350 bytes through the sector cache). That measurement waits for the owner
@@ -87,10 +93,10 @@ use crate::{
 use crate::{MAX_BLOCK_BYTES, MAX_BLOCKS, MAX_EXCEPTION_BYTES};
 
 /// Blocks kept in memory when the caller has no better number, and the most
-/// an X4 caller should pass: the reader's worst case is then about 44 KiB.
+/// an X4 caller should pass: the reader's worst case is then about 39 KiB.
 pub const CACHE_BLOCKS: usize = 8;
 
-/// The most blocks that can be kept (a worst case of about 72 KiB).
+/// The most blocks that can be kept (a worst case of about 53 KiB).
 pub const MAX_CACHE_BLOCKS: usize = 64;
 
 /// Bytes of buffer for the check and for copying; freed after opening.
@@ -241,7 +247,8 @@ impl<S: Source> fmt::Debug for StoredPatterns<S> {
 fn heap_needed(blocks: u32, exceptions_len: u32, largest_block: u32, cache_blocks: usize) -> usize {
     let blocks = blocks as usize;
     let cache_blocks = cache_slots(blocks, cache_blocks);
-    blocks * (core::mem::size_of::<u32>() + core::mem::size_of::<[u8; 4]>())
+    Offsets::bytes_for(blocks)
+        + blocks * core::mem::size_of::<[u8; 4]>()
         + Filter::bytes_for(blocks)
         + short_bytes(blocks)
         + exceptions_len as usize
@@ -285,10 +292,23 @@ struct Offsets {
 impl Offsets {
     const EVERY: usize = 16;
 
+    /// How many marks and steps `blocks` blocks keep.
+    fn counts(blocks: usize) -> (usize, usize) {
+        (blocks.div_ceil(Self::EVERY), blocks.saturating_sub(1))
+    }
+
+    /// Bytes [`reserved`](Self::reserved) takes for `blocks` blocks: what
+    /// `heap_needed` charges for the index.
+    fn bytes_for(blocks: usize) -> usize {
+        let (marks, steps) = Self::counts(blocks);
+        marks * core::mem::size_of::<u32>() + steps * core::mem::size_of::<u16>()
+    }
+
     fn reserved(blocks: usize) -> Result<Self, TryReserveFailed> {
+        let (marks, steps) = Self::counts(blocks);
         Ok(Self {
-            marks: reserved(blocks.div_ceil(Self::EVERY))?,
-            steps: reserved(blocks.saturating_sub(1))?,
+            marks: reserved(marks)?,
+            steps: reserved(steps)?,
             len: 0,
             last: 0,
         })
