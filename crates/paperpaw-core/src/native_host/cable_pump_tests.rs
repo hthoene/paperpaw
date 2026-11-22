@@ -307,6 +307,30 @@ fn the_cable_does_not_take_the_devices_one_network_server() {
     .unwrap();
 }
 
+/// An event callback (no screen's) before `core.work` is made serves from
+/// the plugin's showing screen: a scheduler not made has no run (#469).
+#[test]
+fn an_event_callback_serves_before_the_work_scheduler_is_made() {
+    let w = world();
+    let hosts = HostServices::new();
+    let who = Caller {
+        owner: w.owner,
+        plugin: "cab",
+        features: AdmittedFeatures::NONE,
+        hosts: &hosts,
+    };
+    let serve = wire::ServiceNetServe {
+        token: 1,
+        port: 8080,
+        flags: 0,
+        max_body: 0,
+    };
+    assert_eq!(
+        net_service::serve_for_tests(&*w.device(), &who, &serve),
+        Ok(())
+    );
+}
+
 /// A request number the computer uses again ends its earlier request on
 /// the service: that one's answer is refused, the new one's goes out.
 #[test]
