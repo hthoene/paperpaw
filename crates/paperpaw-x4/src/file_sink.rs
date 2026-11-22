@@ -14,23 +14,38 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_platform::Storage;
+use paperpaw_platform::{Storage, StorageError};
 
 /// Why a piece could not be taken.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SinkError {
     /// The card refused a write.
     Write,
+    /// The card is full (a request ends `full`, `network.md` 4.1).
+    Full,
     /// No memory for the chunk's buffer, not even the base one.
     Memory,
 }
+
+/// The text of [`SinkError::Full`], by which the shells tell it apart.
+pub const FULL: &str = "the card is full";
 
 impl SinkError {
     pub fn reason(self) -> &'static str {
         match self {
             SinkError::Write => "could not write the file",
+            SinkError::Full => FULL,
             SinkError::Memory => "not enough memory to write the file",
         }
+    }
+}
+
+/// What a write the card refused with `error` is to the sink.
+fn written(error: StorageError) -> SinkError {
+    if error == StorageError::Full {
+        SinkError::Full
+    } else {
+        SinkError::Write
     }
 }
 
@@ -82,9 +97,7 @@ impl FileSink {
             let _ = storage.remove(&self.part);
             self.started = true;
         }
-        storage
-            .append(&self.part, bytes)
-            .map_err(|_| SinkError::Write)
+        storage.append(&self.part, bytes).map_err(written)
     }
 
     /// Takes a piece: gathered in the buffer, written in one append each
@@ -138,9 +151,7 @@ impl FileSink {
             return if buf.is_empty() {
                 Ok(())
             } else {
-                storage
-                    .append(&self.part, &buf)
-                    .map_err(|_| SinkError::Write)
+                storage.append(&self.part, &buf).map_err(written)
             };
         }
         let replaced = (if buf.is_empty() && self.started {
@@ -149,11 +160,9 @@ impl FileSink {
             self.write(storage, &buf)
         })
         .and_then(|()| {
-            storage.sync().map_err(|_| SinkError::Write)?;
+            storage.sync().map_err(written)?;
             let _ = storage.remove(target);
-            storage
-                .rename(&self.part, target)
-                .map_err(|_| SinkError::Write)
+            storage.rename(&self.part, target).map_err(written)
         });
         if replaced.is_err() {
             let _ = storage.remove(&self.part);
@@ -174,7 +183,7 @@ impl FileSink {
 mod tests {
     use super::*;
     use core::cell::Cell;
-    use paperpaw_platform::{DirEntry, StorageError};
+    use paperpaw_platform::DirEntry;
     use paperpaw_sdk::MemoryStorage;
 
     /// A card that counts what a download asks of it.
@@ -306,6 +315,38 @@ mod tests {
         assert_eq!(sink.finish(&card, "a.bin"), Err(SinkError::Write));
         assert!(!card.card.exists("a.bin.part"));
         assert_eq!(read(&card.card, "a.bin"), b"old");
+    }
+
+    #[test]
+    fn a_full_card_is_told_apart() {
+        struct Full;
+        impl Storage for Full {
+            fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+                Err(StorageError::NotFound)
+            }
+            fn size(&self, _: &str) -> Result<u64, StorageError> {
+                Err(StorageError::NotFound)
+            }
+            fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+                Err(StorageError::Full)
+            }
+            fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+                Err(StorageError::Full)
+            }
+            fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+                Ok(())
+            }
+            fn remove(&self, _: &str) -> Result<(), StorageError> {
+                Ok(())
+            }
+        }
+        // A whole chunk, then the rest at the end: both say the card is full.
+        let mut sink = FileSink::new("stage/x".into(), true, 4096);
+        assert_eq!(sink.push(&Full, &body(6000)), Err(SinkError::Full));
+        let mut sink = FileSink::new("stage/x".into(), true, 4096);
+        sink.push(&Full, &body(100)).unwrap();
+        assert_eq!(sink.finish(&Full, "ignored"), Err(SinkError::Full));
+        assert_eq!(SinkError::Full.reason(), FULL);
     }
 
     #[test]

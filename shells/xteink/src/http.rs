@@ -11,6 +11,8 @@
 //! `https://` goes over TLS (`tls`), with the certificate checked; one
 //! such connection at a time, for its memory.
 
+#[cfg(feature = "ppn5")]
+use alloc::collections::TryReserveError;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -203,21 +205,7 @@ impl Calls {
     /// replaces it (the kernel passes over the earlier one's answer), so
     /// that two never write one file.
     pub fn add(&mut self, call: HttpCall) {
-        self.add_as(call, false, false, false);
-    }
-
-    /// Starts a request of core (interface 7): its `save_to` is the staged
-    /// file core made (empty), which this appends to and never renames.
-    /// `foreground`: the user waits for it (core honoured the flag); `lean`:
-    /// never boosted.
-    #[cfg(feature = "ppn5")]
-    pub fn add_staged(&mut self, call: HttpCall, foreground: bool, lean: bool) {
-        self.add_as(call, true, foreground, lean);
-    }
-
-    #[allow(clippy::fn_params_excessive_bools, reason = "the request's flags")]
-    fn add_as(&mut self, call: HttpCall, staged: bool, foreground: bool, lean: bool) {
-        if !staged && let Some(path) = &call.save_to {
+        if let Some(path) = &call.save_to {
             for earlier in &mut self.calls {
                 if earlier
                     .call
@@ -230,18 +218,53 @@ impl Calls {
             }
         }
         let sink = match &call.save_to {
-            Some(path) if staged => Sink::File(FileSink::new(
-                path.clone(),
-                true,
-                download_boost::BASE_CHUNK,
-            )),
             Some(path) => Sink::File(FileSink::new(
                 alloc::format!("{path}.part"),
                 false,
                 download_boost::BASE_CHUNK,
             )),
-            None => Sink::Memory(Vec::new(), call.max_response, staged),
+            None => Sink::Memory(Vec::new(), call.max_response, false),
         };
+        let url = call.url.clone();
+        self.push_call(call, url, sink, false, false, false);
+    }
+
+    /// Starts a request of core (interface 7): its `save_to` is the staged
+    /// file core made (empty), which this appends to and never renames.
+    /// `foreground`: the user waits for it (core honoured the flag); `lean`:
+    /// never boosted. What it keeps is taken fallibly: no room is an error
+    /// core is told (`ERR_NO_MEMORY`), never an abort inside its call.
+    #[cfg(feature = "ppn5")]
+    pub fn add_staged(
+        &mut self,
+        call: HttpCall,
+        foreground: bool,
+        lean: bool,
+    ) -> Result<(), TryReserveError> {
+        self.calls.try_reserve(1)?;
+        let url = try_copy(&call.url)?;
+        let sink = match &call.save_to {
+            Some(path) => Sink::File(FileSink::new(
+                try_copy(path)?,
+                true,
+                download_boost::BASE_CHUNK,
+            )),
+            None => Sink::Memory(Vec::new(), call.max_response, true),
+        };
+        self.push_call(call, url, sink, true, foreground, lean);
+        Ok(())
+    }
+
+    #[allow(clippy::fn_params_excessive_bools, reason = "the request's flags")]
+    fn push_call(
+        &mut self,
+        call: HttpCall,
+        url: String,
+        sink: Sink,
+        staged: bool,
+        foreground: bool,
+        lean: bool,
+    ) {
         let deadline = now_ms() + u64::from(call.timeout_ms);
         if Url::parse(&call.url)
             .is_some_and(|url| url.https && !self.idle.as_ref().is_some_and(|i| i.matches(&url)))
@@ -249,7 +272,7 @@ impl Calls {
             crate::tls_slots::ask_room();
         }
         self.calls.push(Call {
-            url: call.url.clone(),
+            url,
             call,
             redirects: 0,
             phase: Phase::Waiting,
@@ -314,11 +337,21 @@ impl Calls {
     }
 
     /// Drops every request with no answer (the network went; core was told).
+    /// Not one parked for `https` and told so: it holds no connection, and
+    /// core keeps it queued through a network lost, to start it again
+    /// ([`Calls::resume`]) or end it ([`Calls::abort`]).
     #[cfg(feature = "ppn5")]
     pub fn clear(&mut self, net: Option<&mut Net>) {
         let mut net = net;
         self.release_idle(net.as_deref_mut());
-        for mut call in core::mem::take(&mut self.calls) {
+        let mut at = 0;
+        while at < self.calls.len() {
+            let call = &self.calls[at];
+            if matches!(call.phase, Phase::Parked) && !self.parked.contains(&call.call.id) {
+                at += 1;
+                continue;
+            }
+            let mut call = self.calls.remove(at);
             if let Some(net) = net.as_deref_mut() {
                 call.stop(net);
             }
@@ -1000,9 +1033,8 @@ impl Call {
             }
             Sink::File(file) => {
                 let target = self.call.save_to.as_deref().unwrap_or_default();
-                if file.finish(storage, target).is_err() {
-                    let reason = "could not write the file";
-                    return HttpResponse::failed(self.call.id, HttpError::Io, reason);
+                if let Err(e) = file.finish(storage, target) {
+                    return HttpResponse::failed(self.call.id, HttpError::Io, e.reason());
                 }
                 answer.saved = true;
             }
@@ -1038,6 +1070,15 @@ pub(crate) fn heap() -> String {
         }
     }
     text
+}
+
+/// `text`, copied where there is room.
+#[cfg(feature = "ppn5")]
+fn try_copy(text: &str) -> Result<String, TryReserveError> {
+    let mut copy = String::new();
+    copy.try_reserve_exact(text.len())?;
+    copy.push_str(text);
+    Ok(copy)
 }
 
 /// What kind of failure `reason` is: of this module's texts, the
