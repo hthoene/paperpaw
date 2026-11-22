@@ -1,5 +1,5 @@
 //! Named icons: the character an icon name stands for in the bound icon font.
-use crate::native::{Error, Host, declare::records_wire as wire};
+use crate::native::{Error, Host, declare::records_wire as wire, ui::navigation::is_id_byte};
 use paperpaw_native::host_glue::{PpBuffer, PpBytes};
 
 /// The longest UTF-8 encoding of one character.
@@ -29,9 +29,7 @@ impl IconGlyph {
         let name = name.as_ref();
         if name.is_empty()
             || name.len() > wire::ICON_SPEC_ICON_MAX_BYTES
-            || !name
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            || !name.bytes().all(is_id_byte)
         {
             return Err(Error::Invalid);
         }

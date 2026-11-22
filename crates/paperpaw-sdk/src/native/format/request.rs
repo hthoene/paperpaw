@@ -122,7 +122,7 @@ impl<'a> FormatCall<'a> {
             let schema::Record::FmtOption(option) = option.map_err(Error::from_status)? else {
                 return Err(Error::Invalid);
             };
-            super::replies::validate_id(option.key)?;
+            crate::native::ui::navigation::full_id(option.key)?;
         }
         Ok(Self {
             row,
