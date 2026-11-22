@@ -102,10 +102,13 @@ pub fn hidden(hide: &str, item: &str) -> bool {
     hide.split(',').any(|h| h.trim() == item)
 }
 
-/// The depth in a parameter: digits, else none (the menu is a first one).
+/// The depth in a parameter: digits, else none (the menu is a first one); no
+/// deeper than menus go ([`MAX_DEPTH`]), whatever a hand-over says.
 #[must_use]
 pub fn depth_of(text: Option<&str>) -> usize {
-    text.and_then(|t| t.parse().ok()).unwrap_or(0)
+    text.and_then(|t| t.parse().ok())
+        .unwrap_or(0)
+        .min(MAX_DEPTH)
 }
 
 /// A copy of `rows` made with fallible allocation.
