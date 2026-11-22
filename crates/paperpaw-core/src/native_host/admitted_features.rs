@@ -3,7 +3,6 @@ use super::declared_services::Error;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_UNSUPPORTED};
 use paperpaw_native::metadata::{Checked, Feature};
 
-#[allow(dead_code, reason = "REG host wiring consumes this shared feature key")]
 pub(crate) const USES_REGISTRY: &str = "uses.registry";
 
 /// Admission-owned availability bits and the shell's static wired catalog.

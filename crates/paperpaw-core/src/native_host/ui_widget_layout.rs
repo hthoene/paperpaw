@@ -119,7 +119,6 @@ impl UiServices {
     /// and [`Self::widget_input_delivered`]): op 6 is served from now on.
     /// Its delivery must apply the guard rule of ui.md 4.3 again at the time
     /// of delivery (a guard may have come up since the tap was queued).
-    #[allow(dead_code, reason = "Core's dispatcher drains the taps")]
     pub(crate) fn widget_input_drained(&self) -> Result<(), i32> {
         self.widgets
             .inputs
@@ -165,7 +164,6 @@ impl UiServices {
     /// `input.widget` record for its token, in `out`: the length, with the
     /// entry to give back to [`Self::widget_input_delivered`]. `None` when
     /// there is none. Entries of dropped instances are discarded here.
-    #[allow(dead_code, reason = "Core's dispatcher drains the taps")]
     pub(crate) fn next_widget_input(
         &self,
         owner: u64,
@@ -193,7 +191,6 @@ impl UiServices {
     }
 
     /// `input` leaves the queue: it is being delivered (once), or discarded.
-    #[allow(dead_code, reason = "Core's dispatcher drains the taps")]
     pub(crate) fn widget_input_delivered(&self, input: &PendingInput) -> Result<(), i32> {
         let mut inputs = self.widgets.inputs.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         if let Some(at) = inputs.queue.iter().position(|queued| queued == input) {

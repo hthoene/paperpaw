@@ -105,22 +105,8 @@ impl crate::Kernel {
 /// unchanged); the staged commands live in a fallibly reserved heap `Vec`.
 /// A callback that returns an error drops the whole stage, so a profile apply
 /// stays atomic.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "the production command path takes it with the shell wiring"
-    )
-)]
 pub const CALLBACK_COMMANDS: usize = 64;
 /// The most bytes of copied keys and text one callback may stage.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "the production command path takes it with the shell wiring"
-    )
-)]
 pub const CALLBACK_COMMAND_BYTES: usize = 4096;
 
 /// Host staging for one callback: the submitting plugin's identity, the live

@@ -1,5 +1,9 @@
 //! Registry tests before the core dispatch is activated.
 #[path = "../src/abi7/handles.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod handles;
 use handles::{Error, Handles, Kind};
 

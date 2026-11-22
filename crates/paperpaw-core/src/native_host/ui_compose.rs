@@ -40,10 +40,6 @@ impl ComposeKind {
     }
 
     /// The purpose of the child's draw frame.
-    #[allow(
-        dead_code,
-        reason = "the frame's compose hook (Core, H3 activation) reads it"
-    )]
     pub(crate) const fn purpose(self) -> Purpose {
         match self {
             Self::Widget => Purpose::Widget,
@@ -57,10 +53,6 @@ impl ComposeRequest {
     /// The child's `draw.frame`: the rectangle given, the visible rows as its
     /// clip, the handle as `id`. `None` when nothing is visible (the hook
     /// makes no call, section 5.1).
-    #[allow(
-        dead_code,
-        reason = "the frame's compose hook (Core, H3 activation) reads it"
-    )]
     pub(crate) fn draw_frame(&self) -> Option<DrawFrame<'static>> {
         let visible = self.visible?;
         let top = i32::from(visible.y);
