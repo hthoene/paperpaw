@@ -3,7 +3,7 @@
 //! a pager when the items need more than a page (a menu).
 use crate::{
     Messages, Paint, Style,
-    items::{Item, ItemList, draw_row, heading, item_height, paginate},
+    items::{Item, ItemList, draw_carried, draw_row, heading, item_height, paginate},
     paint::{self},
     style::Plate,
     text,
@@ -179,7 +179,9 @@ impl ItemList {
         paint_plate(&mut body, &sheet, &plate)?;
         let mut hits = Vec::new();
         let mut steps = Vec::new();
-        let mut y = sheet.list.y;
+        let lists = (self.items.as_slice(), heights.as_slice());
+        let top = Rect::new(0, sheet.list.y, width, sheet.list.height);
+        let mut y = draw_carried(&mut body, (&font, &style), lists, starts[page], top)?;
         for (index, &high) in heights.iter().enumerate().take(end).skip(starts[page]) {
             let rect = Rect::new(0, y, width, high);
             let focused = shown && index == self.focus;

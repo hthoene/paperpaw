@@ -503,6 +503,18 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // The reading page in German, its last page: the flashcards' section goes on
+    // there, so its heading is shown again at the top, as Beta 3 did (#472).
+    Case {
+        name: "x4-settings-reading-last-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:core.settings,wait:300,open:settings.group:id=core.group.reading,wait:300,\
+                 page-forward,page-forward,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     // Buttons in slots of a touch row: the footnote's side by side, the
     // skim screen's four and the transfer's one below the other.
     Case {
