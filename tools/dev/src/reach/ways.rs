@@ -312,7 +312,7 @@ pub const WAYS: &[Way] = &[
     },
     Way {
         screen: "files.shelves",
-        needs: "the library's Show row stepped on to the shelves (the focus starts on the first \
+        needs: "the shelves chosen at the library's Show row (the focus starts on the first \
                 book: back up to the row first)",
         settings: &[],
         files: &[],
@@ -321,8 +321,7 @@ pub const WAYS: &[Way] = &[
             "confirm",
             "left",
             "confirm",
-            "confirm",
-            "confirm",
+            "to:Shelves",
             "confirm",
         ],
     },
@@ -336,8 +335,7 @@ pub const WAYS: &[Way] = &[
             "confirm",
             "left",
             "confirm",
-            "confirm",
-            "confirm",
+            "to:Shelves",
             "confirm",
             "to:By author",
             "confirm",
@@ -353,8 +351,7 @@ pub const WAYS: &[Way] = &[
             "confirm",
             "left",
             "confirm",
-            "confirm",
-            "confirm",
+            "to:Shelves",
             "confirm",
             "to:By author",
             "confirm",

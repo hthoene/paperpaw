@@ -146,6 +146,9 @@ pub(crate) trait LibWrite {
     /// The kernel's catalog changed (a walk or a catch-up ended): the plugins
     /// read the library again (`event.library_changed`).
     fn catalog_changed(&self) {}
+    /// The kernel noted a book's status beside the catalog (a book closed or
+    /// finished): the plugins read the library again (`event.library_changed`).
+    fn status_noted(&self) {}
     /// The open transactions; `None` where the host has none.
     fn transactions(&self) -> Option<&Transactions> {
         None

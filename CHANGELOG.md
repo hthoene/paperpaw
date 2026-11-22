@@ -4935,6 +4935,14 @@ change the plugin SDK.
 
 - **Long texts on empty pages show whole** (#481). The empty *Passwords and keys* page, the statistics' empty book list and the help of *Sync with KOReader* were cut to a line or four lines with "…"; they are wrapped whole again (settings 1.0.14, stats 1.1.4).
 
+- **Covers and "Continue reading" went missing in the library after reading** (#480). Back from a book, the library showed letters instead of covers and no card for the book just read. The kernel noted how far the book was read without telling the library, whose list then went stale; it now tells it, and covers and card are back as in Beta 3.
+
+- **The book just opened leads the library again** (#480). A book opened but still at 0 % is the *Continue reading* card, also among the books begun, as in Beta 3 (files 1.0.13).
+
+- **The library's filter row lists every filter with the buttons** (#480). Select on *Show* stepped to the next filter only, and *Find a book* could not be reached there. As in Beta 3, it lists all filters and *Find a book* to choose from; an empty filter's words wrap instead of being cut with "…" (files 1.0.13).
+
+- **The key bar names Select *Menu* while reading** (#480). It said *Select*; as in Beta 3, it says *Menu*, which Select opens there, and its usual name while text is chosen (reader 1.2.5).
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
