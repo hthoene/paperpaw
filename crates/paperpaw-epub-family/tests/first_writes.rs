@@ -15,10 +15,11 @@ use std::collections::BTreeMap;
 
 use common::{blocks, book};
 use paperpaw_epub_family::EpubDocument;
-use paperpaw_sdk::document::{Block, Document, Locator};
+use paperpaw_sdk::document::{Block, BlockKind, Document, Locator};
 use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 
 const PATH: &str = "book.epub";
+const PNG: &[u8] = include_bytes!("../../../crates/paperpaw-image/tests/data/gray.png");
 
 /// A card as a format's cache is: no tree of it can be removed (the call
 /// is taken and does nothing, as the native cache root's). It notes the
@@ -35,6 +36,8 @@ struct Card {
     /// `package.ini`) written, and those written over appends kept back.
     marks: Cell<usize>,
     early_marks: RefCell<Vec<String>>,
+    /// Appends to files whose path ends so are refused (a full card).
+    refused: Cell<Option<&'static str>>,
     left: Cell<Option<usize>>,
 }
 
@@ -47,6 +50,7 @@ impl Card {
             unsynced: Cell::new(0),
             marks: Cell::new(0),
             early_marks: RefCell::new(Vec::new()),
+            refused: Cell::new(None),
             left: Cell::new(None),
         }
     }
@@ -109,6 +113,9 @@ impl Storage for Card {
     }
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         self.change()?;
+        if self.refused.get().is_some_and(|end| path.ends_with(end)) {
+            return Err(StorageError::Full);
+        }
         self.appends.set(self.appends.get() + 1);
         self.unsynced.set(self.unsynced.get() + 1);
         self.inner.append(path, data)
@@ -269,4 +276,20 @@ fn what_a_mark_calls_complete_reaches_the_card_before_it() {
     // Three chapters and the package.
     assert_eq!(card.marks.get(), 4);
     assert_eq!(*card.early_marks.borrow(), Vec::<String>::new());
+}
+
+/// A picture whose note (`images.txt`, its size for the pages to be laid
+/// out) the card refuses leaves its chapter not complete: kept so, the
+/// picture would be its alternative text for good.
+#[test]
+fn a_chapter_whose_pictures_cannot_be_noted_is_not_complete() {
+    let body = String::from("<p>Before</p><img src=\"good.png\" alt=\"Good\"/>");
+    let card = Card::with(book(&[body], &[("OEBPS/good.png", PNG.to_vec())]));
+    card.refused.set(Some("/images.txt"));
+    assert_eq!(read(&card), None);
+    // With room again, the chapter is converted again, its picture noted.
+    card.refused.set(None);
+    let read = read(&card).unwrap();
+    let good = read.iter().find(|(_, block)| block.text == "Good").unwrap();
+    assert_eq!(good.1.kind, BlockKind::Image);
 }
