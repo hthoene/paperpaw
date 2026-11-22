@@ -107,6 +107,23 @@ fn a_table_too_wide_for_the_page_is_set_as_its_text() {
     assert!(tall.rules.is_empty());
 }
 
+/// A row of empty cells has only its rules on the page: the page has
+/// something on it, and a paragraph after it that does not fit below it
+/// goes to the next page.
+#[test]
+fn a_row_of_empty_cells_is_something_on_the_page() {
+    let empty = row(&["", ""], &[1, 1], 0);
+    let after = block("dd", empty.end, empty.end + 2);
+    let page = laid(vec![empty.clone(), after.clone()], 60.0, 100.0);
+    assert!(!page.rules.is_empty());
+    assert!(!page.is_past_end());
+    let below = page.lines[0].baseline;
+    // Too low for the paragraph's line: the page ends before it.
+    let short = laid(vec![empty.clone(), after], 60.0, below);
+    assert!(short.lines.is_empty() && !short.rules.is_empty());
+    assert_eq!(short.end.offset, empty.end);
+}
+
 /// A position in a row set as its text starts the page with its line, as a
 /// paragraph's does; in a row set in columns, with the row.
 #[test]
