@@ -138,14 +138,8 @@ mod fonts;
 mod formats;
 mod gesture;
 // facade: help (#244, D0)
-#[cfg(test)]
-pub mod help;
-#[cfg(not(test))]
-#[path = "help.rs"]
-mod help_old;
-/// What interface-7 code uses of the module; the rest of it is the kernel's (feature
-/// `kernel`).
-#[cfg(not(test))]
+/// What interface-7 code uses of the module: nothing. First-time help is the
+/// kernel's and the `help` plugin's (`paperpaw-core`'s `kit::help`).
 pub mod help {}
 // end of facade: help
 mod hyphenation;
