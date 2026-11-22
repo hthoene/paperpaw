@@ -22,7 +22,6 @@ use super::*;
 pub use crate::native_host::secrets_file::{SEALED_MAX, Sealer};
 pub use crate::native_host::secrets_service::Rng;
 use crate::native_host::secrets_service::{SecretsHost, SecretsServices};
-use core::cell::Cell;
 
 /// What a shell names for `core.secrets`.
 #[derive(Clone)]
@@ -72,20 +71,12 @@ impl SecretsInputs {
     }
 
     pub(crate) fn host(self) -> Rc<dyn SecretsHost> {
-        Rc::new(Adapter {
-            inputs: self,
-            unopened: Cell::new(false),
-            told: Cell::new(false),
-        })
+        Rc::new(Adapter { inputs: self })
     }
 }
 
 struct Adapter {
     inputs: SecretsInputs,
-    /// A sealed value did not open since the start.
-    unopened: Cell<bool>,
-    /// The user was told of it this start.
-    told: Cell<bool>,
 }
 
 impl SecretsHost for Adapter {
@@ -102,12 +93,6 @@ impl SecretsHost for Adapter {
         if let Some(notice) = &self.inputs.unreadable {
             notice();
         }
-    }
-    fn unopened(&self) {
-        self.unopened.set(true);
-    }
-    fn take_unopened(&self) -> bool {
-        self.unopened.get() && !self.told.replace(true)
     }
 }
 
