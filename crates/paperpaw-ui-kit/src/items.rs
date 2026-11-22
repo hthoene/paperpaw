@@ -443,9 +443,17 @@ impl ItemList {
         match *input {
             Input::Action { action, .. } => {
                 let page = self.page_of(self.focus);
+                // The first row to choose on the page, else its first row: a
+                // page of text alone is still turned to, as Beta 3 did.
                 let first_of = |page: usize| {
                     let start = self.starts.get(page).copied()?;
-                    (start..self.items.len()).find(|i| self.items[*i].selectable())
+                    let end = self.starts.get(page + 1).copied();
+                    let on_page = start..end.unwrap_or(self.items.len());
+                    on_page.clone().find(|i| self.choosable(*i)).or_else(|| {
+                        on_page
+                            .into_iter()
+                            .find(|i| matches!(self.items.get(*i), Some(Item::Row(_))))
+                    })
                 };
                 let target = match action {
                     "core.confirm" if self.items.get(self.focus).is_some_and(Item::selectable) => {
