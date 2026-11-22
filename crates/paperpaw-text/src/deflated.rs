@@ -32,6 +32,9 @@
 
 use alloc::vec::Vec;
 
+#[cfg(feature = "kernel")]
+use miniz_oxide::inflate::core::DecompressorOxide;
+
 /// What a version byte has set when the pack's bitmaps are deflated.
 pub(crate) const VERSION_FLAG: u8 = 0x80;
 /// The top bit of a glyph record's data offset: its bitmap is in the cold
@@ -105,11 +108,20 @@ impl Deflated {
     }
 
     /// Block `n` inflated into `out` (`BLOCK` bytes, or what is left of the
-    /// bitmaps in the last): `false` where it is damaged or there is no room.
-    pub(crate) fn inflate(&self, data: &[u8], n: usize, out: &mut Vec<u8>) -> bool {
+    /// bitmaps in the last) by the one decoder in `decoder`, made there on the
+    /// first block: on the heap, as it is some 11 KB and no frame may hold
+    /// it, and once for the blocks a glyph lies in. `false` where the block
+    /// is damaged or there is no room.
+    pub(crate) fn inflate(
+        &self,
+        data: &[u8],
+        n: usize,
+        decoder: &mut Vec<DecompressorOxide>,
+        out: &mut Vec<u8>,
+    ) -> bool {
         use miniz_oxide::inflate::TINFLStatus;
+        use miniz_oxide::inflate::core::decompress;
         use miniz_oxide::inflate::core::inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-        use miniz_oxide::inflate::core::{DecompressorOxide, decompress};
 
         if n >= self.blocks {
             return false;
@@ -133,15 +145,17 @@ impl Deflated {
             return false;
         }
         out.resize(size, 0);
-        // On the heap: the decoder is some 11 KB, no frame may hold it.
-        let mut decoder: Vec<DecompressorOxide> = Vec::new();
-        if decoder.try_reserve_exact(1).is_err() {
-            return false;
+        if decoder.is_empty() {
+            if decoder.try_reserve_exact(1).is_err() {
+                return false;
+            }
+            decoder.resize_with(1, DecompressorOxide::default);
         }
-        decoder.resize_with(1, DecompressorOxide::default);
         let Some(state) = decoder.first_mut() else {
             return false;
         };
+        // From the start of a stream: each block is deflated on its own.
+        state.init();
         let (status, _, made) = decompress(
             state,
             packed,
@@ -545,12 +559,14 @@ mod tests {
         let font = BitmapFont::new(blocks).unwrap();
         let (deflated, bytes) = font.deflated().unwrap();
         assert!(deflated.len > BLOCK, "{}", deflated.len);
-        let mut out = Vec::new();
-        assert!(deflated.inflate(bytes, 0, &mut out) && out.len() == BLOCK);
+        let (mut decoder, mut out) = (Vec::new(), Vec::new());
+        assert!(deflated.inflate(bytes, 0, &mut decoder, &mut out) && out.len() == BLOCK);
         // The last block is what is left.
-        assert!(deflated.inflate(bytes, deflated.len / BLOCK, &mut out));
+        let last = deflated.len / BLOCK;
+        assert!(deflated.inflate(bytes, last, &mut decoder, &mut out));
         assert_eq!(out.len(), deflated.len % BLOCK);
-        assert!(!deflated.inflate(bytes, deflated.len.div_ceil(BLOCK), &mut out));
+        let past = deflated.len.div_ceil(BLOCK);
+        assert!(!deflated.inflate(bytes, past, &mut decoder, &mut out));
     }
 
     #[test]
