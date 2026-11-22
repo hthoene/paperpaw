@@ -108,13 +108,6 @@ fn full<'b>(buffer: &'b mut [u8; 192], owner: &str, item: &str) -> Option<&'b st
     core::str::from_utf8(slot).ok()
 }
 
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "the production native command path takes it with the shell wiring"
-    )
-)]
 impl<'a> CommandStage<'a> {
     /// Admits `command.set_item_state` for this callback, kept in the
     /// declarations' item states; otherwise it is `ERR_UNSUPPORTED`.

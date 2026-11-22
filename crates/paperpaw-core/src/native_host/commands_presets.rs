@@ -42,13 +42,6 @@ use paperpaw_sdk::{
     presets::{self, Preset},
 };
 
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "the production native command path takes it with the shell wiring"
-    )
-)]
 /// The most settings one chunk of an apply holds commands for.
 const CHUNK: usize = 16;
 
@@ -341,13 +334,6 @@ impl CommandStage<'_> {
     /// Takes the admitted presets, in order, for the host to apply after the
     /// callback.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "the production native command path takes it with the shell wiring"
-        )
-    )]
     pub(crate) fn take_presets(&mut self) -> Vec<Box<str>> {
         core::mem::take(&mut self.staged_presets)
     }
@@ -398,13 +384,6 @@ impl Kernel {
     /// ends there with a warning, what its earlier chunks changed staying
     /// changed. Each setting that does not hold its value already is set or
     /// reset, [`CHUNK`] settings at a time ([`plan`]).
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "the production native command path takes it with the shell wiring"
-        )
-    )]
     pub(crate) fn apply_native_presets(
         &mut self,
         owner: &Id,
