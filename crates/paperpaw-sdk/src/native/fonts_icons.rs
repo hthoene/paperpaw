@@ -26,7 +26,12 @@ impl IconGlyph {
     /// (show text instead, as menus do), and Unsupported on a host that has not
     /// wired the slot.
     pub fn named(host: &Host<'_>, name: impl AsRef<str>) -> Result<Self, Error> {
-        let name = name.as_ref();
+        Self::named_str(host, name.as_ref())
+    }
+
+    /// [`Self::named`] for `&str` only: one copy of the host call in the
+    /// image, however many name types and crates ask.
+    fn named_str(host: &Host<'_>, name: &str) -> Result<Self, Error> {
         if name.is_empty()
             || name.len() > wire::ICON_SPEC_ICON_MAX_BYTES
             || !name.bytes().all(is_id_byte)
