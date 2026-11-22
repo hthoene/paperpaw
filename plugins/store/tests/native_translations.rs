@@ -55,3 +55,23 @@ fn the_templates_and_their_notices_have_words() {
         }
     }
 }
+
+/// The setup's guide shows a screen step's help as `<id>.help` (the registry
+/// has no help of a step): each step's help is that key (#472: the offer's
+/// step `store.setup` had its help as `store.offer.help`, and showed none).
+#[test]
+fn the_setup_steps_help_is_what_the_guide_reads() {
+    let source = include_str!("../declarations.rs");
+    let mut steps = 0;
+    for declared in source.split("SetupStepDecl::new(").skip(1) {
+        let name = declared.split('"').nth(1).unwrap();
+        let help = declared
+            .split("step.help = \"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap();
+        assert_eq!(help, format!("store.{name}.help"));
+        steps += 1;
+    }
+    assert_eq!(steps, 2);
+}
