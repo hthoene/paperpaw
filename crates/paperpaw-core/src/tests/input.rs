@@ -296,6 +296,25 @@ fn a_finger_held_at_an_edge_is_a_long_press() {
     assert!(nothing_held(&kernel));
 }
 
+/// A finger that comes down again where the lift of its touch at an edge was
+/// lost (a filter took it, a sleep came between) is a new touch: the tap is
+/// the screen's, not swallowed or read as a swipe from the edge (#483).
+#[test]
+fn a_touch_after_an_edge_touch_whose_lift_was_lost_is_a_new_one() {
+    let log = log();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(gesture_plugin_manifest(), gesture_plugin(log.clone()))
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    render(&mut kernel);
+    finger(&mut kernel, 100, 0, PointerPhase::Down, (88, 45));
+    // Its lift never came.
+    tap(&mut kernel, 1000, 45, 45);
+    assert_eq!(*log.borrow(), ["Tap 45,45"]);
+    assert!(nothing_held(&kernel));
+}
+
 /// A thumb resting at an edge is no second finger: a long press elsewhere
 /// still comes, and the thumb makes none of its own, also at the top.
 #[test]
