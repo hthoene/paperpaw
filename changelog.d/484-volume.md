@@ -13,3 +13,7 @@
 - **A FAT folder whose clusters run in a loop no longer hangs the reader** (#484). Listing
   such a damaged folder went on for ever; it now stops with an error after the 65,536
   entries a FAT folder can have, and a folder no longer grows past them.
+- **Removing a damaged file no longer marks the FAT card as not cleanly removed** (#484).
+  A file entry that named cluster 1 cleared the card's clean-shutdown mark in the FAT when it
+  was removed, so computers asked to check the card. Only the card's own clusters are freed
+  now.

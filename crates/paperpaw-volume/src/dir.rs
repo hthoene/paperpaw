@@ -579,7 +579,7 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
     fn remove_and_free(&self, e: &DirEntry<'a, IO, TP, OCC>) -> Result<(), Error<IO::Error>> {
         let first = e.first_cluster();
         // An entry whose first cluster is none of the volume's (damaged) is removed all the
-        // same; freeing its data fails then, as it did.
+        // same; freeing its data fails then (`free_claimed`), nothing of the FAT written.
         let claimed = first.filter(|&n| self.fs.is_cluster(n));
         if let Some(n) = claimed {
             self.fs.claim_freeing(n, Referrer::Entry(e.entry_pos))?;

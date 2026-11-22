@@ -256,3 +256,34 @@ fn a_directory_is_read_and_grown_to_its_largest_size_only() {
     assert_eq!(fs.cluster_changes(), before, "no cluster was taken");
     assert_eq!(dir.iter().count(), 65_536);
 }
+
+#[test]
+fn removing_a_file_frees_only_clusters_of_the_volume() {
+    let fs = filesystem();
+    let entry_1 = |fs: &TestFs| fat_bytes(fs)[2..4].to_vec();
+    let flags = entry_1(&fs);
+    // An entry whose first cluster is 1: removed, nothing freed.
+    drop(file_at(&fs, "first.txt", 1));
+    let (_, freed) = fs.cluster_changes();
+    assert!(matches!(
+        fs.root_dir().remove("first.txt"),
+        Err(Error::CorruptedFileSystem)
+    ));
+    assert!(
+        fs.root_dir().open_file("first.txt").is_err(),
+        "the entry is gone"
+    );
+    assert_eq!(fs.cluster_changes().1, freed);
+    // A chain that links to 1, in the same block of the FAT: freed up to there.
+    let mut file = fs.root_dir().create_file("link.txt").unwrap();
+    file.write_all(&[7; 10]).unwrap();
+    set_entry(&fs, file.first_cluster().unwrap(), 1);
+    drop(file);
+    assert!(matches!(
+        fs.root_dir().remove("link.txt"),
+        Err(Error::CorruptedFileSystem)
+    ));
+    assert_eq!(fs.cluster_changes().1, freed + 1);
+    assert_eq!(entry_1(&fs), flags, "the volume's clean-shutdown bits stay");
+    assert!(!fs.read_status_flags().unwrap().dirty);
+}
