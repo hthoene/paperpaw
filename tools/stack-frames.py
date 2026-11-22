@@ -90,6 +90,27 @@ class Image:
         return None
 
 
+def function_sizes(elf):
+    """The sizes of the ELF's functions (`STT_FUNC` symbols), by address.
+    Bytes after a function's end that no symbol names (data the linker put
+    into the code, e.g. 12 KB after `codec::encode_batch` in the X4 Pro's
+    build of #466) disassemble as instructions of the function before them;
+    read as its code, their stray "calls" made chains that do not exist."""
+    data = Path(elf).read_bytes()
+    (shoff,) = struct.unpack_from("<I", data, 32)
+    shentsize, shnum = struct.unpack_from("<HH", data, 46)
+    sections = [struct.unpack_from("<IIIIIIII", data, shoff + i * shentsize) for i in range(shnum)]
+    sizes = {}
+    for _, kind, _, _, offset, size, _, _ in sections:
+        if kind != 2:  # SHT_SYMTAB
+            continue
+        for at in range(offset, offset + size, 16):
+            name, value, length, info = struct.unpack_from("<IIIB", data, at)
+            if info & 0xF == 2 and length:  # STT_FUNC
+                sizes[value] = max(sizes.get(value, 0), length)
+    return sizes
+
+
 def find_objdump(arch):
     home = Path.home()
     if arch == EM_RISCV:
@@ -133,19 +154,25 @@ class Function:
             self.frame += n
 
 
-def parse(lines, arch, image):
-    funcs, cur, regs = [], None, {}
+def parse(lines, arch, image, sizes=None):
+    """The functions of the disassembly. With `sizes` (`function_sizes`), what
+    lies past a function's end is not read as its code."""
+    funcs, cur, regs, end = [], None, {}, None
     for raw in lines:
         m = HEADER.match(raw)
         if m:
             cur = Function(m.group(2), int(m.group(1), 16))
             funcs.append(cur)
             regs = {}
+            size = (sizes or {}).get(cur.addr)
+            end = cur.addr + size if size else None
             continue
         m = LINE.match(raw) if cur else None
         if not m:
             continue
         pc, op = int(m.group(1), 16), m.group(2)
+        if end is not None and pc >= end:
+            continue
         args = m.group(3).split("#")[0].split("<")[0]
         ops = [a.strip() for a in args.split(",")] if args.strip() else []
         try:
@@ -369,7 +396,7 @@ def main():
         sys.exit(f"{a.elf}: neither RISC-V nor Xtensa")
     cmd = [a.objdump or find_objdump(arch), "-d", "-C", "--no-show-raw-insn", a.elf]
     out = subprocess.run(cmd, capture_output=True, text=True, errors="replace", check=True).stdout
-    funcs = parse(out.splitlines(), arch, Image(a.elf) if arch == EM_XTENSA else None)
+    funcs = parse(out.splitlines(), arch, Image(a.elf) if arch == EM_XTENSA else None, function_sizes(a.elf))
     odd = odd_frames(funcs)
     if odd:
         for f in odd[:10]:
