@@ -525,12 +525,18 @@ impl<'a, IO: ReadWriteSeek> XDir<'a, IO> {
                 if u16_at(b, 4) & ATTR_DIRECTORY == 0 || u32_at(b, ENTRY + 20) != self.first {
                     return Err(Error::NotFound);
                 }
+                // A directory has whole clusters, at least one: any other size is damage,
+                // and growing would take its last cluster for one it does not end with.
+                let len = u64_at(b, ENTRY + 24);
+                if len == 0 || len % self.fs.cluster_size() != 0 {
+                    return Err(Error::CorruptedFileSystem);
+                }
                 (
                     Chain {
                         first: self.first,
                         contiguous: b[ENTRY + 1] & NO_FAT_CHAIN != 0,
                     },
-                    u64_at(b, ENTRY + 24).min(MAX_DIRECTORY),
+                    len.min(MAX_DIRECTORY),
                 )
             }
         };
@@ -772,13 +778,12 @@ impl<'a, IO: ReadWriteSeek> XDir<'a, IO> {
         if room + size > MAX_DIRECTORY || room == 0 {
             return Err(Error::NotEnoughSpace);
         }
+        let last_index = (room >> fs.cluster_shift())
+            .checked_sub(1)
+            .ok_or(Error::CorruptedFileSystem)?;
         let mut walked = (0, chain.first);
         let last = fs
-            .cluster_at(
-                *chain,
-                &mut walked,
-                ((room >> fs.cluster_shift()) - 1) as u32,
-            )?
+            .cluster_at(*chain, &mut walked, last_index as u32)?
             .ok_or(Error::CorruptedFileSystem)?;
         let new = fs.take(Some(last.wrapping_add(1)))?;
         fs.zero(fs.cluster_offset(new)?, size)?;

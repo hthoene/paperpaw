@@ -24,3 +24,7 @@
   space map as far as its length said, which on a damaged card could be practically for ever,
   and searched a looping root folder through thousands of clusters; it now reads only what
   the card's size needs.
+- **A damaged exFAT folder size no longer cuts off part of the folder** (#484). A folder whose
+  size was not whole clusters could, when it grew, link its new cluster in place of one it
+  already had, losing the entries there; such a folder now reads as damaged and is left
+  alone.
