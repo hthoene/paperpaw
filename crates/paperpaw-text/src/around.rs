@@ -210,11 +210,13 @@ fn lay(
     based: bool,
     put: impl FnMut(char, f32, bool, bool),
 ) -> f32 {
-    // Bengali or Devanagari in a line left to right: by syllables.
+    // Indic, Khmer, Lao, Tibetan or Burmese in a line left to right: by
+    // syllables. A zero width space between words does not count, as
+    // line breaking measures these words shaped.
     if indic::has_indic(text)
         && !crate::has_jamo(text)
         && around.base != Direction::Rtl
-        && !bidi::needs_bidi(text)
+        && !bidi::needs_bidi_but_zero_width_spaces(text)
     {
         return lay_indic(font, size, text, around, based, put);
     }
@@ -542,6 +544,21 @@ mod tests {
         let latin = font("abc", false);
         assert!(!latin.has_char('\u{1112}'));
         assert_eq!(shown(&latin, nfd, &Around::NONE), nfd);
+    }
+
+    /// A zero width space between Khmer words leaves them shaped by
+    /// syllables (coeng and ro before their consonant), as wide as
+    /// without it: as line breaking measures them.
+    #[test]
+    fn khmer_words_apart_by_a_zero_width_space_are_shaped() {
+        let font = font("ក្រ", false);
+        let (spaced, joined) = ("ក្រ\u{200B}ក", "ក្រក");
+        assert_eq!(shown(&font, joined, &Around::NONE), "្រកក");
+        assert_eq!(shown(&font, spaced, &Around::NONE), "្រកក");
+        assert_eq!(
+            measure_in(&font, 10.0, spaced, &Around::NONE),
+            measure_in(&font, 10.0, joined, &Around::NONE)
+        );
     }
 
     #[test]
