@@ -15,3 +15,5 @@
   `document_closed` and the book events already did.
 - **A too-long path is no longer "card full"** (#484): `DataStorage` reported a
   path over its length cap as `StorageError::Full`; it is now `InvalidPath`.
+- **A secrets reply of the wrong kind is `Invalid`** (#484): it was `State`,
+  which plugins read as "the handle is not open".
