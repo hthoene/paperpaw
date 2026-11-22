@@ -20,3 +20,7 @@
 - **A FAT card whose boot sector does not add up is refused** (#484). Numbers in the boot
   sector that overflowed, or a FAT too small for the card's clusters, could place the FAT
   over the data or make looking for free space fail; such a card now reads as damaged.
+- **A damaged exFAT card no longer stalls the start** (#484). Mounting followed the free
+  space map as far as its length said, which on a damaged card could be practically for ever,
+  and searched a looping root folder through thousands of clusters; it now reads only what
+  the card's size needs.
