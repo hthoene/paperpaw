@@ -40,7 +40,7 @@ use zeroize::Zeroizing;
 use aes_gcm::aead::{AeadInPlace, KeyInit, generic_array::GenericArray};
 use aes_gcm::{Aes256Gcm, Nonce, Tag};
 use paperpaw_core::native_host::shell_wiring::{Rng, Sealer};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_SPACE};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND};
 
 const KEY_BYTES: usize = 32;
 const NONCE_BYTES: usize = 12;
@@ -276,8 +276,10 @@ impl Sealer for KeySealer {
             .decrypt_in_place_detached(Nonce::from_slice(nonce), aad, out, Tag::from_slice(tag))
             .map_err(|_| {
                 // Nothing of a value that did not open stays in the buffer.
+                // Absent here, as the X4 answers (`paperpaw_x4::key_sealer`):
+                // core tells the user of such values (#466).
                 out.fill(0);
-                ERR_INVALID
+                ERR_NOT_FOUND
             })?;
         Ok(body_len)
     }
@@ -323,14 +325,14 @@ mod tests {
         let mut plain = [1u8; 64];
         assert_eq!(
             s.open(b"other\0password", &out[..n], &mut plain),
-            Err(ERR_INVALID)
+            Err(ERR_NOT_FOUND)
         );
         assert!(plain[..7].iter().all(|b| *b == 0));
         // A damaged value does not open.
         out[NONCE_BYTES] ^= 1;
         assert_eq!(
             s.open(b"wallabag\0password", &out[..n], &mut plain),
-            Err(ERR_INVALID)
+            Err(ERR_NOT_FOUND)
         );
     }
 

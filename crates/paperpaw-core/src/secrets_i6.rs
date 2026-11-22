@@ -19,13 +19,17 @@ use crate::{
     },
 };
 use alloc::{rc::Rc, string::String, vec::Vec};
-use paperpaw_sdk::secrets::Secrets;
+use paperpaw_sdk::{Id, digest::fnv1a64, secrets::Secrets};
 
 /// The hashes of the sealed lines the user was told cannot be opened here,
 /// one in hex a line (#466): kept on the card beside the secrets file, so the
 /// notice comes once, not at every start, and again only for a line that was
 /// not told yet. Written only when the user is told.
 pub(crate) const TOLD_FILE: &str = ".paperpaw/secrets-told.txt";
+/// The dialog's screen (a host screen, `host_screen::SECRETS`).
+pub(crate) const SCREEN: Id = Id::new_static("core.secrets-unopened");
+/// Its *Remove them*, emitted by the dialog ([`Kernel::remove_unopened_secrets`]).
+pub(crate) const REMOVE: Id = Id::new_static("core.secrets-unopened-remove");
 /// Its size limit: a hash for each line of the largest secrets file.
 const TOLD_MAX: usize = 32 * 1024;
 
@@ -119,41 +123,87 @@ impl Kernel {
     }
 
     /// Tells the user that saved passwords from another device (or under a
-    /// lost key) cannot be opened here, once (#466): when the file read
-    /// through the sealer holds a line that did not open and that is not in
-    /// [`TOLD_FILE`]. Then that file is written with the lines told, the one
-    /// write; a later start reads it and says nothing. A line entered again
-    /// leaves the file as it is. From the service pump, after the start: the
-    /// notice waits behind a guard; the card is read only where what did not
-    /// open changed.
-    pub(crate) fn secrets_notice(&mut self) {
-        if !core::mem::take(&mut self.secrets_unopened_changed) || self.secrets_unopened.is_empty()
-        {
-            return;
+    /// lost key) cannot be opened here, once (#466): a dialog to confirm, with
+    /// *Remove them* and *OK*, where the file read through the sealer holds a
+    /// line that did not open and that is not in [`TOLD_FILE`]. Then that file
+    /// is written with the lines told, the one write; a later start reads it
+    /// and says nothing. A line entered again leaves the file as it is. Over
+    /// the settled home screen only, as the other start notices
+    /// ([`Self::start_notice_may_show`]); the card is read only where what did
+    /// not open changed. `true` where the dialog shows.
+    pub(crate) fn offer_secrets_notice(&mut self) -> bool {
+        if !self.secrets_unopened_changed || !self.start_notice_may_show() {
+            return false;
+        }
+        self.secrets_unopened_changed = false;
+        if self.secrets_unopened.is_empty() {
+            return false;
         }
         let storage = self.shared.storage.clone();
         let told = told_lines(storage.as_ref());
         if self.secrets_unopened.iter().all(|line| told.contains(line)) {
-            return;
+            return false;
         }
-        // Fallible, as every notice text: short of memory, no notice.
-        let words = self.shared.translator.tr("core.secrets-unopened");
-        let mut text = String::new();
+        // Fallible: short of memory, no dialog (and told at the next start).
         let mut mark = String::new();
-        if text.try_reserve_exact(words.len()).is_err()
-            || mark
-                .try_reserve_exact(17 * self.secrets_unopened.len())
-                .is_err()
+        if mark
+            .try_reserve_exact(17 * self.secrets_unopened.len())
+            .is_err()
         {
-            return;
+            return false;
         }
-        text.push_str(words);
-        self.notify(text);
+        self.shared
+            .registry
+            .screens
+            .insert_fixed(&crate::host_screen::SECRETS);
+        self.open(SCREEN, None, &paperpaw_sdk::Params::new());
+        if !self.stack.last().is_some_and(|top| top.id == SCREEN) {
+            return false;
+        }
+        self.waiting_notices.start_notice_shown = true;
         for line in &self.secrets_unopened {
             let _ = core::fmt::Write::write_fmt(&mut mark, format_args!("{line:016x}\n"));
         }
         // A card that takes no write tells again at the next start.
         let _ = storage.write(TOLD_FILE, mark.as_bytes());
+        true
+    }
+
+    /// The dialog's *Remove them*: the lines of the file that did not open
+    /// here (those the dialog told of, byte for byte) are removed; every
+    /// other line stays as it is. Then the file is read again.
+    pub(crate) fn remove_unopened_secrets(&mut self) {
+        use paperpaw_sdk::secrets::FILE;
+        let storage = self.shared.storage.clone();
+        let Ok(Some(data)) =
+            paperpaw_sdk::files::load_for_update(storage.as_ref(), FILE, crate::MAX_SECRETS)
+        else {
+            return;
+        };
+        let text = String::from_utf8_lossy(&data);
+        let mut kept = String::new();
+        if kept.try_reserve_exact(text.len()).is_err() {
+            return;
+        }
+        for line in text.lines().map(|line| line.trim_end_matches('\r')) {
+            if !self.secrets_unopened.contains(&fnv1a64(line.as_bytes())) {
+                kept.push_str(line);
+                kept.push('\n');
+            }
+        }
+        if kept.len() == text.len() {
+            return;
+        }
+        let written = if kept.is_empty() {
+            storage.remove(FILE)
+        } else {
+            storage.write(FILE, kept.as_bytes())
+        };
+        if let Err(error) = written {
+            self.warn_runtime(alloc::format!("{FILE}: not written ({error})"));
+            return;
+        }
+        self.read_secrets();
     }
 }
 

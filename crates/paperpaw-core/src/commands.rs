@@ -85,7 +85,7 @@ impl Kernel {
                 break;
             }
         }
-        if self.offer_literata_notice() {
+        if self.offer_literata_notice() || self.offer_secrets_notice() {
             self.finish_commands();
         }
         self.finish_frame()
@@ -677,6 +677,10 @@ impl Kernel {
     pub(crate) fn emit(&mut self, event: &Id, params: &Params) {
         if *event == crate::native_host::literata_notice::ANSWERED {
             self.literata_notice_answer(params);
+            return;
+        }
+        if *event == crate::secrets_i6::REMOVE {
+            self.remove_unopened_secrets();
             return;
         }
         self.emit_to(event, params, None);
