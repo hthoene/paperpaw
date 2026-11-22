@@ -225,7 +225,7 @@ pub struct FatStorage<IO: ReadWriteSeek + 'static> {
 /// Why there is no FAT file system PaperPaw can read on `blocks`.
 pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<FatStorage<SharedDisk<B>>, VolumeError> {
     let disk = SharedDisk::new(BlockDisk::volume(blocks)?);
-    let fs = Volume::new(disk.clone()).map_err(|_| VolumeError::NoFat)?;
+    let fs = Volume::new(disk.clone()).map_err(|e| disk::mount_error(&e))?;
     Ok(FatStorage::owned(fs).with_disk(disk))
 }
 
