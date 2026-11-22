@@ -109,6 +109,21 @@ impl Kernel {
         }
     }
 
+    /// Forgets the presses and touches under way, after a sleep: none is
+    /// followed across it, and a release lost while the device slept would
+    /// hold its button on (a long press nobody made, the next press taken
+    /// for a repeat, a key held for the plugins, #483). A finger a screen
+    /// captured stays its own: the screen hears its end.
+    pub(crate) fn forget_presses(&mut self) {
+        self.input.recognizer.forget_all();
+        self.input.edge_touch = None;
+        self.input.edge_pending = None;
+        self.input.pending = None;
+        self.input.swapped.clear();
+        self.shared.keys_held.clear();
+        self.forget_raw();
+    }
+
     pub(crate) fn pointer(&mut self, event: PointerEvent) {
         if event.phase == PointerPhase::Down {
             self.input.pressed_on = self.input_index().map(|index| self.stack[index].serial);
