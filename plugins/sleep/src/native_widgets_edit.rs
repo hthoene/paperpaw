@@ -31,7 +31,6 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages,
     mem::{SERVICE_BUFFER, buffer, push},
-    style::setting_text,
     text::copy,
 };
 
@@ -188,10 +187,13 @@ impl Editor {
     fn read(&mut self, host: &Host<'_>) -> Result<(), Error> {
         self.widgets.clear();
         if let Some(setting) = &self.setting {
-            let value = match setting_text(host, setting) {
+            // The whole list (the kit's text read holds 512 bytes): a list
+            // that cannot be read is no empty one, which an edit would write
+            // over it.
+            let value = match crate::native_screen::read_text(host, setting) {
                 Ok(value) => value,
-                Err(Error::NoMemory) => return Err(Error::NoMemory),
-                Err(_) => String::new(),
+                Err(Error::NotFound) => String::new(),
+                Err(error) => return Err(error),
             };
             for id in ids(&value) {
                 push(&mut self.widgets, copy(id)?)?;
@@ -377,6 +379,8 @@ impl Editor {
                     from: row,
                     to: row,
                 });
+                // Nothing moved yet: nothing to draw.
+                return Ok(Some(Handled::Yes));
             }
             (PointerPhase::Move, Some(mut held)) if held.contact == contact => {
                 let to = self
@@ -406,11 +410,17 @@ impl Editor {
                     self.store(host, widgets, false)?;
                     self.list.set_focus(to);
                     self.rows(host, &mut Messages::new()?)?;
+                } else if held.to == held.from {
+                    // Let go where it was taken, never drawn elsewhere.
+                    return Ok(Some(Handled::Yes));
                 }
             }
             (PointerPhase::Cancel, Some(held)) if held.contact == contact => {
                 *drag = None;
                 self.list.set_drag(None);
+                if held.to == held.from {
+                    return Ok(Some(Handled::Yes));
+                }
             }
             _ => return Ok(None),
         }
