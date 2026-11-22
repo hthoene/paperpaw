@@ -21,25 +21,28 @@ impl crate::Kernel {
         }
     }
 
+    /// Whether a start notice (this hint, the one of passwords that do not
+    /// open) may show now: none showed since the start, and the home screen is
+    /// on top alone and settled (nothing waits to be shown or done).
+    pub(crate) fn start_notice_may_show(&self) -> bool {
+        let home = self.stack.len() == 1
+            && self
+                .stack
+                .last()
+                .is_some_and(|s| s.slot.as_ref() == Some(&slots::HOME));
+        home && !self.waiting_notices.start_notice_shown
+            && !self.show_pending
+            && self.output.commands.is_empty()
+            && self.service_due().is_none_or(|at| at > self.shared.now)
+    }
+
     /// Only the settled Home screen may receive the upgrade hint, never Setup
     /// or a reader that is reopening its book. This is not called from input.
     #[inline(never)]
     pub(crate) fn offer_literata_notice(&mut self) -> bool {
         if !self.waiting_notices.literata.pending
             || self.waiting_notices.literata.seen
-            || self.waiting_notices.start_notice_shown
-        {
-            return false;
-        }
-        let home = self.stack.len() == 1
-            && self
-                .stack
-                .last()
-                .is_some_and(|s| s.slot.as_ref() == Some(&slots::HOME));
-        if !home
-            || self.show_pending
-            || !self.output.commands.is_empty()
-            || self.service_due().is_some_and(|at| at <= self.shared.now)
+            || !self.start_notice_may_show()
         {
             return false;
         }

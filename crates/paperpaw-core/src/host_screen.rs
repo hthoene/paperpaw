@@ -40,6 +40,7 @@ pub(crate) enum Kind {
     Confirm,
     Literata,
     LowMemory,
+    Secrets,
     #[cfg(feature = "turn-lab")]
     TurnLab,
 }
@@ -78,6 +79,7 @@ impl HostEntry {
             Kind::Confirm => HostScreen::Confirm(Box::new(confirm::Confirm::new(env, params))),
             Kind::Literata => HostScreen::Start(Box::new(StartNotice::literata(env, params))),
             Kind::LowMemory => HostScreen::Start(Box::new(StartNotice::low_memory(env, params))),
+            Kind::Secrets => HostScreen::Start(Box::new(StartNotice::secrets(env))),
             #[cfg(feature = "turn-lab")]
             Kind::TurnLab => HostScreen::TurnLab(Box::new(turn_lab::TurnLab::new(env, params))),
         }
@@ -119,6 +121,14 @@ pub(crate) static LITERATA: HostEntry = HostEntry::new(
     crate::native_host::literata_notice::SCREEN,
     "core.literata-pack.title",
     Kind::Literata,
+);
+
+/// The dialog of passwords that do not open here, listed only once it is due
+/// (`offer_secrets_notice`, #466).
+pub(crate) static SECRETS: HostEntry = HostEntry::new(
+    crate::secrets_i6::SCREEN,
+    "core.secrets-unopened.title",
+    Kind::Secrets,
 );
 
 /// One of the host's screens on the stack.
