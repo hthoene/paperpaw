@@ -742,9 +742,10 @@ impl Page {
 }
 
 impl Page {
-    /// Whether this page is past the end of the document.
+    /// Whether this page is past the end of the document: nothing is on it,
+    /// no line, picture or rule (a table's row of empty cells is its rules).
     pub fn is_past_end(&self) -> bool {
-        self.lines.is_empty() && self.images.is_empty()
+        self.lines.is_empty() && self.images.is_empty() && self.rules.is_empty()
     }
 }
 
