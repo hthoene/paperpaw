@@ -13,7 +13,7 @@ mod common;
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
-use common::{blocks, book};
+use common::{blocks, book, container, opf, xhtml, zip};
 use paperpaw_epub_family::EpubDocument;
 use paperpaw_sdk::document::{Block, BlockKind, Document, Locator};
 use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
@@ -292,4 +292,42 @@ fn a_chapter_whose_pictures_cannot_be_noted_is_not_complete() {
     let read = read(&card).unwrap();
     let good = read.iter().find(|(_, block)| block.text == "Good").unwrap();
     assert_eq!(good.1.kind, BlockKind::Image);
+}
+
+/// The printed pages the card refuses to list (`pages.txt`) fail the
+/// book's package: kept, the book would have no page labels for good.
+#[test]
+fn a_book_whose_printed_pages_cannot_be_listed_is_not_kept_without_them() {
+    let items = [
+        ("nav", "nav.xhtml", "application/xhtml+xml", "nav"),
+        ("c0", "c0.xhtml", "application/xhtml+xml", ""),
+    ];
+    let nav = "<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\
+        <body><nav epub:type=\"page-list\"><ol><li><a href=\"c0.xhtml#p1\">1</a></li></ol></nav>\
+        </body></html>";
+    let epub = zip(
+        &[
+            (
+                "META-INF/container.xml",
+                container("OEBPS/content.opf").into_bytes(),
+            ),
+            (
+                "OEBPS/content.opf",
+                opf("<dc:title>Pages</dc:title>", &items, &["c0"]).into_bytes(),
+            ),
+            ("OEBPS/nav.xhtml", nav.as_bytes().to_vec()),
+            ("OEBPS/c0.xhtml", xhtml("<p id=\"p1\">One</p>").into_bytes()),
+        ],
+        false,
+    );
+    let card = Card::with(epub);
+    card.refused.set(Some("/pages.txt"));
+    assert_eq!(read(&card), None);
+    card.refused.set(None);
+    let doc = EpubDocument::open(&card, PATH).unwrap();
+    let [(_, block)] = &blocks(&doc, &card)[..] else {
+        panic!("one block");
+    };
+    let label = doc.page_label(&card, Locator::new(0, block.start));
+    assert_eq!(label.as_deref(), Some("1"));
 }
