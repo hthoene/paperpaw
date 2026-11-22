@@ -3,7 +3,7 @@ use super::{
     Error, Host,
     wire::settings_wire::{self as wire, settings_decode},
 };
-use paperpaw_native::host_glue::{PpBuffer, PpBytes};
+use paperpaw_native::host_glue::{ERR_NO_SPACE, PpBuffer, PpBytes};
 
 /// A decoded settings value. Text borrows the scratch buffer supplied to [`read_setting`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,23 +113,32 @@ pub fn encode_value<'o>(value: SettingValue<'_>, out: &'o mut [u8]) -> Result<&'
         SettingValue::Text(value) => wire::SettingValueRef::Text(value),
         _ => return Err(Error::Invalid),
     };
-    let mut raw = [core::mem::MaybeUninit::new(0_u8); ENCODED_MAX];
-    let length = wire::settings_encode(value, &mut raw).map_err(Error::from_status)?;
-    let (slots, room) = (raw.get(..length), out.get_mut(..length));
-    let (Some(slots), Some(room)) = (slots, room) else {
-        return Err(Error::NoSpace);
-    };
-    for (to, from) in room.iter_mut().zip(slots) {
-        // SAFETY: every slot was initialized above, and `settings_encode`
-        // writes initialized bytes only.
-        *to = unsafe { from.assume_init() };
-    }
-    Ok(&*room)
+    encode_into(value, out)
+        .map(|encoded| &*encoded)
+        .map_err(Error::from_status)
 }
 
-/// The most bytes of an encoded value [`encode_value`] makes (a number, a
-/// switch or a short text).
-const ENCODED_MAX: usize = 64;
+/// `value` encoded straight into the start of `out`, the part written
+/// returned: as long a value as `out` holds, with no copy in between.
+///
+/// # Errors
+/// `ERR_NO_SPACE` when the value does not fit in `out` (its start may then be
+/// written) or is a text over the settings cap.
+pub(crate) fn encode_into<'o>(
+    value: wire::SettingValueRef<'_>,
+    out: &'o mut [u8],
+) -> Result<&'o mut [u8], i32> {
+    // SAFETY: u8 and MaybeUninit<u8> have the same layout, and the encoder
+    // only ever stores initialized bytes, so `out` stays initialized.
+    let slots = unsafe {
+        core::slice::from_raw_parts_mut(
+            out.as_mut_ptr().cast::<core::mem::MaybeUninit<u8>>(),
+            out.len(),
+        )
+    };
+    let length = wire::settings_encode(value, slots)?;
+    out.get_mut(..length).ok_or(ERR_NO_SPACE)
+}
 
 fn read_raw(host: &Host<'_>, key: &str, scratch: &mut [u8]) -> Result<usize, Error> {
     // SAFETY: the key and exclusively borrowed output remain live for this call.
