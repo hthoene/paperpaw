@@ -827,6 +827,27 @@ mod kernel {
         assert_eq!(ORDER.with(|order| order.borrow().clone()), ["native"]);
     }
 
+    /// A release a filter takes, or turns into an action or an input, ends
+    /// the press for the kernel too: held on, the button fired a long press
+    /// of its own later and its next press was swallowed (#483).
+    #[test]
+    fn a_release_a_filter_takes_lets_the_button_go() {
+        for mode in [TAKE, RAISE, GESTURE] {
+            let (mut kernel, _) = world();
+            kernel.handle(paperpaw_platform::Instant(10), press("up"));
+            assert!(kernel.input.recognizer.holds("up"));
+            MODE.set(mode);
+            kernel.handle(
+                paperpaw_platform::Instant(20),
+                InputEvent::Button {
+                    name: "up",
+                    state: ButtonState::Released,
+                },
+            );
+            assert!(!kernel.input.recognizer.holds("up"), "mode {mode}");
+        }
+    }
+
     #[test]
     fn a_made_gesture_belongs_to_the_screen_on_top_not_to_the_last_one_touched() {
         let (mut kernel, _) = world();
