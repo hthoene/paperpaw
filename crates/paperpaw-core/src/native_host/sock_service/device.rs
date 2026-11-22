@@ -121,6 +121,10 @@ impl SockHost for SockDevice {
         }
     }
 
+    fn owner_gone(&self, owner: u64) {
+        self.paths.forget(owner);
+    }
+
     fn resource_opened(&self, run: u64) -> Result<(), i32> {
         self.paths.owners().resource_opened(run)
     }

@@ -518,3 +518,20 @@ fn a_plugin_that_is_off_or_offline_creates_no_demand_and_it_ends_with_the_last_s
         "idle after the last socket"
     );
 }
+
+/// A stopped plugin's id is let go once its sockets are cleaned up: kept, it
+/// grew the list at every restart of a plugin that used sockets, and the
+/// stopped owner's id still let its network out (#483).
+#[test]
+fn a_stopped_plugins_id_is_let_go_after_its_cleanup() {
+    let f = fixture(false);
+    open(&f);
+    assert_eq!(f.device.power_end(OWNER, false), None, "known: let out");
+    f.device.paths.owners().withdraw(OWNER);
+    table::owner_stopped(&f.device, OWNER).unwrap();
+    assert_eq!(
+        f.device.power_end(OWNER, false).map(|end| end.reason),
+        Some(reason::NETWORK_OFF),
+        "not known any more: the safe answer"
+    );
+}
