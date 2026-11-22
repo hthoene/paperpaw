@@ -454,7 +454,11 @@ impl Kernel {
         self.open_slot_command(slots::READER, None, opened);
     }
 
-    /// Carries out a command, by its kind.
+    /// Carries out a command, by its kind. Never inlined: the start's stack
+    /// check (`tools/check-x4-start-stack.py`, `START_CUTS`) cuts the kernel's
+    /// build at this symbol; inlined into its caller, the main loop's install
+    /// chain would count as the start's (#466 grew the X4 Pro's by 13.7 KB).
+    #[inline(never)]
     pub(crate) fn apply(&mut self, command: Ask) {
         // Network use the plugin's manifest does not declare: refused.
         let Some(command) = self.declared_network(command) else {
