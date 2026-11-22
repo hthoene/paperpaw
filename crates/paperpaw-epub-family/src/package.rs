@@ -930,19 +930,20 @@ fn write_toc(
     storage.write(&pages_path, &[])?;
     if let Some(nav) = nav {
         let mut pages = String::new();
+        // The first refusal (of room, of the card) ends the list: a list cut
+        // short would be kept as the book's.
+        let mut failed: Option<DocumentError> = None;
         let mut add_page = |label: String, file: &str, fragment: Option<&str>| {
-            let Some(fragment) = fragment else {
+            let (Some(fragment), None) = (fragment, &failed) else {
                 return;
             };
             if let Some(section) = sections.of(file) {
-                let one = |s: &str| s.replace(['\t', '\n'], " ");
-                pages.push_str(&alloc::format!(
-                    "{section}\t{}\t{}\n",
-                    one(fragment),
-                    one(&label)
-                ));
-                if pages.len() >= 1024 {
-                    let _ = storage.append(&pages_path, pages.as_bytes());
+                failed = page_line(&mut pages, section, fragment, &label).err();
+                if failed.is_none() && pages.len() >= 1024 {
+                    failed = storage
+                        .append(&pages_path, pages.as_bytes())
+                        .err()
+                        .map(Into::into);
                     pages.clear();
                 }
             }
@@ -954,7 +955,10 @@ fn write_toc(
             &mut |t, l, f, fr| add(&mut toc, t, l, f, fr),
             &mut add_page,
         );
-        let _ = storage.append(&pages_path, pages.as_bytes());
+        if let Some(e) = failed {
+            return Err(e);
+        }
+        storage.append(&pages_path, pages.as_bytes())?;
         only_out_of_memory(read)?;
     }
     if let Some(ncx) = ncx
@@ -965,6 +969,28 @@ fn write_toc(
         }))?;
     }
     toc.finish()
+}
+
+/// Writes the line of `pages.txt` for a printed page onto `out`: its section,
+/// fragment and label, with tabs and line breaks in them made spaces.
+fn page_line(
+    out: &mut String,
+    section: u32,
+    fragment: &str,
+    label: &str,
+) -> Result<(), DocumentError> {
+    fallible::try_write!(out, "{section}")?;
+    for field in [fragment, label] {
+        // As long as the field: a tab or a line break is one byte, as a space.
+        fallible::reserve_str(out, field.len() + 1)?;
+        out.push('\t');
+        out.extend(
+            field
+                .chars()
+                .map(|c| if matches!(c, '\t' | '\n') { ' ' } else { c }),
+        );
+    }
+    fallible::push_char(out, '\n')
 }
 
 /// Only running out of memory from reading a table of contents: without

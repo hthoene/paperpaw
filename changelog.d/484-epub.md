@@ -9,3 +9,6 @@
 - **Pictures in books** (#484): when the card refuses the list of a chapter's
   pictures (it is full), the chapter is converted again later instead of
   showing those pictures as their descriptions for good.
+- **Printed page numbers** (#484): when the card refuses the list of a book's
+  printed pages, the book is read again later instead of keeping no page
+  numbers for good.
