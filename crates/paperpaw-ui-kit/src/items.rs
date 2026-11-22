@@ -22,6 +22,7 @@ mod changed;
 mod empty;
 mod extra;
 mod grip;
+mod head;
 mod pages;
 mod row;
 pub(crate) use row::draw_row;
@@ -33,6 +34,7 @@ pub(crate) use empty::Spot;
 use empty::{draw_empty, draw_progress};
 pub use extra::RowExtra;
 use grip::{draw_drag, draw_row_with_grip};
+use head::Head;
 use row::{note_line_count, title_lines};
 use stepper::draw_stepper;
 use track::Stepped;
@@ -91,17 +93,6 @@ pub struct RowItem {
     /// A value too long for the line of its title is wrapped to a line of
     /// its own under it, at the right (as in Beta 3), not cut with "…".
     pub wrap_value: bool,
-}
-
-/// Room above the rows of the first page that the owner fills with something it
-/// composes in (a widget's preview), under a heading. The list reserves it and says
-/// where it is ([`ItemList::head_rect`]); it draws nothing in it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct Head {
-    title: String,
-    /// The room's height in pixels, under the heading; 0 takes no room, heading
-    /// included.
-    height: u16,
 }
 
 /// An entry of an [`ItemList`].
@@ -389,33 +380,6 @@ impl ItemList {
         &self.items
     }
 
-    /// Keeps room above the rows of the first page, under the heading `title`,
-    /// for something the owner composes in: none until its height is set
-    /// ([`Self::set_head_height`]).
-    ///
-    /// # Errors
-    /// [`Error::NoMemory`] when the text cannot be copied.
-    pub fn set_head(&mut self, title: &str) -> Result<(), Error> {
-        self.head = Some(Head {
-            title: text::copy(title)?,
-            height: 0,
-        });
-        Ok(())
-    }
-
-    /// Gives the room above the rows `height` pixels (0: none, no heading);
-    /// whether that changed what the list shows. A room higher than the page
-    /// leaves is cut at the draw, so that the first row stays on it.
-    pub fn set_head_height(&mut self, height: u16) -> bool {
-        match &mut self.head {
-            Some(head) if head.height != height => {
-                head.height = height;
-                true
-            }
-            _ => false,
-        }
-    }
-
     /// Puts the icon named `name` over the words of an empty list
     /// ([`Footer::Empty`]); none where no icon font has it.
     ///
@@ -428,16 +392,6 @@ impl ItemList {
             crate::icons::glyph(host, name)?
         };
         Ok(())
-    }
-
-    /// The room above the rows as the last frame drew it, in the frame's pixels;
-    /// `None` where there is none or the page shown is not the first.
-    #[must_use]
-    pub const fn head_rect(&self) -> Option<Rect> {
-        match self.spot {
-            Spot::Head(rect) => Some(rect),
-            _ => None,
-        }
     }
 
     /// The focused item.
@@ -651,26 +605,6 @@ impl ItemList {
         self.draw_with(host, frame, title, shown, Footer::None)
     }
 
-    /// The height of the head on the first page, kept to the page.
-    fn head_high(&self, style: &Style, room: u16, first_row: Option<u16>) -> u16 {
-        let high = self.head.as_ref().map_or(0, |h| head_height(style, h));
-        head_fit(high, room, first_row)
-    }
-
-    /// Draws the head's heading in `room` (none: nothing) and gives the room under
-    /// it.
-    fn draw_head(
-        &self,
-        body: &mut Vec<Paint>,
-        (font, style): (&Font<'_>, &Style),
-        room: Rect,
-    ) -> Result<Option<Rect>, Error> {
-        match &self.head {
-            Some(head) if room.height > 0 => head_room(body, font, style, room, head),
-            _ => Ok(None),
-        }
-    }
-
     /// The heights of the items: the kept ones where they were measured under
     /// this look and width, else measured now, and what they are measured
     /// under. The caller gives them back ([`Self::keep_heights`]) once the
@@ -741,7 +675,7 @@ impl ItemList {
             area.height = area.height.saturating_sub(rect.height);
         }
         let (heights, under) = self.take_heights(&font, style, width)?;
-        let head_high = self.head_high(style, area.height, heights.first().copied());
+        let head_high = self.head_high(style, area.height, &heights);
         let starts = paginate_with(&self.items, &heights, area.height, head_high)?;
         let page = starts
             .iter()
@@ -1211,39 +1145,6 @@ fn translated(messages: &mut Messages, host: &Host<'_>, title: &str) -> Result<S
         Err(Error::NotFound | Error::Invalid) => text::copy(title),
         other => other,
     }
-}
-
-/// The height of the head with its room: none while the room has none.
-fn head_height(style: &Style, head: &Head) -> u16 {
-    if head.height == 0 {
-        0
-    } else {
-        style.heading.saturating_add(head.height)
-    }
-}
-
-/// The head's height kept to the page: the first row stays on it, so a head as
-/// high as the page or higher is cut to the room the first row leaves.
-fn head_fit(head: u16, room: u16, first_row: Option<u16>) -> u16 {
-    head.min(room.saturating_sub(first_row.unwrap_or(0)))
-}
-
-/// Draws the heading of the head and gives the room under it.
-fn head_room(
-    paint: &mut Vec<Paint>,
-    font: &Font<'_>,
-    style: &Style,
-    rect: Rect,
-    head: &Head,
-) -> Result<Option<Rect>, Error> {
-    let top = Rect::new(rect.x, rect.y, rect.width, style.heading.min(rect.height));
-    heading(paint, font, style, top, &head.title)?;
-    Ok(Some(Rect::new(
-        rect.x,
-        rect.y.saturating_add(top.height),
-        rect.width,
-        rect.height.saturating_sub(top.height),
-    )))
 }
 
 pub(crate) fn heading(
