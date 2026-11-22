@@ -164,15 +164,15 @@ struct Open<IO: ReadWriteSeek + 'static> {
 
 impl<IO: ReadWriteSeek + 'static> Open<IO> {
     /// Writes back what was appended (its size in its folder, the disk's
-    /// blocks).
+    /// blocks). Refused by the card, it is still to do: the next call does it.
     fn flush(&mut self) -> Result<(), StorageError> {
         if self.dirty {
-            self.dirty = false;
             // The clusters taken ahead of an append and not used (see
             // `FatStorage::append`) are given back first, so that the entry's
             // size and the chain agree once written.
             self.file.trim_ahead().map_err(error)?;
             self.file.flush().map_err(error)?;
+            self.dirty = false;
         }
         Ok(())
     }
@@ -225,7 +225,7 @@ pub struct FatStorage<IO: ReadWriteSeek + 'static> {
 /// Why there is no FAT file system PaperPaw can read on `blocks`.
 pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<FatStorage<SharedDisk<B>>, VolumeError> {
     let disk = SharedDisk::new(BlockDisk::volume(blocks)?);
-    let fs = Volume::new(disk.clone()).map_err(|_| VolumeError::NoFat)?;
+    let fs = Volume::new(disk.clone()).map_err(|e| disk::mount_error(&e))?;
     Ok(FatStorage::owned(fs).with_disk(disk))
 }
 

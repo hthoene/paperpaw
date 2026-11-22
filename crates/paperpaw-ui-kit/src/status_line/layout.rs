@@ -142,18 +142,26 @@ pub fn layout(size: f32, (x0, room): (f32, f32), mut parts: Parts) -> Vec<Laid> 
     } else {
         width(&center) + gap
     };
-    let beside = left_room + if left.is_empty() { 0.0 } else { gap } + center_need;
+    // A gap only beside a part that is there.
+    let left_gap = if left.is_empty() { 0.0 } else { gap };
+    let right_gap = if right.is_empty() { 0.0 } else { gap };
+    let beside = left_room + left_gap + center_need;
     let right_room = (room - beside).max(room / 2.0);
     let right_x = x1 - width(&right).min(right_room);
-    let center_room = (right_x - gap - x0 - left_room).max(0.0);
-    let center_w = width(&center).min(center_room);
-    // Centred, unless that runs into the right part.
+    let center_end = right_x - right_gap;
+    let center_start = x0 + left_room + left_gap;
+    let center_w = width(&center).min((center_end - center_start).max(0.0));
+    // Centred, unless that runs into the right part or the left's few letters.
     let center_x = (x0 + (room - center_w) / 2.0)
-        .min(right_x - gap - center_w)
-        .max(x0 + left_room);
-    let left_end = if center.is_empty() { right_x } else { center_x } - gap;
+        .min(center_end - center_w)
+        .max(center_start);
+    let left_end = if center.is_empty() {
+        center_end
+    } else {
+        center_x - gap
+    };
     let mut laid = Vec::new();
-    place(&mut laid, &center, gap, (center_x, right_x - gap));
+    place(&mut laid, &center, gap, (center_x, center_end));
     place(&mut laid, &right, gap, (right_x, x1));
     place(&mut laid, &left, gap, (x0, left_end));
     laid
@@ -215,6 +223,32 @@ mod tests {
         assert!(by(0).width < 400.0, "the long text is cut");
         assert_eq!(by(1).width, 40.0);
         assert_eq!(by(2).width, 20.0);
+    }
+
+    #[test]
+    fn a_long_centre_keeps_its_gap_from_the_left_and_the_left_stays_whole() {
+        // A clock of 25 px and a centre of 150 px in 200 px: the gap goes
+        // between them, not out of the clock; no right part takes no gap.
+        let parts = [
+            alloc::vec![item(0, 100, 25.0, true)],
+            alloc::vec![item(1, 100, 150.0, true)],
+            Vec::new(),
+        ];
+        let laid = layout(10.0, (0.0, 200.0), parts);
+        let by = |index: usize| laid.iter().find(|l| l.index == index).unwrap();
+        assert_eq!((by(0).x, by(0).width), (0.0, 25.0));
+        assert_eq!((by(1).x, by(1).width), (35.0, 150.0));
+        // Alone, the left part has the whole line.
+        let laid = layout(
+            10.0,
+            (0.0, 200.0),
+            [
+                alloc::vec![item(0, 100, 200.0, true)],
+                Vec::new(),
+                Vec::new(),
+            ],
+        );
+        assert_eq!(laid[0].width, 200.0);
     }
 
     #[test]

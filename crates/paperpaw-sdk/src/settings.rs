@@ -891,10 +891,7 @@ impl Settings {
     pub fn set_preview(&mut self, values: Vec<(Id, Option<SettingValue>)>) {
         self.preview = VecMap::default();
         for (id, value) in values {
-            let fits = self.with_spec(id.as_str(), |spec| {
-                value.as_ref().is_none_or(|value| spec.accepts(value))
-            });
-            if fits == Ok(Some(true)) {
+            if takes(self, &id, value.as_ref()) {
                 self.preview.insert(id, value);
             }
         }
@@ -919,14 +916,14 @@ impl Settings {
         self.limits = VecMap::default();
         self.released.clear();
         for (id, value) in values {
-            if self.with_spec(id.as_str(), |spec| spec.accepts(&value)) == Ok(Some(true)) {
+            if takes(self, &id, Some(&value)) {
                 touched.push(id.clone());
                 self.worn.insert(id, value);
             }
         }
         for (id, limit) in limits {
             let value = SettingValue::Int(limit);
-            if self.with_spec(id.as_str(), |spec| spec.accepts(&value)) == Ok(Some(true)) {
+            if takes(self, &id, Some(&value)) {
                 touched.push(id.clone());
                 self.limits.insert(id, value);
             }
@@ -1460,6 +1457,19 @@ impl Settings {
     pub fn specs(&self) -> impl Iterator<Item = &SettingSpec> {
         self.specs.iter()
     }
+}
+
+/// Whether setting `id` takes `value` (`None`: as if not set), for a value
+/// shown over the kept ones ([`Settings::set_preview`], [`Settings::wear`]).
+/// Where the heap has no room for its spec now the value is left out and
+/// that is noted, as nobody is told of it otherwise.
+#[cfg(any(test, feature = "kernel"))]
+fn takes(settings: &Settings, id: &Id, value: Option<&SettingValue>) -> bool {
+    let fits = settings.with_spec(id.as_str(), |spec| value.is_none_or(|v| spec.accepts(v)));
+    if fits == Err(SettingError::Full) {
+        settings.specs.note_short();
+    }
+    fits == Ok(Some(true))
 }
 
 mod declared;

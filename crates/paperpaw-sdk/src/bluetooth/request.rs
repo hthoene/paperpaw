@@ -1,7 +1,7 @@
 use super::*;
 
-/// What a plugin asks of the radio, as the kernel gets it; plugins write
-/// it with the functions of this module.
+/// What a plugin asks of the radio, as the kernel gets it (see the
+/// module's note).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BtCommand {

@@ -126,7 +126,9 @@ pub(crate) fn try_note_all(
             note.source
         )?;
     }
-    let _ = storage.append(&path, lines.as_bytes());
+    // Unnoted, the pictures would be their alternative text in a chapter
+    // kept as complete: the conversion fails instead, to be made again.
+    storage.append(&path, lines.as_bytes())?;
     notes.clear();
     Ok(())
 }

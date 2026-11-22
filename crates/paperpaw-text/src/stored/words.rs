@@ -2,11 +2,14 @@
 //! #314), for the line breaker (`crate::linebreak`), which is given no
 //! font: per script the first pack opened with one is noted (its table's
 //! head read for the script), and the table is read into memory
-//! (some 16 KB for the store's, at most [`MAX_WORDS`]) the first time Thai
-//! text is broken into lines, then held until a pack is trimmed or the
-//! noted one is closed. A table that cannot be read (memory short, a card
-//! pulled) counts as a failed read of every pack, so that a layout that
-//! keeps pages keeps none made without it; it is tried again after a trim.
+//! (some 16 KB for the store's, at most [`MAX_WORDS`]) the first time text
+//! of its script is broken into lines, then held until a pack is trimmed.
+//! The noted pack is held weakly, and nothing tells the static when it is
+//! closed: its table is let go when text of its script is broken next, or
+//! another pack with one is noted, or at a trim. A table that cannot be
+//! read (memory short, a card pulled) counts as a failed read of every
+//! pack, so that a layout that keeps pages keeps none made without it; it
+//! is tried again after a trim.
 //!
 //! The table is held in a static, which only the kernel may have (a native
 //! plugin has no writable data, ADR 0024): built without the `kernel`

@@ -288,6 +288,22 @@ fn deeply_nested_elements_take_little_memory_and_storage() {
 }
 
 #[test]
+fn a_deeply_nested_formula_takes_little_memory() {
+    // The formula is kept as markup for another plugin: its elements below
+    // the deepest kept are counted, not each held by name.
+    let depth = 100_000;
+    let chapter = format!(
+        "<html><body><p>Es gilt <math>{}<mi>x</mi>{}</math> immer.</p></body></html>",
+        "<mrow>".repeat(depth),
+        "</mrow>".repeat(depth)
+    );
+    let card = Card::new("book.epub", epub(&chapter));
+    let (read, peak) = open_and_read(&card);
+    assert!(peak < PLAIN_PEAK, "{peak} bytes at once");
+    assert_eq!(read.last, "Es gilt x immer.");
+}
+
+#[test]
 fn unclosed_paragraphs_are_ended_by_the_next() {
     let mut chapter = String::from("<html><body>");
     for i in 0..1500 {
@@ -384,6 +400,29 @@ fn what_a_chapter_writes_is_bounded_by_its_size() {
     let doc = EpubDocument::open(&card, "book.epub").unwrap();
     assert_eq!(read_all(&doc, &card), read);
     assert_eq!(card.writes.get(), writes);
+}
+
+#[test]
+fn a_fictionbook_is_read_no_further_than_its_budget() {
+    // As above: text nodes of a character deep down, whose places take
+    // more than the budget gives each byte of the file; it is spent before
+    // the file's end.
+    let mut book = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?><FictionBook><body>");
+    for depth in 0..8 {
+        book.push_str(&format!("<{}{depth}>", "d".repeat(30)));
+    }
+    for _ in 0..200_000 {
+        book.push_str("<b>x</b>");
+    }
+    book.push_str("</body></FictionBook>");
+    let chunks = book.len() / 1024;
+    let card = Card::new("book.fb2", book.into_bytes());
+    let doc = Fb2Document::open(&card, "book.fb2", true).unwrap();
+    let before = card.reads_of("book.fb2");
+    assert!(doc.block_at(&card, Locator::START).unwrap().is_some());
+    let reads = card.reads_of("book.fb2") - before;
+    // Read to its end, it took a read more than it has pieces.
+    assert!(reads < chunks * 9 / 10, "{reads} reads of {chunks} pieces");
 }
 
 /// `zip` with the data of entry `name` damaged, so it cannot be inflated.

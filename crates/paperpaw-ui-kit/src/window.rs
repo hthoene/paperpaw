@@ -16,7 +16,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
-        commands::{CommandSender, RedrawMode},
+        commands::CommandSender,
         fonts::{Font, FontRole},
         snapshot,
     },
@@ -98,6 +98,9 @@ pub struct WindowList {
     notes: bool,
     /// The arrow keys stay on the page (`focus::keep_arrows_stay`).
     arrows_stay: Option<bool>,
+    /// Where the last frame's region began on the screen: the rows are drawn
+    /// in screen pixels, a redraw area is asked for in the region's.
+    origin: (i32, i32),
 }
 
 impl WindowList {
@@ -203,7 +206,7 @@ impl WindowList {
             ItemStep::Focus(to) => {
                 if to != self.focus {
                     let mut scratch = [0; 64];
-                    CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+                    self.redraw_focus_on(&mut CommandSender::new(host, &mut scratch), to)?;
                     self.focus = to;
                 }
             }
@@ -217,6 +220,19 @@ impl WindowList {
             ItemStep::Ignored => {}
         }
         Ok(step)
+    }
+
+    /// Asks for the frame a focus step to row `to` needs: the row the focus
+    /// leaves and the row it reaches alone where both are on the page drawn
+    /// last, the screen where the step turns the page or the host refuses an
+    /// area.
+    fn redraw_focus_on(
+        &self,
+        to_host: &mut impl crate::list::Redraws,
+        to: usize,
+    ) -> Result<(), Error> {
+        let areas = [self.rect_of(self.focus), self.rect_of(to)];
+        crate::list::redraw_step(to_host, self.origin, areas)
     }
 
     /// Draws the page the focus is on under `title`, asking `source` for the
@@ -295,6 +311,7 @@ impl WindowList {
         self.hits = hits;
         self.per_page = per_page;
         self.focus = focus;
+        self.origin = (frame.rect.x, frame.rect.y);
         Ok(())
     }
 
@@ -390,6 +407,7 @@ fn draw_window_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use paperpaw_sdk::native::callbacks::FrameRect;
 
     fn action(action: &str) -> Input<'_> {
         Input::Action { now_ms: 0, action }
@@ -530,5 +548,49 @@ mod tests {
         );
         assert_eq!(l.rect_of(41), Some(Rect::new(0, 80, 100, 40)));
         assert_eq!(l.rect_of(0), None);
+    }
+
+    /// The areas a focus step asked for, and how often the whole screen.
+    #[derive(Default)]
+    struct Asked {
+        areas: Vec<FrameRect>,
+        whole: usize,
+    }
+
+    impl crate::list::Redraws for Asked {
+        fn area(&mut self, area: FrameRect) -> Result<(), Error> {
+            self.areas.push(area);
+            Ok(())
+        }
+        fn whole(&mut self) -> Result<(), Error> {
+            self.whole += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_step_on_the_page_redraws_its_two_rows_and_one_off_it_the_screen() {
+        // Rows 40 and 41 drawn in a region that began 10 px down the screen.
+        let mut l = list(2, 40);
+        l.hits = Vec::from([
+            (Rect::new(0, 40, 100, 40), 40),
+            (Rect::new(0, 80, 100, 40), 41),
+        ]);
+        l.origin = (0, 10);
+        let mut asked = Asked::default();
+        l.redraw_focus_on(&mut asked, 41).unwrap();
+        assert_eq!(
+            asked.areas,
+            [
+                FrameRect::new(0, 30, 100, 40),
+                FrameRect::new(0, 70, 100, 40)
+            ]
+        );
+        assert_eq!(asked.whole, 0);
+        // Row 42 is on the next page.
+        l.focus = 41;
+        let mut asked = Asked::default();
+        l.redraw_focus_on(&mut asked, 42).unwrap();
+        assert_eq!((asked.areas.len(), asked.whole), (0, 1));
     }
 }

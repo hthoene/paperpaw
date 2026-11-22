@@ -180,11 +180,11 @@ fn read_deflated(
     bitmap.clear();
     bitmap.try_reserve_exact(found.len).ok()?;
     let end = found.start.checked_add(found.len)?;
-    let mut block = Vec::new();
+    let (mut decoder, mut block) = (Vec::new(), Vec::new());
     let mut at = found.start;
     while at < end {
         let number = at / BLOCK;
-        if !deflated.inflate(pack, number, &mut block) {
+        if !deflated.inflate(pack, number, &mut decoder, &mut block) {
             return None;
         }
         let from = at - number * BLOCK;
@@ -324,13 +324,13 @@ impl Cache for Lru {
         self.shrink_to(keep);
         self.spare = Vec::new();
         #[cfg(feature = "kernel")]
-        self.let_blocks_go();
+        self.let_large_go();
         self.entries.shrink_to_fit();
     }
 
     fn clear(&mut self) {
         #[cfg(feature = "kernel")]
-        self.let_blocks_go();
+        self.let_large_go();
         self.entries = Vec::new();
         self.anchored = Vec::new();
         self.spare = Vec::new();
@@ -397,7 +397,7 @@ impl Lru {
 
     /// Lets the held glyph go, and the memory that held it.
     #[cfg(feature = "kernel")]
-    fn let_blocks_go(&mut self) {
+    fn let_large_go(&mut self) {
         self.large = None;
     }
 

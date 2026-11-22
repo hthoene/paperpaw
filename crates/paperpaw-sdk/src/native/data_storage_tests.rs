@@ -312,9 +312,10 @@ fn a_full_card_and_a_bad_path_come_back_as_storage_errors() {
             Storage::size(storage, "../x"),
             Err(StorageError::InvalidPath)
         );
+        // A path over its cap is a bad path, not a full card.
         assert_eq!(
             Storage::size(storage, &"a".repeat(MAX_PATH + 1)),
-            Err(StorageError::Full)
+            Err(StorageError::InvalidPath)
         );
     });
 }

@@ -240,7 +240,9 @@ impl Layout<'_> {
             let mut entry = [0u8; PLUGIN_LEN as usize];
             self.bytes(HEAD_LEN + PLUGIN_LEN * i, &mut entry)?;
             let count = le32(&entry, 12);
-            if count < 1 || file_index + count > head.files {
+            // Taken from what is left, not added: `count` is the file's and
+            // may be any word; `file_index` never passes `head.files`.
+            if count < 1 || count > head.files - file_index {
                 return Err(BundleProblem::Layout);
             }
             entries.push((entry, count));
@@ -668,6 +670,22 @@ mod tests {
         padded[pad] = 1;
         seal(&mut padded);
         assert_eq!(read(&padded), Err(BundleProblem::Layout));
+    }
+
+    #[test]
+    fn a_file_count_past_any_bundle_is_refused() {
+        let mut bundle = build(
+            &image(),
+            &[
+                ("a", "1", &[("plugin.ini", b"x")]),
+                ("b", "1", &[("plugin.ini", b"y")]),
+            ],
+        );
+        // The second plugin's count: added to the first's, it would wrap.
+        let at = HEAD_LEN as usize + PLUGIN_LEN as usize + 12;
+        bundle[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        seal(&mut bundle);
+        assert_eq!(read(&bundle), Err(BundleProblem::Layout));
     }
 
     #[test]

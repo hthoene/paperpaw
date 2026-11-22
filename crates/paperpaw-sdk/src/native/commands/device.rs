@@ -8,6 +8,10 @@
 use super::{CommandSender, Error, wire};
 use crate::native::ui::Open;
 
+/// The shortest password a hosted network takes (WPA2's least; the wire
+/// says only the most).
+const WIFI_HOST_PASSWORD_MIN_BYTES: usize = 8;
+
 /// What a power command does after the screen before it in its batch has drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -181,7 +185,11 @@ impl CommandSender<'_, '_> {
     /// Returns `Invalid` for a zero request, an empty or overlong name, or a
     /// password outside 8..=63 bytes; buffer limits or the host's refusal.
     pub fn wifi_host(&mut self, request: u32, ssid: &str, password: &str) -> Result<(), Error> {
-        if request == 0 || ssid.is_empty() || !(8..=63).contains(&password.len()) {
+        if request == 0
+            || ssid.is_empty()
+            || !(WIFI_HOST_PASSWORD_MIN_BYTES..=wire::COMMAND_WIFI_HOST_PASSWORD_MAX_BYTES)
+                .contains(&password.len())
+        {
             return Err(Error::Invalid);
         }
         self.submit(wire::Command::WifiHost {
@@ -343,7 +351,7 @@ impl CommandSender<'_, '_> {
         if request == 0 || path.is_empty() {
             return Err(Error::Invalid);
         }
-        if path.len() > 512 {
+        if path.len() > wire::COMMAND_INSTALL_FIRMWARE_PATH_MAX_BYTES {
             return Err(Error::NoSpace);
         }
         self.submit(wire::Command::InstallFirmware {
@@ -395,7 +403,7 @@ impl CommandSender<'_, '_> {
         if request == 0 || path.is_empty() {
             return Err(Error::Invalid);
         }
-        if path.len() > 512 {
+        if path.len() > wire::COMMAND_CHECK_FILE_PATH_MAX_BYTES {
             return Err(Error::NoSpace);
         }
         self.submit(wire::Command::CheckFile {

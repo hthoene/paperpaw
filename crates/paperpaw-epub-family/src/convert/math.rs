@@ -142,6 +142,19 @@ impl Math {
     }
 }
 
+impl Math {
+    /// Ends the innermost open element, as what it renders to in its parent.
+    fn close_innermost(&mut self) -> Result<(), DocumentError> {
+        if let Some(node) = self.stack.pop() {
+            let rendered = render(node)?;
+            if let Some(parent) = self.stack.last_mut() {
+                fallible::push(&mut parent.kids, rendered)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Formula for Math {
     fn start(&mut self, tag: &str, attrs: &Attrs<'_>) -> Result<(), DocumentError> {
         if self.stack.len() >= MAX_DEPTH {
@@ -167,10 +180,16 @@ impl Formula for Math {
         fallible::push_str(&mut node.text, &text)
     }
 
-    fn end(&mut self) -> Result<Option<Done>, DocumentError> {
-        if self.deep > 0 {
+    fn end(&mut self, tag: &str) -> Result<Option<Done>, DocumentError> {
+        let math = tag.eq_ignore_ascii_case("math");
+        if self.deep > 0 && !math {
             self.deep -= 1;
             return Ok(None);
+        }
+        self.deep = 0;
+        // `</math>` ends the elements left open in it too.
+        while math && self.stack.len() > 1 {
+            self.close_innermost()?;
         }
         let Some(node) = self.stack.pop() else {
             return Ok(None);
@@ -517,11 +536,13 @@ pub fn text_of(markup: &str) -> Option<String> {
                         None => return Ok(None),
                     }
                     match (self_closing, math.as_mut()) {
-                        (true, Some(math)) => math.end(),
+                        (true, Some(math)) => math.end(local_name(name)),
                         _ => Ok(None),
                     }
                 }
-                Token::End { .. } => math.as_mut().map_or(Ok(None), Formula::end),
+                Token::End { name } => math
+                    .as_mut()
+                    .map_or(Ok(None), |math| math.end(local_name(name))),
                 Token::Text(text) => {
                     if let Some(math) = math.as_mut() {
                         math.text(&text, false)?;

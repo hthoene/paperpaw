@@ -85,11 +85,19 @@ impl CachePaths {
     /// Marks the conversion complete, last: `end` says the text's length,
     /// and the text is as long. A chapter without text gets its text and
     /// index made empty first: they are asked for their sizes.
+    ///
+    /// What was appended reaches the card first: a storage may keep
+    /// appended bytes back (the X4's FAT keeps them and the files' sizes
+    /// until a flush), while the mark is a whole write, so a power cut
+    /// could keep the mark over an index or a list of places cut short,
+    /// read as complete for good. One flush per chapter: little beside the
+    /// writes of its conversion, in time and in wear of the card.
     pub fn complete(&self, storage: &dyn Storage, length: u32) -> Result<(), StorageError> {
         if length == 0 {
             storage.write(&self.text, &[])?;
             storage.write(&self.index, &[])?;
         }
+        storage.sync()?;
         storage.write(&self.end, &length.to_le_bytes())
     }
 }

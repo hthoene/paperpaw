@@ -80,6 +80,23 @@ fn the_capital_spans_its_lines_which_are_set_in_beside_it() {
     assert!(plain.lines.iter().all(|l| !l.bidi.has(LineBidi::DROP_CAP)));
 }
 
+/// An annotation of the word the capital starts goes with the line beside
+/// it, from that line's start.
+#[test]
+fn an_annotation_of_the_capitals_word_goes_on_the_line_beside_it() {
+    let mut block = capped(TEXT, 3);
+    let gloss = paperpaw_document::Annotation::new(0, 5, "gloss", AnnotationKind::Gloss);
+    block.annotations.push(gloss);
+    let page = page(&block, 0, 100.0, &STYLE);
+    assert!(page.lines[0].bidi.has(LineBidi::DROP_CAP));
+    let notes: Vec<(f32, &str)> = page.lines[1]
+        .annotations
+        .iter()
+        .map(|a| (a.x, a.text.as_str()))
+        .collect();
+    assert_eq!(notes, [(page.lines[1].x, "gloss")]);
+}
+
 fn page_plain() -> Page {
     page(&capped(TEXT, 0), 0, 100.0, &STYLE)
 }

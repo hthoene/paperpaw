@@ -140,29 +140,41 @@ impl ImageSink for ColorWriter<'_> {
     }
 
     fn row(&mut self, gray: &[u8]) -> Result<(), ImageError> {
-        self.make_room(gray.len() * 3)?;
-        for &g in gray {
-            self.buffer.extend_from_slice(&[g, g, g]);
+        // A piece at a time that fits the room taken at the start: a row
+        // longer than that is not grown into.
+        for piece in gray.chunks((self.buffer.capacity() / 3).max(1)) {
+            self.make_room(piece.len() * 3)?;
+            for &g in piece {
+                self.buffer.extend_from_slice(&[g, g, g]);
+            }
         }
         Ok(())
     }
 
     fn row_rgb(&mut self, rgb: &[u8]) -> Result<(), ImageError> {
         self.make_room(rgb.len())?;
+        if rgb.len() > self.buffer.capacity() {
+            // Longer than the room taken at `start`: written as it is
+            // rather than grown into.
+            return self
+                .storage
+                .append(self.path, rgb)
+                .map_err(|_| ImageError::Io);
+        }
         self.buffer.extend_from_slice(rgb);
         Ok(())
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use core::cell::RefCell;
     use paperpaw_platform::{DirEntry, StorageError};
 
     /// One file in memory.
     #[derive(Default)]
-    struct OneFile(RefCell<Vec<u8>>);
+    pub(crate) struct OneFile(pub(crate) RefCell<Vec<u8>>);
 
     impl Storage for OneFile {
         fn read_at(&self, _: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
@@ -211,6 +223,30 @@ mod tests {
         assert!(data[12..22].iter().all(|b| *b == 1));
         assert!(data[22..22 + room + 1].iter().all(|b| *b == 2));
         assert!(data[22 + room + 1..].iter().all(|b| *b == 3));
+    }
+
+    /// Colour and gray rows longer than the room taken at the start are
+    /// written without growing it, and the file reads back whole.
+    #[test]
+    fn longer_colour_and_gray_rows_are_written_without_growing() {
+        let storage = OneFile::default();
+        let mut color = ColorWriter::new(&storage, "c.rgb");
+        color.start(1, 4).unwrap();
+        let room = color.buffer.capacity();
+        let long = room / 3 + 1;
+        let mut wide = alloc::vec![0u8; 3 * long];
+        wide.iter_mut().enumerate().for_each(|(i, b)| *b = i as u8);
+        let gray: Vec<u8> = (0..long).map(|i| i as u8).collect();
+        color.row_rgb(&[1, 2, 3]).unwrap();
+        color.row_rgb(&wide).unwrap();
+        color.row(&gray).unwrap();
+        color.row(&[4]).unwrap();
+        assert_eq!(color.buffer.capacity(), room);
+        color.finish().unwrap();
+        let data = storage.0.borrow();
+        let grayed: Vec<u8> = gray.iter().flat_map(|&g| [g, g, g]).collect();
+        let rows = [&[1, 2, 3][..], &wide, &grayed, &[4, 4, 4]].concat();
+        assert_eq!(&data[12..], &rows[..]);
     }
 
     /// The writers take the room for their rows once, at the start, and

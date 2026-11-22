@@ -11,7 +11,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::FrameRect,
         fonts::{Font, TextOrigin},
-        registry::{PageCursor, Registry, StatusScope},
+        registry::StatusScope,
         ui::{Compose, StatusLine, Ui},
     },
 };
@@ -81,12 +81,19 @@ struct Meta {
 /// The registry's status items among `wanted` (comma lists), in the registry's
 /// order.
 fn read_meta(host: &Host<'_>, wanted: &[&str; 3]) -> Result<Vec<Meta>, Error> {
-    let registry = Registry::open(host)?;
-    let found = read_pages(&registry, host, wanted);
-    let released = registry.release(host);
-    let found = found?;
-    released?;
-    Ok(found)
+    let listed = |id: &str| wanted.iter().any(|list| ids(list).any(|w| w == id));
+    crate::status_items::view::read_status(host, StatusScope::Items, KNOWN, |row| {
+        if !listed(row.id()) {
+            return Ok(None);
+        }
+        Ok(Some(Meta {
+            id: copy(row.id())?,
+            plugin: copy(row.plugin())?,
+            priority: u8::try_from(row.priority()).unwrap_or(u8::MAX),
+            size: row.size(),
+            tap: copy(row.tap())?,
+        }))
+    })
 }
 
 /// What the registry says of a line's items, kept by the caller between
@@ -139,51 +146,6 @@ impl Memo {
         }
         Ok(self.meta.as_deref().unwrap_or_default())
     }
-}
-
-fn read_pages(
-    registry: &Registry,
-    host: &Host<'_>,
-    wanted: &[&str; 3],
-) -> Result<Vec<Meta>, Error> {
-    let mut input = mem::buffer(256)?;
-    let mut out = mem::buffer(mem::SERVICE_BUFFER)?;
-    let listed = |id: &str| wanted.iter().any(|list| ids(list).any(|w| w == id));
-    for _ in 0..3 {
-        let mut found: Vec<Meta> = Vec::new();
-        let mut cursor = PageCursor::start();
-        let result = loop {
-            match registry.status(host, StatusScope::Items, cursor, &mut input, &mut out) {
-                Ok(page) => {
-                    for row in page.rows() {
-                        if !listed(row.id()) || found.len() >= KNOWN {
-                            continue;
-                        }
-                        let meta = Meta {
-                            id: copy(row.id())?,
-                            plugin: copy(row.plugin())?,
-                            priority: u8::try_from(row.priority()).unwrap_or(u8::MAX),
-                            size: row.size(),
-                            tap: copy(row.tap())?,
-                        };
-                        mem::push(&mut found, meta)?;
-                    }
-                    match page.end().next_cursor() {
-                        Some(next) => cursor = next,
-                        None => break Ok(()),
-                    }
-                }
-                Err(error) => break Err(error),
-            }
-        };
-        match result {
-            Ok(()) => return Ok(found),
-            // The registry changed while it was read: again from the start.
-            Err(Error::State) => {}
-            Err(error) => return Err(error),
-        }
-    }
-    Err(Error::State)
 }
 
 /// The item ids of a list as stored in a setting: separated by commas.

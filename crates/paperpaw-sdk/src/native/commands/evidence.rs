@@ -146,7 +146,7 @@ impl CommandSender<'_, '_> {
         if request == 0 || path.is_empty() || evidence.rotations.len() > MAX_ROTATIONS {
             return Err(Error::Invalid);
         }
-        if path.len() > 512 {
+        if path.len() > wire::COMMAND_INSTALL_PLUGIN_PATH_MAX_BYTES {
             return Err(Error::NoSpace);
         }
         let mut batch = [wire::Command::FirmwareRestart {}; RECORDS];

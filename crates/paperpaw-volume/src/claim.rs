@@ -324,15 +324,22 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// Frees the chain from `start`, a block of the FAT at a time (each written once), saying
     /// first on the disk where it goes on. `claimed`: `claim_freeing` said so for the first
     /// block already, and what pointed at the chain is gone since.
+    ///
+    /// A chain that links out of the volume (or an entry's first cluster that is none of its
+    /// clusters) is freed up to there, and freeing fails there: entry 1 of the FAT, which holds
+    /// the volume's clean-shutdown bits, is no cluster to free.
     pub(crate) fn free_claimed(
         &self,
         mut start: u32,
         mut claimed: bool,
     ) -> Result<(), Error<IO::Error>> {
-        if self.fat_type == FatType::Fat12 {
-            return self.free_chain_one_by_one(start);
-        }
         loop {
+            if !self.is_cluster(start) {
+                return Err(Error::CorruptedFileSystem);
+            }
+            if self.fat_type == FatType::Fat12 {
+                return self.free_chain_one_by_one(start);
+            }
             if !claimed {
                 self.claim_freeing(start, Referrer::Gone)?;
             }
@@ -354,7 +361,13 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
             let mut fat = self.fat_slice();
             let mut block = [0_u8; BLOCK];
             read_block(&mut fat, self.fat_type, start, &mut block)?;
-            let (freed, next) = free_in_block(&mut fat, self.fat_type, &mut block, start)?;
+            let (freed, next) = free_in_block(
+                &mut fat,
+                self.fat_type,
+                &mut block,
+                start,
+                self.total_clusters,
+            )?;
             if let Some(end) = end {
                 set_in_block(&mut block, self.fat_type, end, FatValue::EndOfChain);
             }
