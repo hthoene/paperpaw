@@ -35,7 +35,7 @@ pub(crate) const MORE_PORTS: u16 = 20;
 /// trickling bytes cannot hold a connection, while a large upload or
 /// download that moves takes as long as it needs.
 pub(crate) const HEAD_MS: u64 = 30_000;
-const ANSWER_MS: u64 = 120_000;
+pub(crate) const ANSWER_MS: u64 = 120_000;
 pub(crate) const STALL_MS: u64 = 30_000;
 pub(crate) const CLOSE_MS: u64 = 2_000;
 

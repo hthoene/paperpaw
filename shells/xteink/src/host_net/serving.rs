@@ -237,35 +237,21 @@ impl Bridge {
     }
 
     /// `ShellHttp::reply`: the answer, owned, sent by its connection at the
-    /// next step.
+    /// next step. Where it cannot be taken, core forgets the request (it
+    /// calls no `close_served` then): its connection is answered 503 at the
+    /// next step, with the room for that taken first.
     pub(super) fn serve_reply(&self, request: u32, reply: &ServedReply<'_>) -> Result<(), i32> {
-        let mut headers = Vec::new();
-        for (name, value) in reply.headers.clone() {
-            headers.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-            headers.push((own(name)?, own(value)?));
-        }
-        let mut body = Vec::new();
-        if let Some(bytes) = reply.body {
-            body.try_reserve_exact(bytes.len())
-                .map_err(|_| ERR_NO_MEMORY)?;
-            body.extend_from_slice(bytes);
-        }
-        let file = match reply.send_path {
-            Some(path) => Some((own(path)?, reply.file_len)),
-            None => None,
-        };
-        let queued = Reply {
-            request,
-            status: u16::try_from(reply.status).unwrap_or(500),
-            content_type: own(reply.content_type)?,
-            headers,
-            body,
-            file,
-        };
         let mut inner = self.inner.try_borrow_mut().map_err(|_| ERR_BUSY)?;
-        inner.replies.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        inner.replies.push(queued);
-        Ok(())
+        inner.closes7.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        let taken = owned_reply(request, reply).and_then(|queued| {
+            inner.replies.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+            inner.replies.push(queued);
+            Ok(())
+        });
+        if taken.is_err() {
+            inner.closes7.push((request, 503));
+        }
+        taken
     }
 
     /// `ShellHttp::close_served`.
@@ -278,4 +264,32 @@ impl Bridge {
             }
         }
     }
+}
+
+/// The answer `reply` to `request`, owned; `ERR_NO_MEMORY` where a copy finds
+/// no room.
+fn owned_reply(request: u32, reply: &ServedReply<'_>) -> Result<Reply, i32> {
+    let mut headers = Vec::new();
+    for (name, value) in reply.headers.clone() {
+        headers.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        headers.push((own(name)?, own(value)?));
+    }
+    let mut body = Vec::new();
+    if let Some(bytes) = reply.body {
+        body.try_reserve_exact(bytes.len())
+            .map_err(|_| ERR_NO_MEMORY)?;
+        body.extend_from_slice(bytes);
+    }
+    let file = match reply.send_path {
+        Some(path) => Some((own(path)?, reply.file_len)),
+        None => None,
+    };
+    Ok(Reply {
+        request,
+        status: u16::try_from(reply.status).unwrap_or(500),
+        content_type: own(reply.content_type)?,
+        headers,
+        body,
+        file,
+    })
 }
