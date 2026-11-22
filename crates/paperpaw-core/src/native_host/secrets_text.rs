@@ -17,6 +17,7 @@ use super::secrets_file::{
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
+use paperpaw_sdk::digest::fnv1a64;
 
 /// One line split into its fields (`id`, `label`, flags, value), as the
 /// interface-6 text writes them.
@@ -102,13 +103,15 @@ pub(crate) fn open_text(text: &str, sealer: &dyn Sealer) -> String {
     open_text_noting(text, sealer).0
 }
 
-/// [`open_text`], and whether a sealed line did not open here (another
-/// device's card, a lost key): the kernel tells the user once per start. Only
-/// the sealer's `ERR_NOT_FOUND` counts; a busy or unreadable flash (`ERR_BUSY`
-/// during an update) is not "another device" (Senior R1, #254).
-pub(crate) fn open_text_noting(text: &str, sealer: &dyn Sealer) -> (String, bool) {
+/// [`open_text`], and the hashes ([`fnv1a64`]) of the sealed lines that did
+/// not open here (another device's card, a lost key), in file order: the
+/// kernel tells the user of them once (#466). Only the sealer's
+/// `ERR_NOT_FOUND` counts; a busy or unreadable flash (`ERR_BUSY` during an
+/// update) is not "another device" (Senior R1, #254). Short of memory for a
+/// hash, that line is left out.
+pub(crate) fn open_text_noting(text: &str, sealer: &dyn Sealer) -> (String, Vec<u64>) {
     let mut out = String::new();
-    let mut unopened = false;
+    let mut unopened = Vec::new();
     // Without room for the buffers nothing opens: the lines stay as they are.
     let mut scratch = Scratch::new().ok();
     for line in text.lines() {
@@ -120,7 +123,9 @@ pub(crate) fn open_text_noting(text: &str, sealer: &dyn Sealer) -> (String, bool
         match result {
             Ok(veiled) => out.push_str(&veiled),
             Err(status) => {
-                unopened |= status == ERR_NOT_FOUND && is_sealed(line);
+                if status == ERR_NOT_FOUND && is_sealed(line) && unopened.try_reserve(1).is_ok() {
+                    unopened.push(fnv1a64(line.as_bytes()));
+                }
                 out.push_str(line);
             }
         }

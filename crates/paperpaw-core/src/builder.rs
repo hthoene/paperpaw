@@ -814,7 +814,7 @@ impl Kernel {
         match paperpaw_sdk::files::load_for_update(storage, FILE, MAX_SECRETS) {
             Ok(data) => {
                 let text = String::from_utf8_lossy(data.as_deref().unwrap_or_default());
-                self.shared.secrets = Self::decode_secrets(&text, host.as_ref());
+                self.take_secrets(Self::decode_secrets(&text, host.as_ref()));
                 self.secrets_unreadable = false;
                 #[cfg(feature = "bluetooth")]
                 if let Some(radio) = &mut self.io.bluetooth {

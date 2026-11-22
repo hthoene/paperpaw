@@ -82,7 +82,7 @@ impl Kernel {
             // values are sealed the file is read again each time: native
             // plugins write it too.
             let text = String::from_utf8_lossy(data.as_deref().unwrap_or_default());
-            self.shared.secrets = Self::decode_secrets(&text, sealer.as_ref());
+            self.take_secrets(Self::decode_secrets(&text, sealer.as_ref()));
             self.secrets_unreadable = false;
         }
         let id = change.id.clone();

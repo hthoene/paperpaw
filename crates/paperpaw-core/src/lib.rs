@@ -337,6 +337,11 @@ pub struct Kernel {
     /// The file was read again through the sealer of `core.secrets`
     /// (`secrets_i6.rs`).
     secrets_opened: bool,
+    /// The hashes of the sealed lines the last read through the sealer could
+    /// not open (`secrets_i6.rs`, #466).
+    secrets_unopened: Vec<u64>,
+    /// `secrets_unopened` changed since the notice looked at it.
+    secrets_unopened_changed: bool,
     /// The `core.secrets` host the shell gave [`Kernel::wire_secrets`]: the
     /// kernel seals through it with or without a native plugin admitted.
     secrets_wired: Option<alloc::rc::Rc<dyn crate::native_host::secrets_service::SecretsHost>>,

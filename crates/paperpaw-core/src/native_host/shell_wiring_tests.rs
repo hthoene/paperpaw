@@ -420,15 +420,3 @@ fn the_library_learns_the_screens_long_side_from_a_documents_wiring_of_its_own()
         .unwrap();
     assert_eq!(library.0.screen_long_side(), Ok(800));
 }
-
-#[test]
-fn a_value_that_does_not_open_is_told_once_per_start() {
-    let host = SecretsInputs::new(storage(), Rc::new(Keyed)).host();
-    assert!(!host.take_unopened(), "nothing to tell");
-    host.unopened();
-    host.unopened();
-    assert!(host.take_unopened());
-    assert!(!host.take_unopened(), "once");
-    host.unopened();
-    assert!(!host.take_unopened(), "once per start, not once per line");
-}

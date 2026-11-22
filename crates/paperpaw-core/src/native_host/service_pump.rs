@@ -335,7 +335,7 @@ impl crate::Kernel {
                 || wifi_more
                 || firmware_more,
         );
-        // Saved passwords that did not open here: said once per start.
+        // Saved passwords that did not open here: said once (#466).
         self.secrets_notice();
         // Parked plugins asked to start in this round are made now; what
         // waited for them goes on in the pump's next round (#248).
