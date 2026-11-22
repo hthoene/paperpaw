@@ -4900,6 +4900,8 @@ change the plugin SDK.
 
 - **Wi-Fi setup with a phone works with Wi-Fi off, and its messages are shown in full** (#468). With Wi-Fi off, *Set up with a phone* said "This device cannot make a safe …": the password of the reader's own network is drawn only from fully random numbers, and the chip's are random only while the radio is on. The setup now switches Wi-Fi on itself and draws the password once the radio was on for a whole scan; if Wi-Fi does not come on, it says so, and still never makes a password from weaker numbers. The lines on that screen (steps, errors such as "The page could not be served: There is no network.") now wrap instead of being cut with "…". Wi-Fi plugin 1.0.7.
 
+- **Wi-Fi setup with a phone takes two scans again, as in Beta 3** (#469). The code to join the reader's network now shows large right under the step's title, with the network's name and password as text. Once the phone has joined, the code that opens the setup page follows by itself, with its address as text. Before, the second step could stay on "Opening the reader's own network…" when the reader could not serve the page at the first try; it now asks again when the phone joins or a key is pressed. Messages on that screen, such as "Looking for networks…", were drawn invisible and now show. Wi-Fi plugin 1.0.8.
+
 - **paperpaw-dev: the pseudo-language has every text of the app again** (#4511). It now comes as one compiled catalog (`i18n/pseudo.ppcat`), as a language pack does: its split text catalogs had grown past what a data plugin's text catalogs may take together, so the last ones were left out.
 
 ## [0.6.0-beta.3] - 2026-11-05

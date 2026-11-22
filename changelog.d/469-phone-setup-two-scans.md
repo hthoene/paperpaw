@@ -1,3 +1,0 @@
-### Fixed
-
-- **Wi-Fi setup with a phone takes two scans again, as in Beta 3** (#469). The code to join the reader's network now shows large right under the step's title, with the network's name and password as text. Once the phone has joined, the code that opens the setup page follows by itself, with its address as text. Before, the second step could stay on "Opening the reader's own network…" when the reader could not serve the page at the first try; it now asks again when the phone joins or a key is pressed. Messages on that screen, such as "Looking for networks…", were drawn invisible and now show. Wi-Fi plugin 1.0.8.
