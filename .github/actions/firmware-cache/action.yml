@@ -1,0 +1,37 @@
+name: Cache of an Xtensa firmware build
+description: >
+  The Rust cache (Swatinem/rust-cache) for jobs that build the ESP32-S3's
+  firmware with -Zbuild-std, with shells/xteink/target kept as the build left
+  it (see tools/ci/prune-firmware-target.sh for what a job removes first).
+  rust-cache cleans a target directory down to what `cargo metadata` lists, and
+  the core libraries that -Zbuild-std builds (core, alloc, compiler_builtins)
+  are not listed: they went, so cargo built them again and with them every
+  dependency, 205 crates and 4 minutes in each S3 job, on a cache hit too. Told
+  that the workspace's target is another (empty) directory, it cleans nothing
+  there, and the directory is cached as it is.
+  Use it in the S3 jobs only: the RISC-V builds have no build-std and keep the
+  plain action.
+inputs:
+  shared-key:
+    description: The cache's name (rust-cache's shared-key).
+    required: true
+  save-if:
+    description: "'true' where this job saves the cache."
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      env:
+        # Part of the key: raise it when what a cache keeps changes, so that the
+        # entries of the old layout are no longer found (and the pruning of
+        # old entries, tools/ci/prune_caches.py, removes them).
+        PAPERPAW_CACHE_LAYOUT: "2"
+      with:
+        save-if: ${{ inputs.save-if }}
+        workspaces: |
+          shells/xteink -> target-cleaned-by-nobody
+          .
+        cache-directories: shells/xteink/target
+        env-vars: PAPERPAW_CACHE_LAYOUT
+        shared-key: ${{ inputs.shared-key }}
