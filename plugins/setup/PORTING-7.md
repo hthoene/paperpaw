@@ -93,3 +93,14 @@ bar says *Cancel*, *Keep*, − and +. Outside it the arrows move the focus. A ch
 opens the slot `core.choose-value` (with `id`, as the settings do) instead of stepping through its
 options; once the guide shows again the page's setting is read anew. The size of book text steps
 over sizes the reading font draws alike (`paperpaw_ui_kit::font_sizes`, interface 6's `shown_step`).
+
+## The language step, the focus and the sample as in Beta 3 (#472)
+
+When the language changes the steps' titles are read again too (`Guide::retitle`, by step id) and the
+key bar is set again from the `event.setting_changed` callback: the host now keeps the hints an
+event's or an action's callback sets for the plugin's own top screen (`ui.md` section 3; it used to
+drop them silently), so *Skip* follows the language at once. A page read again (back from the list of
+its choice, the language changed) keeps its focus; only a page turned to starts on *Next*
+(`Guide::commit`). The sample of the text size is prepared apart and drawn in the reading font, at
+the chosen size, as interface 6 did; before, its lines were measured in the reading font but drawn in
+the UI font.

@@ -121,14 +121,29 @@ impl Guide {
     }
 
     /// Shows page `page`, the `gone` steps from it left out, with its setting.
+    /// A page turned to has the focus on *Next*; the page shown, read again
+    /// (back from the list of its choice, the language changed), keeps it
+    /// where it was, as in Beta 3: on the card the answer was just chosen in.
     pub fn commit(&mut self, page: usize, gone: usize, (setting, help): (Option<Setting>, String)) {
         let end = page.saturating_add(gone).min(self.steps.len());
         self.steps.drain(page.min(end)..end);
+        if page != self.page || gone > 0 {
+            self.focus = Target::Next;
+        }
         self.page = page;
-        self.focus = Target::Next;
         self.editing = None;
         self.setting = setting;
         self.help = help;
+    }
+
+    /// Takes the steps' titles from `fresh`, the steps read again (in the
+    /// language just chosen); a step not among them keeps its own.
+    pub fn retitle(&mut self, fresh: Vec<Step>) {
+        for again in fresh {
+            if let Some(step) = self.steps.iter_mut().find(|step| step.id == again.id) {
+                step.title = again.title;
+            }
+        }
     }
 
     /// Whether `page` is the last one, past all the steps.
@@ -407,13 +422,16 @@ impl Guide {
         &self.texts.open
     }
 
-    /// Prepares the page's drawing.
+    /// Prepares the page's drawing: in `ops` what is drawn in the UI font, in
+    /// `book` what is drawn in the reading font (the sample of the text size,
+    /// which looks as the book will, as in Beta 3).
     ///
     /// # Errors
     /// [`Error::NoMemory`] or a refused font reply.
     pub fn prepare(
         &self,
         ops: &mut Vec<Paint>,
+        book: &mut Vec<Paint>,
         fonts: &Fonts<'_, '_>,
         style: &Style,
         layout: &Layout,
@@ -445,7 +463,7 @@ impl Guide {
             help_lines,
         )?;
         if let Some(card) = layout.card {
-            self.card(ops, fonts, style, layout, card)?;
+            self.card(ops, book, fonts, style, layout, card)?;
         }
         let next = (layout.next, self.next_label(), self.focus == Target::Next);
         let other = (
@@ -494,6 +512,7 @@ impl Guide {
     fn card(
         &self,
         ops: &mut Vec<Paint>,
+        book: &mut Vec<Paint>,
         fonts: &Fonts<'_, '_>,
         style: &Style,
         layout: &Layout,
@@ -612,7 +631,7 @@ impl Guide {
                     let height = geometry::line_px(reading, size)?.max(1);
                     let fits = usize::from(area.height / height).max(1);
                     lines(
-                        ops,
+                        book,
                         reading,
                         &self.texts.sample,
                         size,
@@ -1100,5 +1119,38 @@ mod tests {
         assert_eq!(g.sample_size(), Some(220.0));
         g.setting.as_mut().unwrap().key = "other.size".into();
         assert_eq!(g.sample_size(), None);
+    }
+
+    #[test]
+    fn the_page_read_again_keeps_its_focus_and_a_page_turned_to_starts_on_next() {
+        let mut g = guide(false);
+        g.setting = Some(two());
+        g.focus = Target::Card;
+        // Back from the list of its choice, or the language changed.
+        g.commit(0, 0, (Some(two()), String::new()));
+        assert_eq!(g.focus, Target::Card);
+        g.commit(1, 0, (None, String::new()));
+        assert_eq!(g.focus, Target::Next);
+    }
+
+    #[test]
+    fn the_page_read_again_without_its_step_starts_on_next() {
+        let mut g = guide(false);
+        g.focus = Target::Card;
+        // Its setting is gone: the next step's page shows in its place.
+        g.commit(0, 1, (None, String::new()));
+        assert_eq!(g.focus, Target::Next);
+        assert_eq!(g.steps.len(), 1);
+    }
+
+    #[test]
+    fn the_steps_take_their_titles_in_the_language_chosen() {
+        let mut g = guide(false);
+        g.steps[0].title = "Sprache".into();
+        let mut again = step("a", Page::Setting("core.language".into()));
+        again.title = "Language".into();
+        g.retitle(alloc::vec![again, step("c", Page::Screen("x.page".into()))]);
+        assert_eq!(g.steps[0].title, "Language");
+        assert_eq!(g.steps.len(), 2);
     }
 }
