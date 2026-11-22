@@ -206,21 +206,14 @@ impl FsInfoSector {
         Ok(())
     }
 
+    // Modified for PaperPaw: the hint only. The sector's count of free clusters is never taken
+    // (see `FileSystem::new`): the count is one this file system counted or was given.
     fn validate_and_fix(&mut self, total_clusters: u32) {
         let max_valid_cluster_number = total_clusters + RESERVED_FAT_ENTRIES;
-        if let Some(n) = self.free_cluster_count {
-            if n > total_clusters {
-                warn!(
-                    "invalid free_cluster_count ({}) in fs_info exceeds total cluster count ({})",
-                    n, total_clusters
-                );
-                self.free_cluster_count = None;
-            }
-        }
         if let Some(n) = self.next_free_cluster {
             if n > max_valid_cluster_number {
                 warn!(
-                    "invalid free_cluster_count ({}) in fs_info exceeds maximum cluster number ({})",
+                    "invalid next_free_cluster ({}) in fs_info exceeds maximum cluster number ({})",
                     n, max_valid_cluster_number
                 );
                 self.next_free_cluster = None;
@@ -483,7 +476,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         // reads it with `kept_free_count`.
         fs_info.free_cluster_count = None;
 
-        // Validate the numbers stored in the free_cluster_count and next_free_cluster are within bounds for volume
+        // Validate the hint stored in next_free_cluster is within bounds for volume
         fs_info.validate_and_fix(total_clusters);
 
         // Modified for PaperPaw: a claim left by a cut waits for `settle_claim`.
@@ -999,8 +992,10 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     /// Returns filesystem statistics like number of total and free clusters.
     ///
-    /// For FAT32 volumes number of free clusters from the FS Information Sector is returned (may be incorrect).
-    /// For other FAT variants number is computed on the first call to this method and cached for later use.
+    /// Modified for PaperPaw: the free clusters are counted in the FAT on the first call and
+    /// followed as clusters are taken and freed, or are the count given to `keep_free_count`.
+    /// The FS information sector's count is never taken: it may be wrong after a cut (see
+    /// `FileSystem::new`).
     ///
     /// # Errors
     ///
