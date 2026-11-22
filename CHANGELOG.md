@@ -4926,6 +4926,8 @@ change the plugin SDK.
 
 - **A focused number shows − and + again** (#472). On devices without a touch screen, a number in the settings and in the menus shows its value between round − and + while it has the focus, as in Beta 3, so it is plain that Left and Right change it.
 
+- **A section going on over a page shows its heading again** (#472). In long lists, such as the settings, a section that continues on the next page has its heading at the top of that page again, as in Beta 3; a heading that would end a page alone moves to the next page with its rows.
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
