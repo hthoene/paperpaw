@@ -103,10 +103,8 @@ fn read(host: &Host<'_>) -> Result<Vec<Row>, Error> {
                 None => None,
             }
         };
-        let query = Query::new()
-            .show(Show::Favourites)
-            .sort(Sort::Added)
-            .descending(true);
+        // Added last first, as Beta 3: the host's own order.
+        let query = Query::new().show(Show::Favourites).sort(Sort::Added);
         let page = library.query(host, &query, &mut input, &mut out)?;
         let generation = page.end().generation();
         let mut found = Vec::new();
