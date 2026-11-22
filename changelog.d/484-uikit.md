@@ -15,3 +15,10 @@
   section cards, a section that went on over a page break was drawn open at
   the top of the next page although its heading is shown again above it;
   it is closed there now, as in Beta 3.
+
+### Changed
+
+- **Moving the focus in long lists redraws two rows, not the screen**
+  (#484). In the store's lists, the vocabulary list and the notes vault, a
+  step of the focus on the page now redraws only the row it leaves and the
+  row it reaches, as other lists already did.
