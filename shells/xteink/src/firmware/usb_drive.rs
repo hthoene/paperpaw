@@ -53,6 +53,11 @@ impl Firmware {
         self.finish_work();
         // What the work wrote is on the card before the computer has it.
         self.write_back();
+        // Power held 8 s meanwhile (G12): switched off, the card never lent
+        // (the reset the escape ends in would come while a computer has it).
+        if self.state.escape {
+            self.power_off();
+        }
         // Presses so far are of no interest: only the ones that end it.
         while input::next().is_some() {}
         info!("USB drive: the card goes to the computer");
@@ -64,9 +69,17 @@ impl Firmware {
         });
         let Some(why) = ended.filter(|_| lent) else {
             warn!("USB drive: the card could not be lent");
+            if let Some(ota) = &mut self.ota {
+                ota.resume_trial(now().0);
+            }
             let effects = self.kernel.resume(now());
             return self.apply(effects);
         };
+        // Power held 8 s ended it (G12): taken at once, which gives the
+        // switch-off the escape's time for a clean one, not the grace a reset
+        // ends (the card is mounted anew first, the frame after it would take
+        // most of that).
+        let escape = self.take_escape();
         info!("USB drive: ended ({why:?}); the card is mounted anew");
         // The clock and the battery shown anew soon, the light as it was.
         self.state.status_read = None;
@@ -79,7 +92,12 @@ impl Firmware {
         }
         // Any card is mounted as new: a computer had it. Where it is not
         // back yet, the kernel runs on and `watch_card` tells it once it is.
-        let effects = match self.remount_card() {
+        let remounted = self.remount_card();
+        if escape {
+            // Asleep since the card was lent: off as from a sleep.
+            self.power_off();
+        }
+        let effects = match remounted {
             Swapped::Remounted | Swapped::Back => self.kernel.usb_drive_ended(now()),
             _ => self.kernel.resume(now()),
         };

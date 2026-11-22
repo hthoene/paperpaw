@@ -75,6 +75,11 @@ struct Control;
 impl Handler for Control {
     fn reset(&mut self) {
         CONFIGURED.store(false, Ordering::Relaxed);
+        // A bus reset ends a suspend too: embassy-usb clears its own flag
+        // then without telling `suspended(false)`, and a computer that
+        // resumes with a reset would leave the drive "suspended" for good
+        // (the mode ending `BusGone` while in use).
+        SUSPENDED.store(false, Ordering::Relaxed);
     }
 
     fn configured(&mut self, configured: bool) {
