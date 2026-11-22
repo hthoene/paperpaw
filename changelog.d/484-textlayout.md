@@ -6,3 +6,4 @@
 - **A gloss or ruby of a paragraph's first word is shown where the paragraph starts with a drop capital**, on the line beside the capital (#484).
 - **A damaged or crafted font pack with deflated bitmaps can no longer make the reader ask for a gigabyte of memory** for one glyph: a glyph larger than its size allows is drawn as nothing, as in packed strikes (#484).
 - **The paragraph after a table row of empty cells no longer runs off the bottom of the page**: such a row counts as something on the page (#484).
+- **Two tables one right after the other are set apart again**, each with the space and the rule above it of a table's start, instead of joined into one (#484).
