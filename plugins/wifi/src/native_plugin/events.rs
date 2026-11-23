@@ -483,6 +483,7 @@ impl NativeWifi {
         let seen = self.seen(host, now_ms, need)?;
         let actions = self.policy.on_changed(&seen.facts())?;
         self.act(host, actions)?;
+        self.search_if_switched_on(host)?;
         self.phone_changed(host, now_ms)?;
         self.reread(host)
     }
