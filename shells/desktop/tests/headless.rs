@@ -511,6 +511,58 @@ fn text_is_typed_into_the_keyboard_shown() {
     assert_ne!(typed.screen(), "keyboard.screen", "{}", typed.stdout);
 }
 
+/// The keyboard's OK key stands out by its line alone and turns black only
+/// while it has the focus, as every key does (#512): it was black always, so
+/// its focus could not be seen.
+#[test]
+fn the_keyboard_ok_key_is_black_only_while_focused() {
+    let library = library("ok-focus");
+    let before = library.join("before.png");
+    let after = library.join("after.png");
+    // From the field's Phone button down to the last row, then along it to OK.
+    let to_ok = "page-forward,page-forward,page-forward,page-forward,right,right";
+    let script = format!(
+        "open:keyboard.screen:title=Name,shot:{},{to_ok},describe,shot:{}",
+        before.display(),
+        after.display()
+    );
+    let run = run_in(
+        &library,
+        "xteink-x4",
+        &script,
+        &["--set", "reader.open-last=false"],
+    );
+    assert!(run.ok, "{}", run.stderr);
+    let line = run
+        .stdout
+        .lines()
+        .find(|line| line.contains("\"OK\" (focused) at "))
+        .unwrap_or_else(|| panic!("OK not focused:\n{}", run.stdout));
+    let numbers: Vec<u32> = line
+        .rsplit(" at ")
+        .next()
+        .unwrap()
+        .split([',', ' ', 'x'])
+        .map(|n| n.parse().unwrap())
+        .collect();
+    // Inside the key, above its label: paper unless the key is filled.
+    let (x, y) = (numbers[0] + numbers[2] / 2, numbers[1] + 6);
+    let (unfocused, focused) = (luma_at(&before, x, y), luma_at(&after, x, y));
+    let _ = fs::remove_dir_all(&library);
+    assert!(unfocused > 128, "OK filled without the focus");
+    assert!(focused < 128, "OK not filled with the focus");
+}
+
+/// The brightness of the pixel at `x`, `y` of the PNG.
+fn luma_at(path: &Path, x: u32, y: u32) -> u8 {
+    let decoder = png::Decoder::new(std::io::BufReader::new(File::open(path).unwrap()));
+    let mut reader = decoder.read_info().unwrap();
+    let mut bytes = vec![0; reader.output_buffer_size().unwrap()];
+    let frame = reader.next_frame(&mut bytes).unwrap();
+    let step = frame.color_type.samples();
+    bytes[(y * frame.width + x) as usize * step]
+}
+
 /// `run:` reaches an action a native plugin declares, and what the plugin
 /// answers (`open` its screen) is done in the call that ran it: the transfer
 /// plugin's `transfer.open` opens its screen as `core.menu` opens the menu.

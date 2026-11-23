@@ -363,9 +363,11 @@ fn key(
         h,
     );
     // Shift while capitals are locked, and *OK* always: the key that ends
-    // typing stands out.
+    // typing stands out by a bold line. Filled only by the focus, so the
+    // focus shows on it as on every other key (on a touch screen too, where
+    // its bold line would read like the focus frame).
     let active = (key == Key::Shift && board.shift == Shift::Locked) || key == Key::Done;
-    let filled = active || (focused && !board.look.touch);
+    let filled = focused && (active || !board.look.touch);
     let (ink, paper) = if filled {
         (style.paper, style.ink)
     } else {
@@ -373,7 +375,14 @@ fn key(
     };
     describe(out, style.describing, PartRole::Button, r, focused, false)?;
     let radius = radius(board, style, shape, r.height);
-    let thickness = u32::from(style.line).max(1) * if focused && board.look.touch { 3 } else { 1 };
+    let weight = if focused && board.look.touch {
+        3
+    } else if active {
+        2
+    } else {
+        1
+    };
+    let thickness = u32::from(style.line).max(1) * weight;
     if filled {
         boxed(out, r, radius, None, paper)?;
     } else {
