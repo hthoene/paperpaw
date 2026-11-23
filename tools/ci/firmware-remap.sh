@@ -7,12 +7,17 @@
 # Prints the value for cargo's `--config`: the flags are added to those of
 # shells/xteink/.cargo/config.toml (RUSTFLAGS would replace them, and the
 # frame budgets are measured with them). A source file is then named as
-#   crates/paperpaw-core/src/kernel.rs   (this repository)
+#   core/kernel.rs                       (crates/paperpaw-core/src/kernel.rs)
+#   core/host/doc_service.rs             (its native_host/doc_service.rs)
+#   p/reader/native_view.rs              (plugins/reader/src/native_view.rs)
+#   patches/mbedtls-rs/src/lib.rs        (anything else of this repository)
 #   esp-hal-1.2.2/src/system.rs          (a crate of the registry)
 #   library/core/src/fmt/mod.rs          (the toolchain's own sources)
-# in panic messages and in the debug information. The crash record keeps what
-# it needs: the file's name, and `exception_handler/` in the path of the chip's
-# own handler (paperpaw_x4::blame).
+# in panic messages and in the debug information. The crate's and the plugin's
+# short names save about 10 KB of the X4's image (#501: some 600 panic places
+# name their file). The crash record keeps what it needs: the file's name, and
+# `exception_handler/` in the path of the chip's own handler
+# (paperpaw_x4::blame).
 #
 # The scan builds (frame budgets) and the flash gate are not built with this:
 # their budgets are measured without it.
@@ -48,6 +53,19 @@ for registry in "$cargo_home"/registry/src/*/; do
 done
 add "$sysroot/lib/rustlib/src/rust/" ""
 add "$root/" ""
+for dir in "$root"/crates/paperpaw-*/src/; do
+  [[ -d "$dir" ]] || continue
+  name=${dir%/src/}
+  add "$dir" "${name##*/paperpaw-}/"
+done
+for dir in "$root"/plugins/*/src/; do
+  [[ -d "$dir" ]] || continue
+  name=${dir%/src/}
+  add "$dir" "p/${name##*/}/"
+done
+# The kernel's host of interface 7, where most of its panic places are, after
+# the kernel's own folder (the last prefix that matches is taken).
+add "$root/crates/paperpaw-core/src/native_host/" "core/host/"
 
 joined=$(IFS=,; echo "${flags[*]}")
 echo "target.$target.rustflags=[$joined]"
