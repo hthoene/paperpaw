@@ -174,6 +174,12 @@ fn palette_or_none(read: Result<String, Error>) -> Result<String, Error> {
     }
 }
 
+/// The text setting `key`; an empty text where it holds a value of another
+/// kind.
+///
+/// # Errors
+/// What the host answers, and [`Error::NoSpace`] for a value longer than
+/// 512 bytes: it holds a value, so never read it as empty.
 pub fn setting_text(host: &Host<'_>, key: &str) -> Result<String, Error> {
     let mut bytes = [0; TEXT_BYTES];
     Ok(match settings::read_setting(host, key, &mut bytes)? {
