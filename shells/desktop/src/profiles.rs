@@ -407,6 +407,15 @@ impl Chip {
         }
     }
 
+    /// Plugin servers open at once (`network.md` 5.1, `SERVERS`: 1 on the X4
+    /// and X3, 2 on the ESP32-S3 devices; `shells/xteink/src/native`).
+    pub const fn servers(self) -> u32 {
+        match self {
+            Self::Esp32c3 => 1,
+            Self::Esp32s3 => 2,
+        }
+    }
+
     /// The card can be shown to a computer (`usb_drive`): the ESP32-S3 has
     /// the OTG core the ESP32-C3 lacks.
     pub const fn usb_drive(self) -> bool {

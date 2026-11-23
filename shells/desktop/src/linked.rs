@@ -669,13 +669,14 @@ const XTEINK_POOL: u32 = 48 * 1024;
 /// What `core.net` and `core.sockets` may use on the device of `profile`:
 /// on an Xteink device what its firmware wires (`shells/xteink/src/native`:
 /// two requests at a time, bodies in memory of 16 KiB, two small sockets,
-/// its chip's TLS sessions), elsewhere the computer's large limits. The one
+/// its chip's servers and TLS sessions), elsewhere the computer's large limits. The one
 /// pool and its TLS sessions are the same in both.
 fn net_limits(profile: &Profile) -> (NetLimits, SockLimits) {
     match profile.chip {
         Some(chip) => {
             let sessions = chip.tls_sessions();
             let net = NetLimits::new(XTEINK_POOL, 2)
+                .servers(chip.servers())
                 .tls_sessions(sessions)
                 .cable(true)
                 .max_body(16 * 1024);
@@ -908,6 +909,10 @@ mod tests {
         });
         let (net, sockets) = limits("xteink-x4-pro");
         assert_eq!((net.tls_sessions, sockets.tls_sessions), (2, 2));
+        // `network.md` 5.1: two servers on the ESP32-S3 devices.
+        assert_eq!(net.servers, 2);
+        assert_eq!(limits("xteink-x4-classic").0.servers, 2);
+        assert_eq!(limits("xteink-x3").0.servers, 1);
         assert_eq!(limits("boox-picco").0.tls_sessions, 2);
         assert_eq!(limits("xteink-x4-classic").0.tls_sessions, 2);
         assert_eq!(limits("xteink-x3").0.tls_sessions, 1);
