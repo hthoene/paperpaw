@@ -292,6 +292,9 @@ fn linked_report(_: &DesktopServices, plugin: &str, tag: u32, status: i32) {
 pub struct DeviceView {
     now_ms: Cell<u64>,
     online: Cell<bool>,
+    hosting: Cell<bool>,
+    /// The networks the last scan found, for `core.device` op 9.
+    pub networks: Rc<crate::device_host::Networks>,
 }
 
 impl DeviceView {
@@ -299,6 +302,17 @@ impl DeviceView {
     pub fn set(&self, now_ms: u64, online: bool) {
         self.now_ms.set(now_ms);
         self.online.set(online);
+    }
+
+    /// Whether the network is the device's own (its servers are shown at
+    /// its address there, `wifi::served_at`).
+    pub fn set_hosting(&self, hosting: bool) {
+        self.hosting.set(hosting);
+    }
+
+    /// See [`DeviceView::set_hosting`].
+    pub fn hosting(&self) -> bool {
+        self.hosting.get()
     }
 }
 
@@ -648,6 +662,37 @@ impl std::fmt::Debug for Prepared {
     }
 }
 
+/// The pool of `core.net` and `core.sockets` on an Xteink device
+/// (`shells/xteink/src/host_net.rs`, `POOL_BYTES`).
+const XTEINK_POOL: u32 = 48 * 1024;
+
+/// What `core.net` and `core.sockets` may use on the device of `profile`:
+/// on an Xteink device what its firmware wires (`shells/xteink/src/native`:
+/// two requests at a time, bodies in memory of 16 KiB, two small sockets,
+/// its chip's TLS sessions), elsewhere the computer's large limits. The one
+/// pool and its TLS sessions are the same in both.
+fn net_limits(profile: &Profile) -> (NetLimits, SockLimits) {
+    match profile.chip {
+        Some(chip) => {
+            let sessions = chip.tls_sessions();
+            let net = NetLimits::new(XTEINK_POOL, 2)
+                .tls_sessions(sessions)
+                .cable(true)
+                .max_body(16 * 1024);
+            let mut sockets = SockLimits::small(XTEINK_POOL);
+            sockets.tls_sessions = sessions;
+            (net, sockets)
+        }
+        None => {
+            let sockets = SockLimits::large(0);
+            let net = NetLimits::new(0, 8)
+                .tls_sessions(sockets.tls_sessions)
+                .cable(true);
+            (net, sockets)
+        }
+    }
+}
+
 /// Wires the services of `core.net`, the card, the secrets and the rest for
 /// the device of `profile`, and tells `pool` what card plugins are offered.
 /// Call once, before the kernel is built (a code plugin is admitted while it
@@ -665,10 +710,8 @@ pub fn prepare(
     let resources = pool
         .resources(profile.device.memory)
         .ok_or(Unavailable::NoRoom)?;
-    let device: Rc<DesktopDevice> = Rc::new({
-        let view = inputs.view.clone();
-        DesktopDevice::new(profile).with_online(Rc::new(move || view.network_up()))
-    });
+    let device: Rc<DesktopDevice> =
+        Rc::new(DesktopDevice::new(profile).with_networks(inputs.view.networks.clone()));
     let mut wiring = HostWiring::new()
         .device(device)
         .lookup()
@@ -683,23 +726,17 @@ pub fn prepare(
         // same transport tells core of the network for both services: core
         // combines their demand.
         let sockets = Rc::new(crate::native_sock::NativeSock::new());
+        let (net_limits, sock_limits) = net_limits(profile);
         wiring = std::mem::take(&mut wiring)
             .net(NetInputs::new(
                 storage.clone(),
                 transport.clone(),
                 transport.clone(),
-                // The one pool and its TLS sessions are the same in both
-                // wirings (`SockLimits::large`: 4).
-                NetLimits::new(0, 8).tls_sessions(4).cable(true),
+                net_limits,
             ))
             .sockets(
-                SockInputs::new(
-                    storage,
-                    sockets.clone(),
-                    transport.clone(),
-                    SockLimits::large(0),
-                )
-                .tls(sockets.clone()),
+                SockInputs::new(storage, sockets.clone(), transport.clone(), sock_limits)
+                    .tls(sockets.clone()),
             );
         (transport, sockets)
     });
@@ -850,6 +887,33 @@ fn net_storage(inputs: &Inputs) -> Option<Rc<dyn Storage>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An Xteink profile's `core.net` and `core.sockets` have the firmware's
+    /// limits (`shells/xteink/src/native`): its pool, two requests, bodies
+    /// of 16 KiB, two small sockets and its chip's TLS sessions; the other
+    /// devices the computer's.
+    #[test]
+    fn the_network_limits_are_the_devices() {
+        let limits = |id| net_limits(crate::profiles::find(id).unwrap());
+        let (net, sockets) = limits("xteink-x4");
+        assert_eq!((net.pool_bytes, net.connections), (48 * 1024, 2));
+        assert_eq!(
+            (net.max_body, net.servers, net.tls_sessions),
+            (16 * 1024, 1, 1)
+        );
+        assert_eq!(sockets, {
+            let mut small = SockLimits::small(48 * 1024);
+            small.tls_sessions = 1;
+            small
+        });
+        let (net, sockets) = limits("xteink-x4-pro");
+        assert_eq!((net.tls_sessions, sockets.tls_sessions), (2, 2));
+        assert_eq!(limits("boox-picco").0.tls_sessions, 2);
+        assert_eq!(limits("xteink-x4-classic").0.tls_sessions, 2);
+        assert_eq!(limits("xteink-x3").0.tls_sessions, 1);
+        let (net, sockets) = limits("boox-go-7");
+        assert_eq!((net.pool_bytes, sockets), (0, SockLimits::large(0)));
+    }
 
     /// A script's run (simulated time) keeps its secrets in memory, but a
     /// download saved to a file lands on the card, where the plugin that asked

@@ -378,10 +378,51 @@ pub struct Profile {
     pub button_row: &'static [&'static str],
     /// The device's front light, if it has one.
     pub light: Option<Light>,
+    /// The chip of a device the Xteink firmware runs on (`shells/xteink`),
+    /// which decides its network limits and USB capabilities there and so
+    /// here; `None` for the other devices (the computer's limits).
+    pub chip: Option<Chip>,
     /// Its body and keys, as emulators draw it.
     pub body: Body,
     /// One-line description for `--list-profiles`.
     pub summary: &'static str,
+}
+
+/// The chip an Xteink firmware build runs on (its features `esp32c3` and
+/// `esp32s3`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Chip {
+    /// The X4 and X3.
+    Esp32c3,
+    /// The X4 Pro, X4 Classic and Picco.
+    Esp32s3,
+}
+
+impl Chip {
+    /// The TLS sessions open at once (`shells/xteink/src/tls_slots.rs`).
+    pub const fn tls_sessions(self) -> u8 {
+        match self {
+            Self::Esp32c3 => 1,
+            Self::Esp32s3 => 2,
+        }
+    }
+
+    /// The card can be shown to a computer (`usb_drive`): the ESP32-S3 has
+    /// the OTG core the ESP32-C3 lacks.
+    pub const fn usb_drive(self) -> bool {
+        matches!(self, Self::Esp32s3)
+    }
+}
+
+impl Profile {
+    /// The TLS sessions open at once: the firmware's on an Xteink device,
+    /// the computer's elsewhere, never more than the emulator has (none in
+    /// the browser).
+    pub fn tls_sessions(&self) -> u8 {
+        let emulator = paperpaw_serve::TLS_SESSIONS;
+        self.chip
+            .map_or(emulator, |chip| chip.tls_sessions().min(emulator))
+    }
 }
 
 const KIB: usize = 1024;
@@ -429,6 +470,7 @@ pub const PROFILES: &[Profile] = &[
         refresh_asleep: true,
         button_row: &X4_ROW,
         light: None,
+        chip: Some(Chip::Esp32c3),
         body: X4_BODY,
         summary: "ESP32-C3, 4.3\" 800x480, buttons only, 256 KiB heap budget",
     },
@@ -473,6 +515,7 @@ pub const PROFILES: &[Profile] = &[
             percent: true,
             warmth: Some(5),
         }),
+        chip: Some(Chip::Esp32s3),
         body: X4_PRO_BODY,
         summary: "ESP32-S3 with 8 MB PSRAM, 4.3\" 800x480, touch + buttons, 10 MiB heap budget",
     },
@@ -513,6 +556,7 @@ pub const PROFILES: &[Profile] = &[
             percent: true,
             warmth: Some(5),
         }),
+        chip: Some(Chip::Esp32s3),
         body: PICCO_BODY,
         summary: "ESP32-S3 with 8 MB PSRAM, 3.97\" 800x480, touch + two page buttons, 10 MiB heap budget (experimental)",
     },
@@ -544,6 +588,7 @@ pub const PROFILES: &[Profile] = &[
         refresh_asleep: false,
         button_row: &X4_ROW,
         light: None,
+        chip: Some(Chip::Esp32s3),
         body: X4_BODY,
         summary: "experimental: ESP32-S3 with 8 MB PSRAM, 4.3\" 800x480, buttons only, 10 MiB heap budget",
     },
@@ -578,6 +623,7 @@ pub const PROFILES: &[Profile] = &[
         refresh_asleep: true,
         button_row: &X4_ROW,
         light: None,
+        chip: Some(Chip::Esp32c3),
         body: X4_BODY,
         summary: "experimental: ESP32-C3, 3.7\" 792x528, buttons only, 256 KiB heap budget",
     },
@@ -624,6 +670,7 @@ pub const PROFILES: &[Profile] = &[
             percent: false,
             warmth: Some(1),
         }),
+        chip: None,
         body: BOOX_GO_7_BODY,
         summary: "Android, 7\" Carta 1300 1264x1680, touch + page buttons",
     },
@@ -661,6 +708,7 @@ pub const PROFILES: &[Profile] = &[
         refresh_asleep: false,
         button_row: &[],
         light: None,
+        chip: None,
         body: Body::PLAIN,
         summary: "Linux, 7\" Kaleido 3 colour 1264x1680, touch + page buttons",
     },
@@ -691,6 +739,7 @@ pub const PROFILES: &[Profile] = &[
         refresh_asleep: false,
         button_row: &[],
         light: None,
+        chip: None,
         body: Body::PLAIN,
         summary: "Linux, 6.8\" 1236x1648, touch only",
     },
@@ -721,6 +770,7 @@ pub const PROFILES: &[Profile] = &[
         refresh_asleep: false,
         button_row: &[],
         light: None,
+        chip: None,
         body: Body::PLAIN,
         summary: "Linux, 6\" 1072x1448, touch only",
     },
@@ -752,6 +802,7 @@ pub const PROFILES: &[Profile] = &[
         refresh_asleep: false,
         button_row: &[],
         light: None,
+        chip: None,
         body: Body::PLAIN,
         summary: "Generic 6\" 600x800, only page buttons (also: Bluetooth page turners)",
     },
@@ -798,12 +849,13 @@ mod tests {
         assert_eq!(side(buttons::PAGE_FORWARD), Place::Right);
     }
 
-    /// Slot 35 (`ui.compose`) is blocked by the memory class until the X4's
-    /// stack gate passes (`ui.md` 5.1, `ui_store::is_x4`): every profile with a
-    /// small ESP32-C3 heap (X4, X3, a later one) must declare `Small`, and a
-    /// profile that declares `Large` must not have that heap.
+    /// What core holds the X4 to goes by the memory class (`ui_store::is_x4`:
+    /// the limits of `ui.md` 8.2, and the nested-call gate where a build
+    /// closes it, `nested_closed`): every profile with a small ESP32-C3 heap
+    /// (X4, X3, a later one) must declare `Small`, and a profile that declares
+    /// `Large` must not have that heap.
     #[test]
-    fn a_small_esp32_c3_profile_has_the_memory_class_that_blocks_compose() {
+    fn a_small_esp32_c3_profile_has_the_small_memory_class() {
         use paperpaw_platform::MemoryClass;
         for id in ["xteink-x4", "xteink-x3"] {
             assert_eq!(find(id).unwrap().device.memory, MemoryClass::Small, "{id}");
