@@ -345,16 +345,15 @@ pub enum Next {
 /// finds it where it was.
 ///
 /// # Errors
-/// `NoMemory`. A card that refuses the queue file is not an error: the turn is
-/// given anyway.
+/// `NoMemory`; `Io` where the card refuses the queue file (a full card): no
+/// turn is given, as the queue read next would give the same one again, for
+/// ever.
 pub fn next(queue: &mut Queue, storage: &dyn Storage) -> Result<Next, Error> {
     let id = match queue.advance() {
         Some(id) => Some(copy(id)?),
         None => None,
     };
-    if queue.keep(storage) == Err(Error::NoMemory) {
-        return Err(Error::NoMemory);
-    }
+    queue.keep(storage)?;
     Ok(id.map_or(Next::Idle, Next::FetchPage))
 }
 
