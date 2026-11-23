@@ -119,14 +119,23 @@ impl Bridge {
             NetOut::Listened(server, address) => self.report_listened(net, server, address),
             NetOut::Parked(id) => match net.redirected_to_https(id) {
                 Err(ERR_BUSY) => Err(NetOut::Parked(id)),
-                // Core does not know it or does not run it: it is not left
-                // parked for ever (a late report is no failure of the request).
-                Err(status) => {
-                    if status != ERR_NOT_FOUND {
-                        log::warn!("http: request {id} not resumed ({status})");
-                    }
+                // Core does not know it (a late report, no failure of the
+                // request): it is not left parked for ever.
+                Err(ERR_NOT_FOUND) => {
                     self.forget_request(id);
                     Ok(())
+                }
+                // Core runs it but does not take it back for `https`: it
+                // ends now, not at its timeout (as the emulator's).
+                Err(status) => {
+                    log::warn!("http: request {id} not resumed ({status})");
+                    self.forget_request(id);
+                    let failed = paperpaw_core::HttpResponse::failed(
+                        id,
+                        HttpError::Io,
+                        "the redirect to https was not taken",
+                    );
+                    self.report_net(net, NetOut::Finished(id, failed, None))
                 }
                 Ok(()) => Ok(()),
             },
@@ -211,6 +220,13 @@ fn finish(
         Some(HttpError::Timeout) => HttpReason::Timeout,
         Some(HttpError::Refused) if too_large(&response.body) => HttpReason::TooLarge,
         Some(HttpError::Refused) => HttpReason::Refused,
+        Some(HttpError::Io)
+            if response
+                .body
+                .starts_with(paperpaw_x4::file_sink::FULL.as_bytes()) =>
+        {
+            HttpReason::Full
+        }
         Some(_) => HttpReason::Io,
     };
     // A failure's text is for the shell's log, not a body.
@@ -290,6 +306,10 @@ impl ShellHttp for Bridge {
             progress: true,
         };
         inner.caps.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        inner
+            .http
+            .add_staged(call, job.foreground, job.lean)
+            .map_err(|_| ERR_NO_MEMORY)?;
         inner.caps.push((
             job.id,
             if saving {
@@ -298,7 +318,6 @@ impl ShellHttp for Bridge {
                 job.max_body as usize
             },
         ));
-        inner.http.add_staged(call, job.foreground, job.lean);
         Ok(())
     }
 

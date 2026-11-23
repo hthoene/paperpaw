@@ -108,7 +108,7 @@ pub fn verify(
 /// not check out.
 fn fallible(error: StorageError) -> Result<bool, Error> {
     match error {
-        StorageError::Other(0x6e6d) => Err(Error::NoMemory),
+        StorageError::OutOfMemory => Err(Error::NoMemory),
         _ => Ok(false),
     }
 }

@@ -1,8 +1,10 @@
-//! The status item's drawing: the Wi-Fi sign in the place the line gives the
-//! item (a drawn value, `DrawPurpose::StatusItem`), as interface 6 drew it
-//! (`StatusValue::Icon("wifi")`). The sign is the character of the icon `wifi`
-//! in the bound icon font; where there is no icon font the item's name stands
-//! for it, small, as the menus show text for an icon they lack.
+//! A status item drawn by its plugin (`DrawPurpose::StatusItem`): a sign in
+//! the place the line gives the item, as interface 6 drew
+//! `StatusValue::Icon`. The sign is the character of an icon in the bound icon
+//! font; where there is no icon font the item's name stands for it, small, as
+//! the menus show text for an icon they lack. The Wi-Fi and Bluetooth items
+//! are drawn so.
+use crate::{Paint, Style, paint, text};
 use alloc::vec::Vec;
 use paperpaw_sdk::{
     Rect,
@@ -14,12 +16,6 @@ use paperpaw_sdk::{
         snapshot,
     },
 };
-use paperpaw_ui_kit::{Paint, Style, paint, text};
-
-/// The icon's name (`wifi.group`, `wifi.open` use it too).
-const ICON: &str = "wifi";
-/// The font the icon glyphs are drawn with (`docs/abi/screens-input.md`).
-const ICON_FONT: &str = "role:icons";
 
 /// The place as a screen rectangle: what cannot be one (a negative corner,
 /// more than 65,535 pixels) is cut, never wrapped.
@@ -39,11 +35,18 @@ fn sign_size(area: Rect) -> f32 {
     f32::from(area.width.min(area.height)) * 0.9
 }
 
-/// Draws the item in `frame`. Another purpose is not ours: nothing is drawn.
+/// Draws the status item in `frame`: the sign of the icon `icon`, else the
+/// message `name` (the item's name). Another purpose is not a status item's:
+/// nothing is drawn.
 ///
 /// # Errors
 /// Font, catalog and drawing errors; `NoMemory`.
-pub(super) fn draw(host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+pub fn draw(
+    host: &Host<'_>,
+    frame: &mut DrawFrame<'_>,
+    icon: &str,
+    name: &str,
+) -> Result<(), Error> {
     if !matches!(frame.purpose, DrawPurpose::StatusItem) {
         return Ok(());
     }
@@ -53,7 +56,7 @@ pub(super) fn draw(host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Err
     }
     let font = Font::acquire_role(host, FontRole::Ui)?;
     // The font goes back on every path, an error too.
-    let drawn = draw_with(host, frame, &font, area);
+    let drawn = draw_with(host, frame, &font, area, (icon, name));
     let released = font.release();
     drawn.and(released)
 }
@@ -63,11 +66,12 @@ fn draw_with(
     frame: &mut DrawFrame<'_>,
     font: &Font<'_>,
     area: Rect,
+    (icon, name): (&str, &str),
 ) -> Result<(), Error> {
     let display = snapshot::capture_snapshot(host)?;
     let style = Style::read(host, &display, font)?;
-    match sign(host, frame, &style, area) {
-        Err(Error::NotFound | Error::Unsupported) => name(host, frame, font, &style, area),
+    match sign(host, frame, &style, area, icon) {
+        Err(Error::NotFound | Error::Unsupported) => named(host, frame, font, &style, (area, name)),
         other => other,
     }
 }
@@ -78,9 +82,10 @@ fn sign(
     frame: &mut DrawFrame<'_>,
     style: &Style,
     area: Rect,
+    icon: &str,
 ) -> Result<(), Error> {
-    let glyph = IconGlyph::named(host, ICON)?;
-    let icons = Font::acquire(host, ICON_FONT)?;
+    let glyph = IconGlyph::named(host, icon)?;
+    let icons = Font::acquire(host, crate::icons::ROLE)?;
     let size = sign_size(area);
     let drawn = (|| {
         let width = icons.measure_text(size, glyph.as_str())?;
@@ -102,16 +107,16 @@ fn sign(
     drawn.and(released)
 }
 
-/// The item's name, small, left in the place.
-fn name(
+/// The item's name (the message `name`), small, left in the place.
+fn named(
     host: &Host<'_>,
     frame: &mut DrawFrame<'_>,
     font: &Font<'_>,
     style: &Style,
-    area: Rect,
+    (area, name): (Rect, &str),
 ) -> Result<(), Error> {
     let mut label = [0; 64];
-    let words = copy_message(host, "wifi.status.item", &mut label)?;
+    let words = copy_message(host, name, &mut label)?;
     let mut body: Vec<Paint> = Vec::new();
     text::label(
         &mut body,

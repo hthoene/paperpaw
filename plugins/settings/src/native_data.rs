@@ -257,6 +257,7 @@ impl<'h, 'cb> Reader<'h, 'cb> {
                 order: row.order(),
                 title: copy(row.title())?,
                 icon: copy(row.icon())?,
+                badge: copy(row.badge())?,
             })
         })?;
         Ok(found)

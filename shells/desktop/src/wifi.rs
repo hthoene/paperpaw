@@ -58,7 +58,14 @@ pub(crate) fn pretend_networks(workshop: bool) -> Vec<WifiNetwork> {
 
 #[derive(Debug, Default)]
 pub struct Wifi {
+    /// The state the radio goes to, by what was asked of it so far: what
+    /// the next command is answered by.
     state: WifiState,
+    /// The state the kernel was told last ([`Wifi::take_due`]): what the
+    /// network is, as on the X4, whose bridge takes the radio's state in
+    /// the step the kernel hears it (`Bridge::track`, #467). A join is not
+    /// online before its second has passed.
+    reported: WifiState,
     /// What is reported when, in the order of time.
     due: VecDeque<(Instant, WifiEvent)>,
     /// The workshop's network is in reach ([`Wifi::online`]).
@@ -69,7 +76,7 @@ impl Wifi {
     /// The radio is on and joined to a network.
     #[must_use]
     pub fn is_online(&self) -> bool {
-        matches!(self.state, WifiState::Online { .. })
+        matches!(self.reported, WifiState::Online { .. })
     }
 
     /// A network is up: joined, or the device's own one open. The X4's
@@ -77,7 +84,14 @@ impl Wifi {
     /// serves its page in the device's own network.
     #[must_use]
     pub fn network_up(&self) -> bool {
-        self.is_online() || self.state.is_hosting()
+        self.is_online() || self.reported.is_hosting()
+    }
+
+    /// The device's own network is open (its pages are shown at its
+    /// address there, [`served_at`]).
+    #[must_use]
+    pub fn is_hosting(&self) -> bool {
+        self.reported.is_hosting()
     }
 
     fn networks(&self) -> Vec<WifiNetwork> {
@@ -191,7 +205,8 @@ impl Wifi {
         }
     }
 
-    /// Reports `state` at `at` (the state counts as it from then on).
+    /// Reports `state` at `at`: commands are answered by it from now on,
+    /// the network is it once it is reported ([`Wifi::take_due`]).
     fn set(&mut self, at: Instant, state: WifiState) {
         self.state = state.clone();
         self.report(at, WifiEvent::State(state));
@@ -204,15 +219,9 @@ impl Wifi {
         self.due.insert(place, (at, event));
     }
 
-    /// Where a server that started at `address` (this computer's, with
-    /// its port) is shown: in the device's own network at the device's
-    /// address there, as on the X4, never at this computer's (a phone in
-    /// that network knows no other).
+    /// Where a server that started at `address` is shown ([`served_at`]).
     pub fn served_at(&self, address: &str) -> String {
-        match address.rsplit_once(':') {
-            Some((_, port)) if self.state.is_hosting() => format!("{HOST_ADDRESS}:{port}"),
-            _ => String::from(address),
-        }
+        served_at(address, self.is_hosting())
     }
 
     /// When something is to be reported next.
@@ -222,11 +231,25 @@ impl Wifi {
 
     /// The next thing to report, if due.
     pub fn take_due(&mut self, now: Instant) -> Option<WifiEvent> {
-        if self.due.front().is_some_and(|(at, _)| *at <= now) {
-            self.due.pop_front().map(|(_, event)| event)
-        } else {
-            None
+        if !self.due.front().is_some_and(|(at, _)| *at <= now) {
+            return None;
         }
+        let (_, event) = self.due.pop_front()?;
+        if let WifiEvent::State(state) = &event {
+            self.reported = state.clone();
+        }
+        Some(event)
+    }
+}
+
+/// Where a server that started at `address` (this computer's, with its
+/// port) is shown: while the device's own network is open (`hosting`) at
+/// the device's address there, as on the X4, never at this computer's (a
+/// phone in that network knows no other).
+pub fn served_at(address: &str, hosting: bool) -> String {
+    match address.rsplit_once(':') {
+        Some((_, port)) if hosting => format!("{HOST_ADDRESS}:{port}"),
+        _ => String::from(address),
     }
 }
 
@@ -260,6 +283,29 @@ mod tests {
         run(&mut wifi, 2000);
         assert_eq!(wifi.served_at("192.168.178.48:80"), "192.168.4.1:80");
         assert_eq!(wifi.served_at("192.168.178.48:8081"), "192.168.4.1:8081");
+    }
+
+    /// The network is up once the kernel is told so, not when the join is
+    /// asked: as on the X4, nothing goes out on a network it has not heard of.
+    #[test]
+    fn a_join_is_online_when_it_is_reported() {
+        let mut wifi = Wifi::default();
+        wifi.apply(WifiCommand::On, Instant(0));
+        run(&mut wifi, 1000);
+        wifi.apply(
+            WifiCommand::Join {
+                ssid: String::from("Cafe"),
+                password: String::new(),
+            },
+            Instant(1000),
+        );
+        run(&mut wifi, 1500);
+        assert!(!wifi.is_online() && !wifi.network_up(), "still joining");
+        assert!(matches!(
+            run(&mut wifi, 2000).as_slice(),
+            [WifiEvent::State(WifiState::Online { .. })]
+        ));
+        assert!(wifi.is_online());
     }
 
     #[test]

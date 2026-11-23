@@ -4,4 +4,4 @@ Set it in the settings, under Device, Screen lock: enter the code in use if ther
 
 After five wrong tries the next one waits half a minute. Lock now locks at once and can be put on a button, a gesture or a rule. Lock after waking up can be switched off, so that only a real start (power on or restart) locks, except where every wake is a start, as on the X4 on battery.
 
-Touch lock, beside it: Lock touch in the quick panel and the reading menu makes taps, swipes and the pen do nothing while the buttons still work, e.g. to read with a hand on the screen. To unlock, tap twice with one finger and keep it down a moment; holding the power button opens the Power menu, where Unlock touch does it by the buttons; on the X4 Pro, holding the home key unlocks at once.
+Touch lock, beside it: Lock touch in the quick panel and the reading menu makes taps, swipes and the pen do nothing while the buttons still work, e.g. to read with a hand on the screen. To unlock, tap twice with one finger and keep it down a moment; holding the power button unlocks at once; on the X4 Pro, holding the home key unlocks at once.

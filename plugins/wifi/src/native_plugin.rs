@@ -19,12 +19,13 @@ use paperpaw_sdk::native::{
     reply::Reply,
     secrets::Secrets,
     settings::{self, SettingValue},
-    ui::{ButtonHint, Instance, Notify, Open, Question, RequestId, Ui},
+    ui::{Instance, Notify, Open, Question, RequestId, Ui},
     work::Work,
 };
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages, RowsChange, Screens,
+    Footer, Item, ItemList, ItemStep, Messages, RowsChange, Screens, key_bar,
     mem::{SERVICE_BUFFER, buffer, wipe},
+    status_line,
     text::{concat, copy},
 };
 
@@ -43,7 +44,6 @@ use crate::native_policy::{Password, Policy, Radio, Step};
 
 mod events;
 mod phone;
-mod status_icon;
 mod views;
 
 use views::{Count, Found, Info, Mark, Named, Networks, Page, row_item};
@@ -216,7 +216,7 @@ impl Plugin for NativeWifi {
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         // The status item is drawn by its owner into the place the line gives it.
         if token == STATUS {
-            return status_icon::draw(host, &mut frame);
+            return status_line::icon::draw(host, &mut frame, "wifi", "wifi.status.item");
         }
         // The list translates a title that is a catalog key: no catalog
         // buffers of ours are made for a frame.
@@ -256,14 +256,12 @@ impl Plugin for NativeWifi {
             return Ok(Handled::No);
         };
         let step = match view {
-            // Select held, or the menu button, forgets the network kept that
-            // has the focus, as a long press does on a touch screen (with the
-            // buttons alone nothing else can); elsewhere they are the host's.
-            View::Networks(view) if forgets(&input) && view.kept(view.list.focus()) => {
-                ItemStep::Held(view.list.focus())
-            }
             View::Page(view) => view.list.input(host, &input)?,
-            View::Networks(view) => view.list.input(host, &input)?,
+            // Held, a network kept is forgotten.
+            View::Networks(view) => {
+                let kept = view.kept(view.list.focus());
+                view.list.input_holding(host, &input, kept)?
+            }
             View::Phone(view) => view.list.input(host, &input)?,
         };
         match step {
@@ -278,44 +276,11 @@ impl Plugin for NativeWifi {
     }
 }
 
-/// Select held or the menu button: what forgets a network kept.
-fn forgets(input: &Input<'_>) -> bool {
-    matches!(
-        input,
-        Input::Action {
-            action: "core.long-confirm" | "core.menu",
-            ..
-        }
-    )
-}
-
 /// The key bar names *Forget* for the menu button while the focus is on a
-/// network kept, as Beta 3 did, and the button's usual name elsewhere. Sent
-/// only where that changes; a hint the host refuses leaves the bar as it was.
+/// network kept, as Beta 3 did, and the button's usual name elsewhere.
 fn forget_hint(host: &Host<'_>, view: &mut Networks) {
     let forget = view.kept(view.list.focus());
-    if forget == view.forget_named {
-        return;
-    }
-    let word = if forget {
-        match Messages::new().and_then(|mut say| say.copy(host, "wifi.forget")) {
-            Ok(word) => Some(word),
-            Err(_) => return,
-        }
-    } else {
-        None
-    };
-    let hint = match &word {
-        Some(word) => ButtonHint::words(MENU, word),
-        None => ButtonHint::usual(MENU),
-    };
-    if let Ok(hint) = hint
-        && CommandSender::new(host, &mut [0; 256])
-            .set_hint(hint)
-            .is_ok()
-    {
-        view.forget_named = forget;
-    }
+    key_bar::name_while(host, MENU, "wifi.forget", forget, &mut view.forget_named);
 }
 
 impl NativeWifi {
@@ -752,6 +717,19 @@ impl NativeWifi {
             }
         };
         self.screens.open(instance, view)
+    }
+
+    /// Looks for networks once the radio is switched on (`Radio::On`, not
+    /// joined or joining) while a Wi-Fi screen is open, as opening the page
+    /// with the radio on does: the device scans only when asked, and the list
+    /// of networks would stay empty until the reader asks again.
+    fn search_if_switched_on(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let open =
+            self.screens.top(PAGE_TOKEN).is_some() || self.screens.top(NETWORKS_TOKEN).is_some();
+        if open && self.read_info(host)?.radio == Radio::On {
+            self.search_if_idle(host)?;
+        }
+        Ok(())
     }
 
     /// Looks for networks if the radio is on and nothing else goes on (a scan

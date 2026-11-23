@@ -8,6 +8,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::DrawFrame,
         commands::{CommandSender, RedrawMode},
+        document::{DocId, Documents},
         fonts::{Font, FontRole},
         snapshot,
     },
@@ -82,4 +83,42 @@ pub(super) fn book_language(host: &Host<'_>, declared: &str) -> Result<String, E
     }
     let mut scratch = [0; 64];
     text::copy(paperpaw_sdk::native::i18n::language(host, &mut scratch).unwrap_or(""))
+}
+
+/// What the format tells of a book, as the screen keeps it.
+pub(super) struct BookFacts {
+    pub(super) sections: u32,
+    /// Its title; the path where the format gives none.
+    pub(super) title: String,
+    /// Its language (a BCP 47 tag), the UI's where the format names none.
+    pub(super) language: String,
+    /// The script its language is written in, where a pack of letters is offered.
+    pub(super) script: Option<&'static str>,
+    pub(super) rtl: bool,
+}
+
+/// The facts of document `id` (the book at `path`); none where the host cannot
+/// tell them (the screen says so).
+///
+/// # Errors
+/// `NoMemory`.
+#[inline(never)]
+pub(super) fn book_facts(
+    host: &Host<'_>,
+    docs: &Documents,
+    id: DocId,
+    path: &str,
+    (input, out): (&mut [u8], &mut [u8]),
+) -> Result<Option<BookFacts>, Error> {
+    match docs.metadata(host, id, input, out) {
+        Ok(meta) => Ok(Some(BookFacts {
+            sections: meta.sections().max(1),
+            title: text::copy(crate::native_place::title_of(meta.title(), path))?,
+            language: book_language(host, meta.language())?,
+            script: crate::native_script_hint::declared(meta.language()),
+            rtl: meta.right_to_left(),
+        })),
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Err(_) => Ok(None),
+    }
 }

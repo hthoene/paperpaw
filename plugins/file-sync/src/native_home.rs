@@ -73,19 +73,6 @@ pub struct View {
     region: Option<FrameRect>,
 }
 
-impl View {
-    /// The room below the rows in the last frame, where the note is, in the
-    /// region's pixels; `None` before a frame and where the last row is on
-    /// another page.
-    fn below_rows(&self) -> Option<FrameRect> {
-        let region = self.region?;
-        let last = self.list.rect_of(self.list.items().len().checked_sub(1)?)?;
-        let top = (i32::from(last.y) + i32::from(last.height)).saturating_sub(region.y);
-        let height = u32::try_from(i64::from(region.height) - i64::from(top)).ok()?;
-        Some(FrameRect::new(0, top, region.width, height))
-    }
-}
-
 /// The footer for a note: none where it is empty.
 fn note(text: &str) -> Footer<'_> {
     if text.is_empty() {
@@ -220,12 +207,7 @@ impl NativeFileSync {
             return Ok(());
         }
         top.note = note;
-        let mut scratch = [0; 64];
-        let mut sender = CommandSender::new(host, &mut scratch);
-        match top.below_rows() {
-            Some(area) => sender.queue_redraw_area(RedrawMode::Fast, area),
-            None => sender.queue_redraw(RedrawMode::Partial),
-        }
+        top.list.redraw_below_rows(host, top.region)
     }
 
     /// Rebuilds the rows of the open screens and asks for a redraw.

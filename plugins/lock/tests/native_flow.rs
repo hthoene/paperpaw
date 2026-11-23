@@ -233,6 +233,10 @@ fn a_pattern_is_drawn_from_dot_to_dot_and_checked_when_the_finger_lifts() {
             .finger_down(1, Point::new(0, 0), None, &mut fx)
             .unwrap()
     );
+    // A finger that went down off the dots enters nothing when it is lifted:
+    // no wrong try.
+    assert!(!flow.finger_up(1, &mut lock, &ctx, &mut fx).unwrap());
+    assert!(effects(&mut fx).is_empty());
     assert!(
         flow.finger_down(1, Point::new(10, 10), Some(0), &mut fx)
             .unwrap()
@@ -243,7 +247,7 @@ fn a_pattern_is_drawn_from_dot_to_dot_and_checked_when_the_finger_lifts() {
     }
     assert_eq!(flow.pattern().collect::<Vec<_>>(), [0, 1, 2, 4]);
     effects(&mut fx);
-    flow.finger_up(&mut lock, &ctx, &mut fx).unwrap();
+    assert!(flow.finger_up(1, &mut lock, &ctx, &mut fx).unwrap());
     assert_eq!(effects(&mut fx), [Effect::Unlocked]);
     assert!(!lock.locked);
 }

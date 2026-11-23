@@ -51,7 +51,12 @@ impl View {
         if !path.is_empty() && open.path != path {
             return false;
         }
-        open.reload_marks(host, library).unwrap_or(true)
+        // A bookmark is an annotation too: one set or taken away elsewhere
+        // (the annotations screen, a sync) shows on the ribbon at once.
+        let ribbon = open.bookmarked();
+        open.load_bookmarks(host, library);
+        let marks = open.reload_marks(host, library).unwrap_or(true);
+        marks || ribbon != open.bookmarked()
     }
 
     /// The note *Note* started on the last input: where it goes and the note it

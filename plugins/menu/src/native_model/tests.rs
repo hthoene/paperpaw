@@ -55,6 +55,20 @@ fn depth_is_digits_else_zero() {
 }
 
 #[test]
+fn a_depth_no_menu_reaches_is_the_deepest_and_a_submenu_there_does_nothing() {
+    let huge = depth_of(Some("18446744073709551615"));
+    assert_eq!(huge, MAX_DEPTH);
+    let sub = row("sub", Kind::Submenu, flag::ENABLED);
+    assert_eq!(choose(&sub, huge).unwrap(), Choice::Nothing);
+    // An action there closes as many menus as there are, no more.
+    let run = row("act", Kind::Action, flag::ENABLED);
+    assert!(matches!(
+        choose(&run, huge).unwrap(),
+        Choice::Run { back, .. } if back == MAX_DEPTH + 1
+    ));
+}
+
+#[test]
 fn a_heading_with_nothing_below_it_goes() {
     let rows = vec![
         section("A"),

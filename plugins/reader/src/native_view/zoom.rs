@@ -391,11 +391,17 @@ impl Open {
         }
     }
 
-    /// Back to the page, drawn again as a page turn shows it.
-    fn zoom_close(&mut self, host: &Host<'_>, docs: &Documents) -> Result<Handled, Error> {
+    /// Ends the full-screen picture, if one is on show: its decodes and its
+    /// turned copy are given back to the host.
+    pub(super) fn end_zoom(&mut self, host: &Host<'_>) {
         if let Some(mut zoom) = self.zoom.take() {
             zoom.end(host);
         }
+    }
+
+    /// Back to the page, drawn again as a page turn shows it.
+    fn zoom_close(&mut self, host: &Host<'_>, docs: &Documents) -> Result<Handled, Error> {
+        self.end_zoom(host);
         self.redraw_page(host, docs, RedrawMode::Partial)?;
         Ok(Handled::Yes)
     }
@@ -416,9 +422,7 @@ impl Open {
             return Ok(false);
         };
         let Some(fit) = self.zoomed(at) else {
-            if let Some(mut zoom) = self.zoom.take() {
-                zoom.end(host);
-            }
+            self.end_zoom(host);
             return Ok(false);
         };
         let Some(zoom) = self.zoom.as_mut() else {

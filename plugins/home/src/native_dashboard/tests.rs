@@ -111,14 +111,14 @@ fn a_dashboard_opened_again_keeps_its_page_and_focus() {
     };
     dashboard.focus.show(true);
     dashboard.stale = false;
-    dashboard.reopened(false);
+    dashboard.reopened(false, None);
     assert_eq!(dashboard.nav.map(|n| n.page), Some(2));
     assert!(dashboard.focus.shown());
     assert!(!dashboard.editing());
     // Not laid out again for nothing.
     assert!(!dashboard.stale);
     // Asked to edit: editing starts, the page stays.
-    dashboard.reopened(true);
+    dashboard.reopened(true, None);
     assert!(dashboard.editing());
     assert!(dashboard.stale);
     assert_eq!(dashboard.nav.map(|n| n.page), Some(2));

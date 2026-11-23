@@ -153,7 +153,8 @@ impl CommandSender<'_, '_> {
     pub fn screen_ready(&mut self) -> Result<(), Error> {
         self.submit(wire::Command::ScreenReady {})
     }
-    /// Show formatted display text while this plugin has a screen open.
+    /// Show formatted display text over whatever is open, also when no screen
+    /// of this plugin is (background work needs the message's `announce`).
     ///
     /// # Errors
     /// Returns buffer limits or the host's refusal.

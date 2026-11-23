@@ -151,7 +151,7 @@ existed and is not repeated; the random old-vs-new policy runs (200 runs of 40 e
   unit test of the row, it is made from the host's texts). The status item answers the host's `core.status` ask
   (`native_plugin/events.rs`, `status`) with a **drawn** value (`StatusAnswer::drawn`) while a network is joined and no
   text (the item is hidden) otherwise (#257): the plugin draws the Wi-Fi sign itself into the place the status line gives
-  it (`native_plugin/status_icon.rs`, `DrawPurpose::StatusItem`; the character of the icon `wifi` in the `role:icons`
+  it (ui-kit `status_line/icon.rs`, `DrawPurpose::StatusItem`; the character of the icon `wifi` in the `role:icons`
   font, centred, nine tenths of the place's shorter side, in the theme's ink; where no icon font is bound the item's
   name *Wi-Fi* stands for it, small). The host composes it (`ui.compose` kind 1, the ui-kit status line does that for
   the reader and the home); not shown here on a host (needs a scripted host that composes), unit-tested are the answer

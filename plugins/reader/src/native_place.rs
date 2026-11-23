@@ -185,34 +185,38 @@ pub fn relocate(
 }
 
 /// The place saved for the book at `path`: its own, or one of another
-/// conversion as `other`. A read that fails other than as
-/// "no place" is tried once more, as Beta 3 did, before the book opens at its
-/// start.
-#[must_use]
+/// conversion as `other`; none saved is the default. A read that fails other
+/// than as "no place" is tried once more, as Beta 3 did.
+///
+/// # Errors
+/// The second failed read: the place is there but cannot be read, so it is
+/// held (Beta 3's `held`), not written over by the place read on.
 pub fn saved(
     host: &Host<'_>,
     library: &Library,
     path: &str,
     (sections, conversion): (u32, u64),
     (input, out): (&mut [u8], &mut [u8]),
-) -> Stored {
+) -> Result<Stored, Error> {
     let Ok(book) = BookRef::path(path) else {
-        return Stored::default();
+        return Ok(Stored::default());
     };
     let mut read = library.position(host, book, input, out);
     if matches!(&read, Err(e) if *e != Error::NotFound) {
         read = library.position(host, book, input, out);
     }
-    let Ok(position) = read else {
-        return Stored::default();
+    let position = match read {
+        Ok(position) => position,
+        Err(Error::NotFound) => return Ok(Stored::default()),
+        Err(error) => return Err(error),
     };
     let here = (position.section, position.offset);
     let mine = position.conversion.is_none_or(|c| c == conversion);
-    Stored {
+    Ok(Stored {
         at: (mine && position.section < sections).then_some(here),
         ppm: position.progress_ppm.min(1_000_000),
         other: (!mine).then_some(here),
-    }
+    })
 }
 
 /// Most bytes of the title a report carries.

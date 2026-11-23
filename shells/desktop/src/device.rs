@@ -20,7 +20,10 @@ use paperpaw_fs::DirStorage;
 use paperpaw_platform::Storage;
 
 mod card;
+mod kernel;
+mod sleep;
 pub use card::{Card, Shared};
+use kernel::build_kernel;
 
 /// What the emulated device's storage says it has free (`--free-space`),
 /// where set: screenshots that look the same on every computer.
@@ -45,13 +48,6 @@ static WIFI_ONLINE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 /// [`Device::set_wifi_online`].
 pub fn set_wifi_online(on: bool) {
     WIFI_ONLINE.store(on, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// Whether devices start online (`--wifi online`); read by the native device
-/// host, which the web build does not have.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn wifi_online() -> bool {
-    WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Whether code plugins built for this computer load (`--trust-code`); read
@@ -155,6 +151,11 @@ pub struct Device {
     bluetooth: crate::bluetooth::Bluetooth,
     /// Sleeping (see `Effects::sleep`): only the power button wakes it.
     asleep: bool,
+    /// Switched off (`Effects::power_off`): the power button starts it anew.
+    powered_off: bool,
+    /// The card was taken out while asleep: the wake tells the kernel
+    /// (`sleep`).
+    card_left_asleep: bool,
     /// How the screen is turned (see `Kernel::rotation`).
     rotation: Rotation,
     /// The texts being spoken (emulated), in order: number and when each
@@ -173,10 +174,6 @@ pub struct Device {
     fixtures: bool,
     /// Online from each start, on USB ([`Device::set_wifi_online`]).
     wifi_online: bool,
-    /// The emulated Wi-Fi was brought up for the native plugins' wanted
-    /// network (until none is wanted any more).
-    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-    native_wifi_asked: bool,
     /// Interface-7 plugins the developer switch loaded from the card
     /// (`--abi7-dev-loader`): none by default. Kept, not applied (S2).
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -358,12 +355,12 @@ impl Device {
             frames_shown: 0,
             fixtures: false,
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
-            #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-            native_wifi_asked: false,
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             abi7: crate::native_runtime::DevPlugins::default(),
             linked,
             asleep: false,
+            powered_off: false,
+            card_left_asleep: false,
             rotation,
             wall: None,
             clock: if simulated_time {
@@ -407,11 +404,21 @@ impl Device {
             Clock::Real(start) => Instant(start.elapsed().as_millis() as u64),
             Clock::Simulated(ms) => Instant(ms),
         };
-        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-        self.linked
-            .view
-            .set(now.0, !self.profile.wifi || self.wifi.network_up());
+        self.sync_view(now);
         now
+    }
+
+    /// What the native plugins' services read of the device (`DeviceView`):
+    /// the time, and the network as the pretend radio reported it last.
+    fn sync_view(&self, now: Instant) {
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        {
+            let view = &self.linked.view;
+            view.set(now.0, !self.profile.wifi || self.wifi.network_up());
+            view.set_hosting(self.wifi.is_hosting());
+        }
+        #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+        let _ = now;
     }
 
     /// Advances simulated time; no-op for real time.
@@ -560,14 +567,6 @@ impl Device {
         self.execute(effects);
     }
 
-    /// The card is taken out of its slot (`true`) or put back (scripts'
-    /// `card-out` and `card-in`): while it is out everything asked of the
-    /// storage fails with [`paperpaw_platform::StorageError::CARD_GONE`].
-    /// The kernel is told nothing, as on a device: it meets the failures.
-    pub fn card_out(&mut self, out: bool) {
-        card::set_out(out);
-    }
-
     /// Opens a screen as a plugin would (scripts' `open:`).
     pub fn open_screen(
         &mut self,
@@ -661,10 +660,7 @@ impl Device {
                 state: ButtonState::Pressed,
             } = event
             {
-                self.asleep = false;
-                eprintln!("{}: awake", self.profile.device.id);
-                let effects = budget::track(|| self.kernel.resume(now));
-                self.execute(effects);
+                self.wake();
             }
             return;
         }
@@ -710,22 +706,9 @@ impl Device {
     /// it take its turn.
     #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
     fn poll_native_net(&mut self, wait: Option<std::time::Duration>) {
-        let wanted = self
-            .linked
-            .net
-            .borrow()
-            .as_ref()
-            .is_some_and(|net| net.transport.wanted());
-        // Where PaperPaw manages Wi-Fi and a request waits for a network, the
-        // emulated radio is brought up as `--wifi online` does (no network
-        // manager plugin is linked to do it on `event.network_wanted`).
-        if !wanted {
-            self.native_wifi_asked = false;
-        } else if !self.native_wifi_asked && self.profile.wifi && !self.wifi.is_online() {
-            self.native_wifi_asked = true;
-            let now = self.now();
-            self.go_online(now);
-        }
+        // A request that waits for a network does not bring the emulated
+        // radio up: the linked Wi-Fi plugin hears of it
+        // (`event.network_wanted`) and decides, as on the X4.
         let told = {
             let net = self.linked.net.borrow();
             net.as_ref().is_some_and(|net| {
@@ -823,6 +806,9 @@ impl Device {
     /// of speech, the pretend radio. Nothing while asleep: only the power
     /// button wakes the device then.
     pub fn next_wake(&self) -> Option<Instant> {
+        if self.powered_off {
+            return None;
+        }
         if self.asleep {
             // The sleep screen shown again (`command.show_again`), as the X4's
             // light sleep wakes for it; nothing else wakes.
@@ -843,6 +829,9 @@ impl Device {
 
     /// Ticks the kernel if a requested wake-up is due.
     pub fn tick_if_due(&mut self) {
+        if self.powered_off {
+            return;
+        }
         if self.asleep {
             let now = self.now();
             if let Some(effects) = budget::track(|| self.kernel.show_again_now(now)) {
@@ -855,6 +844,19 @@ impl Device {
         self.poll_servers();
         let now = self.now();
         while let Some(event) = self.wifi.take_due(now) {
+            // The network as this event leaves it, before the kernel hears
+            // it: its plugins answer at once (a server for the device's own
+            // network), as the X4's bridge takes the radio's state first
+            // (`Bridge::track`, #467).
+            self.sync_view(now);
+            // The networks found, for `core.device` op 9, before the kernel
+            // tells the plugins of the scan: they read them when they hear it.
+            #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+            if let paperpaw_core::WifiEvent::Scanned(found) = &event {
+                let rows = found.iter();
+                let rows = rows.map(|n| (n.ssid.as_str(), i32::from(n.signal), n.secured));
+                self.linked.view.networks.set(rows);
+            }
             let effects = budget::track(|| self.kernel.wifi_event(now, event));
             self.execute(effects);
         }
@@ -895,8 +897,11 @@ impl Device {
     }
 
     /// Shows the whole screen in four grays, as the X4 does (see
-    /// `Effects::grays`); where there is no memory for it, as it was.
-    fn show_gray(&mut self) {
+    /// `Effects::grays`), and tells the kernel the frame for `area` was
+    /// shown in grays (as the firmware's `show_gray`); where there is no
+    /// memory for it, as it was.
+    fn show_gray(&mut self, area: paperpaw_platform::Rect) {
+        let started = crate::host::micros();
         let screen = self.controller.bounds();
         let Ok(mut gray) = Framebuffer::new(screen.width, screen.height, PixelFormat::Gray2) else {
             return;
@@ -915,11 +920,13 @@ impl Device {
             let screen = self.kernel.active_screen().map(ToString::to_string);
             frame.done(screen.as_deref().unwrap_or_default());
         }
-        if drawn {
-            self.panel
-                .refresh(gray.view(), screen, RefreshMode::Full, None);
-            self.gray_shown = true;
+        if !drawn {
+            return;
         }
+        self.panel
+            .refresh(gray.view(), screen, RefreshMode::Full, None);
+        self.gray_shown = true;
+        self.note_shown(area, RefreshMode::Gray, started);
     }
 
     /// Whether `name` is a button of this device.
@@ -953,6 +960,12 @@ impl Device {
         let colors = self.profile.colors.then(|| self.kernel.colors());
         self.panel
             .refresh(self.controller.view(), region, mode, colors);
+        self.note_shown(region, mode, started);
+    }
+
+    /// A frame drawn since `started` was shown in `region` with `mode`:
+    /// kept for the tests, counted, and its times told to the kernel.
+    fn note_shown(&mut self, region: paperpaw_platform::Rect, mode: RefreshMode, started: u64) {
         if self.shown.len() >= KEPT_FRAMES {
             self.shown.remove(0);
         }
@@ -979,7 +992,7 @@ impl Device {
             let small = u32::from(area.width) * u32::from(area.height) * 4
                 < u32::from(screen.width) * u32::from(screen.height);
             if !(self.gray_shown && small) {
-                self.show_gray();
+                self.show_gray(area);
             }
         } else if self.gray_shown && effects.refresh().is_some() {
             self.gray_shown = false;
@@ -999,19 +1012,36 @@ impl Device {
         }
         self.wake_at = effects.wake_at();
         if (effects.sleep() || effects.power_off()) && !self.asleep {
-            // The sleep screen is shown: plugins save, the device sleeps (or is
-            // switched off, which the emulator shows as a sleep the power button ends).
-            self.asleep = true;
-            let what = if effects.power_off() {
-                "power off"
-            } else {
-                "asleep"
-            };
-            eprintln!("{}: {what}", self.profile.device.id);
+            self.fall_asleep(effects.power_off());
+        }
+        // The card shown to a computer: the emulator has no USB, as a device
+        // with no cable in, which says so at once (`firmware/usb_drive.rs`).
+        if effects.usb_drive() {
             let now = self.now();
-            let effects = budget::track(|| self.kernel.suspend(now));
+            let effects = budget::track(|| self.kernel.usb_drive_refused(now));
             self.execute(effects);
         }
+        self.run_io();
+        self.report_warnings();
+        // Turned: the same screens, made anew for the turned size.
+        if self.kernel.rotation() != self.rotation {
+            self.rotation = self.kernel.rotation();
+            let display = turned(self.profile.device, self.rotation).display;
+            if let Ok(controller) = Framebuffer::new(display.width, display.height, display.format)
+            {
+                self.controller = controller;
+                self.panel = Panel::new(display.width, display.height, display.color);
+                let now = self.now();
+                let effects =
+                    budget::track(|| self.kernel.resize(now, display.width, display.height));
+                self.execute(effects);
+            }
+        }
+    }
+
+    /// Does the kernel's input and output: requests, servers, sockets,
+    /// speech, the radios, the clipboard.
+    fn run_io(&mut self) {
         for io in self.kernel.take_io() {
             match io {
                 Io::Http(mut call) => {
@@ -1052,21 +1082,6 @@ impl Device {
                 Io::Firmware(_) => {}
             }
         }
-        self.report_warnings();
-        // Turned: the same screens, made anew for the turned size.
-        if self.kernel.rotation() != self.rotation {
-            self.rotation = self.kernel.rotation();
-            let display = turned(self.profile.device, self.rotation).display;
-            if let Ok(controller) = Framebuffer::new(display.width, display.height, display.format)
-            {
-                self.controller = controller;
-                self.panel = Panel::new(display.width, display.height, display.color);
-                let now = self.now();
-                let effects =
-                    budget::track(|| self.kernel.resize(now, display.width, display.height));
-                self.execute(effects);
-            }
-        }
     }
 
     /// Speech, emulated: the text is logged and takes as long as it would
@@ -1102,14 +1117,23 @@ impl Device {
     /// Builds a new kernel, as the device would after a reboot: also
     /// after its files changed, e.g. a data plugin's.
     pub fn restart(&mut self) {
+        self.start_again(true);
+    }
+
+    /// Builds the kernel anew, as at a start of the device: after the old
+    /// one's `stop` (`stop`, a restart), or after a switch-off (its plugins
+    /// heard `core.suspend` then).
+    fn start_again(&mut self, stop: bool) {
         let storage = match self.library.open() {
             Ok(storage) => storage,
             Err(e) => return eprintln!("restart: {:?}: {e}", self.library),
         };
         eprintln!("{}: restarting", self.profile.device.id);
         // Plugins save what is pending, as on the device before it restarts.
-        let now = self.now();
-        budget::track(|| self.kernel.stop(now));
+        if stop {
+            let now = self.now();
+            budget::track(|| self.kernel.stop(now));
+        }
         // Interface-7 plugins of the switch are released with the old kernel
         // and loaded again below (a changed library is read again).
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -1178,123 +1202,6 @@ impl Device {
     }
 }
 
-/// The standard app for `profile` (with the plugins `add` adds), counted
-/// against its heap budget.
-fn build_kernel(
-    profile: &'static Profile,
-    user_config: Option<&str>,
-    storage: Card,
-    rotation: Rotation,
-    add: Option<AddPlugins>,
-    linked: &LinkedInputs,
-) -> Result<Kernel, KernelError> {
-    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
-    let _ = linked;
-    budget::track(|| {
-        // What this kernel's card plugins and linked plugins share.
-        #[cfg(not(target_arch = "wasm32"))]
-        let pool = crate::native::DevicePool::default();
-        let fonts = if profile.font_packs {
-            paperpaw_app::Fonts::Packs
-        } else {
-            paperpaw_app::Fonts::Outline
-        };
-        let mut device = turned(profile.device, rotation);
-        device.input.keys = profile.buttons;
-        let gray_levels = device.display.format.gray_levels();
-        let grays = gray_levels.map_or(255, |levels| levels.min(255) as u8);
-        let mut builder = Kernel::builder(device)
-            .storage(crate::trace::Traced(storage))
-            .clock(crate::host::micros)
-            .random(crate::host::random)
-            .device_log(crate::host::device_log)
-            .memory(budget::memory_use)
-            .glyph_cache(profile.glyph_cache)
-            .busy_mark(profile.busy_mark)
-            // Its grays; frames show at once here (see `execute`).
-            .panel(paperpaw_core::sdk::realtime::PanelInfo::new(grays))
-            .colors(profile.colors)
-            .network(true)
-            // Plugins' secure sockets (rustls); none in the browser.
-            .tls_sessions(paperpaw_serve::TLS_SESSIONS)
-            .wifi(profile.wifi)
-            .bluetooth(profile.bluetooth)
-            .speech(profile.speech)
-            .sleep(profile.sleep)
-            .power_off(profile.power_off)
-            .button_row(profile.button_row)
-            .rotation(true);
-        if profile.refresh_asleep {
-            builder = builder.capability(paperpaw_core::sdk::Capability::REFRESH_ASLEEP);
-        }
-        // Scalable fonts only where the emulated device renders them.
-        if !profile.font_packs {
-            builder = builder.font_dir("fonts");
-        }
-        // Every plugin, those the store offers as files too switched on,
-        // as if the reader had installed them (the emulator loads no
-        // plugin files): `--set plugins.<id>=off` shows a device without.
-        let mut builder = paperpaw_app::install(builder, fonts);
-        if let Some(light) = profile.light {
-            builder = builder.items(crate::light::manifest(), crate::light::emulated(light));
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            builder = crate::native::code_plugins(
-                builder,
-                CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed),
-                profile.device.memory,
-                &pool,
-            );
-        }
-        // Plugin installs from the card share the firmware's queue: the
-        // emulated device has one, with no firmware to install
-        // (`crate::linked::card_plugins`).
-        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-        if let Some(family) = crate::linked::card_plugins(profile) {
-            builder =
-                builder.firmware_host(Box::new(paperpaw_x4::host_jobs::NoFirmware::new(family)));
-        }
-        if let Some(add) = add {
-            builder = add(builder);
-        }
-        if let Some(rows) = profile.frame_rows {
-            builder = builder.frame_rows(rows);
-        }
-        builder = builder.row_align(profile.row_align);
-        if let Some(name) = profile.catalog_device {
-            builder = builder.catalog_device(name);
-        }
-        for (id, value) in profile.settings {
-            builder = builder.setting_default_text(id, value);
-        }
-        if let Some(config) = user_config {
-            builder = builder.user_config(config);
-        }
-        // What is wired is known before the kernel is built: a card plugin is
-        // admitted in `build`, and is offered what the linked ones are.
-        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-        let prepared = crate::linked::prepare(profile, linked, &pool);
-        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-        let builder = builder.library_walk(linked.walk.clone());
-        let kernel = builder.build()?;
-        // The first-party plugins that are interface-7 plugins (the app built
-        // without their interface-6 form), before the first start.
-        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-        let kernel = {
-            let mut kernel = kernel;
-            match prepared.and_then(|prepared| {
-                crate::linked::register(&mut kernel, profile, linked.clone(), &pool, prepared)
-            }) {
-                Ok(_) => {}
-                Err(why) => eprintln!("native plugins: none registered ({why:?})"),
-            }
-            kernel
-        };
-        Ok(kernel)
-    })
-}
-
 /// `device` with its screen turned by `rotation`: on its side, width and
 /// height trade places.
 fn turned(mut device: DeviceInfo, rotation: Rotation) -> DeviceInfo {
@@ -1360,12 +1267,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    /// A wanted network brings the emulated Wi-Fi up once per demand: not
-    /// again while the demand lasts (the radio switched off since stays
-    /// off), and again for the next demand.
+    /// A wanted network does not bring the emulated Wi-Fi up by itself: as on
+    /// the X4 the radio is the user's and the Wi-Fi plugin's, which core tells
+    /// of the demand (this test used to hold the emulator's own shortcut, which
+    /// joined a made-up network the device would not have).
     #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
     #[test]
-    fn a_wanted_network_brings_managed_wifi_up_once_per_demand() {
+    fn a_wanted_network_leaves_the_radio_to_the_user() {
         use paperpaw_core::native_host::shell_wiring::ShellNetwork as _;
         let _one = crate::one_device_at_a_time();
         let (mut device, root) = device("wifi-demand");
@@ -1391,18 +1299,38 @@ mod tests {
         assert!(!device.wifi.is_online());
         demand(&device, true);
         device.poll_http(None);
-        assert!(device.wifi.is_online(), "the demand brought it up");
-        // Off by the user while the demand lasts: not brought up again.
-        let now = device.now();
-        device.wifi.apply(WifiCommand::Off, now);
-        device.poll_http(None);
-        assert!(!device.wifi.is_online());
-        // Released, then wanted again: up again.
+        device.tick_if_due();
+        assert!(!device.wifi.is_online(), "the shell brought no network up");
         demand(&device, false);
-        device.poll_http(None);
-        demand(&device, true);
-        device.poll_http(None);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// As on the X4: a sleep leaves the radios off, which the kernel hears
+    /// once awake; a switch-off leaves the sleep's mark and ends the run, and
+    /// the power button starts it anew, the new kernel taking the mark.
+    #[test]
+    fn a_sleep_leaves_the_radios_off_and_a_switch_off_starts_anew() {
+        let _one = crate::one_device_at_a_time();
+        let (mut device, root) = device("switch-off");
+        let now = device.now();
+        device.go_online(now);
         assert!(device.wifi.is_online());
+        device.fall_asleep(false);
+        device.wake();
+        device.tick_if_due();
+        assert!(!device.wifi.is_online(), "the sleep left the radio");
+        device.fall_asleep(true);
+        assert!(root.join(".paperpaw/slept").exists(), "the sleep's mark");
+        assert_eq!(device.next_wake(), None, "switched off: nothing is due");
+        let frames = device.frames_shown;
+        device.input(InputEvent::Button {
+            name: buttons::POWER,
+            state: ButtonState::Pressed,
+        });
+        assert!(!device.asleep() && !device.powered_off);
+        assert!(device.frames_shown > frames, "started anew");
+        assert!(!root.join(".paperpaw/slept").exists(), "the start took it");
+        drop(device);
         let _ = std::fs::remove_dir_all(root);
     }
 

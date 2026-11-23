@@ -3,6 +3,7 @@
 //! by cursor under a generation, and what a changing catalog does.
 extern crate std;
 use super::*;
+use crate::native_host::lib_reads::tests::Epub;
 use crate::native_host::lib_reads::tests::Facts;
 use crate::native_host::lib_service::{BookRef, LibQuery};
 use alloc::rc::Rc;
@@ -464,6 +465,7 @@ fn a_book_by_the_handle_a_query_gave_is_that_book() {
                     key: row.key,
                     generation: end.generation,
                 },
+                &Epub,
                 &mut |record| {
                     let Record::ServiceLibBook(b) = record else {
                         panic!("a book")

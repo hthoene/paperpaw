@@ -22,13 +22,13 @@ use paperpaw_sdk::native::{
     secrets::Secrets,
     settings::{self, SettingValue},
     snapshot::capture_snapshot,
-    storage::{self, Root},
+    storage::Root,
     ui::{Notify, Open, Question, RequestId as AskId, TextMode, TextWrite, Ui},
     work::{Moment, Work, WorkSpec},
 };
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
-    files::Volume,
+    files::{self, OnHost, Volume},
     mem::{self, SERVICE_BUFFER, buffer, push, wipe},
     online::{Chosen, Offer},
     read_event,
@@ -175,8 +175,8 @@ fn account(host: &Host<'_>) -> Result<Account, Error> {
 struct HostWire<'a, 'h> {
     host: &'a Host<'h>,
     handles: &'a mut Handles,
-    data: RootVolume<'a, 'h>,
-    card: RootVolume<'a, 'h>,
+    data: OnHost<'a, 'h>,
+    card: OnHost<'a, 'h>,
 }
 
 impl<'a, 'h> HostWire<'a, 'h> {
@@ -184,8 +184,8 @@ impl<'a, 'h> HostWire<'a, 'h> {
         Self {
             host,
             handles,
-            data: RootVolume(host, Root::Data),
-            card: RootVolume(host, Root::Files),
+            data: files::volume(host, Root::Data),
+            card: files::volume(host, Root::Files),
         }
     }
 }
@@ -309,33 +309,6 @@ fn proof(auth: Auth<'_>) -> Result<Option<(&'static str, String)>, Error> {
         }
         Auth::None => None,
     })
-}
-
-/// The storage calls on one root.
-struct RootVolume<'a, 'h>(&'a Host<'h>, Root);
-
-impl Volume for RootVolume<'_, '_> {
-    fn size(&self, name: &str) -> Result<u64, Error> {
-        storage::size(self.0, self.1, name)
-    }
-    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.0, self.1, name, at, out)
-    }
-    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.0, self.1, name, data)
-    }
-    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.0, self.1, name, data)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        storage::rename(self.0, self.1, from, to)
-    }
-    fn remove(&self, name: &str) -> Result<(), Error> {
-        storage::remove(self.0, self.1, name)
-    }
-    fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.0)
-    }
 }
 
 impl Plugin for NativeJoplin {
@@ -611,7 +584,7 @@ impl NativeJoplin {
         if self.sender.blocked() {
             return Ok(());
         }
-        let waiting = kept::waiting(&RootVolume(host, Root::Data));
+        let waiting = kept::waiting(&files::volume(host, Root::Data));
         match waiting {
             Ok(waiting) if waiting.is_empty() => Ok(()),
             Ok(_) => self.declared(host, RETRY_KEY, false),
@@ -622,7 +595,7 @@ impl NativeJoplin {
 
     /// How many books wait, in words, or what happens to notes.
     fn waiting_text(host: &Host<'_>, say: &mut Messages) -> Result<String, Error> {
-        let count = kept::waiting(&RootVolume(host, Root::Data)).map_or(0, |list| list.len());
+        let count = kept::waiting(&files::volume(host, Root::Data)).map_or(0, |list| list.len());
         if count == 0 {
             return say.copy(host, "joplin.idle");
         }

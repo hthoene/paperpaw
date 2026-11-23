@@ -26,13 +26,54 @@ pub fn path(url: &str) -> &str {
     if path.is_empty() { "/" } else { path }
 }
 
+/// The scheme, host and port of `url`, to compare: `None` where any of them
+/// is missing or in doubt, such as an address with a user name
+/// (`https://me@host/`). The port is filled in for `http` and `https`.
+fn server(url: &str) -> Option<(&str, &str, u16)> {
+    let (scheme, authority) = origin(url).split_once("://")?;
+    let doubtful = |c: char| matches!(c, '@' | '\\' | '%') || c.is_whitespace() || c.is_control();
+    if authority.contains(doubtful) {
+        return None;
+    }
+    // A colon inside `[…]` belongs to an IPv6 address, not the port.
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.contains(']') => (host, Some(port)),
+        _ => (authority, None),
+    };
+    let port = match (port, scheme) {
+        (Some(port), _) => port.parse().ok()?,
+        (None, s) if s.eq_ignore_ascii_case("http") => 80,
+        (None, s) if s.eq_ignore_ascii_case("https") => 443,
+        (None, _) => return None,
+    };
+    (!host.is_empty()).then_some((scheme, host, port))
+}
+
+/// Whether `a` and `b` are on the same server: the same scheme, host and
+/// port (letters in any case). `https` and `http` are never the same.
+#[must_use]
+pub fn same_origin(a: &str, b: &str) -> bool {
+    match (server(a), server(b)) {
+        (Some((s1, h1, p1)), Some((s2, h2, p2))) => {
+            s1.eq_ignore_ascii_case(s2) && h1.eq_ignore_ascii_case(h2) && p1 == p2
+        }
+        _ => false,
+    }
+}
+
 /// The address a listing's `href` means for the folder at `base`: a whole
-/// address as it is, a path on the folder's server, else beside the folder.
+/// address on the folder's server as it is, a path on the folder's server,
+/// else beside the folder.
 ///
 /// # Errors
-/// [`Error::NoMemory`].
+/// [`Error::NoMemory`]; [`Error::Denied`] for a whole address on another
+/// server (or without the folder's `https`): the account's password is not
+/// sent there.
 pub fn resolve(base: &str, href: &str) -> Result<String, Error> {
     if href.contains("://") {
+        if !same_origin(base, href) {
+            return Err(Error::Denied);
+        }
         return copy(href);
     }
     let origin = origin(base);
@@ -112,9 +153,22 @@ mod tests {
             "https://cloud.example.org/remote.php/dav/files/me/Photos/b.jpg"
         );
         assert_eq!(
-            resolve(BASE, "http://other/c.jpg").unwrap(),
-            "http://other/c.jpg"
+            resolve(BASE, "https://Cloud.example.org:443/d.jpg").unwrap(),
+            "https://Cloud.example.org:443/d.jpg"
         );
+    }
+
+    #[test]
+    fn an_href_on_another_server_or_without_https_is_refused() {
+        for href in [
+            "http://other/c.jpg",
+            "http://cloud.example.org/c.jpg",
+            "https://cloud.example.org:8443/c.jpg",
+            "https://me@cloud.example.org/c.jpg",
+            "https://cloud.example.org.evil/c.jpg",
+        ] {
+            assert_eq!(resolve(BASE, href), Err(Error::Denied), "{href}");
+        }
     }
 
     #[test]

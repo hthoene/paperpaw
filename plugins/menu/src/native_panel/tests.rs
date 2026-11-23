@@ -494,6 +494,7 @@ fn the_track_has_a_row_below_the_buttons_across_the_whole_width() {
         rows: vec![placed],
         region: Rect::new(0, 100, 480, 120),
         pager: None,
+        rtl: false,
     };
     let middle = paperpaw_sdk::Point::new(i32::from(track.x) + 20, i32::from(track.y) + 5);
     assert_eq!(layout.track_at(0, middle).map(|t| t.0), Some(0));

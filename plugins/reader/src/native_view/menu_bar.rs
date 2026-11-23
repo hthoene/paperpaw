@@ -34,24 +34,7 @@ impl Open {
     /// # Errors
     /// `NoMemory` and the host's refusals.
     pub(super) fn menu_bar(&self, host: &Host<'_>, ui: &Ui) -> Result<Handled, Error> {
-        let mut digits = ([0; 20], [0; 20]);
-        let place = match self.page_numbers(host) {
-            Some((page, pages)) => text::concat(&[
-                text::decimal_u64(u64::from(page), &mut digits.0),
-                " / ",
-                text::decimal_u64(u64::from(pages), &mut digits.1),
-            ])?,
-            None => {
-                let ppm = self
-                    .progress
-                    .as_ref()
-                    .map_or(self.stored_ppm, |p| p.ppm(self.at.0, self.at.1));
-                text::concat(&[
-                    text::decimal_u64(u64::from(ppm / 10_000), &mut digits.0),
-                    " %",
-                ])?
-            }
-        };
+        let place = self.place_label(host)?;
         let chapter = self.chapter.as_ref().map_or("", |c| c.title());
         let values = bar_values(&self.title, chapter, &place, self.whole_pages);
         let [
@@ -80,6 +63,36 @@ impl Open {
         CommandSender::new(host, &mut scratch)
             .open(NavOpen::slot("core.menu")?.handover(handover))?;
         Ok(Handled::Yes)
+    }
+}
+
+impl Open {
+    /// Where one is in the book, as the menu bar and the skim screen name it:
+    /// "12 / 300" once pages are counted, else the percentage ("4 %").
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub(super) fn place_label(&self, host: &Host<'_>) -> Result<alloc::string::String, Error> {
+        let mut digits = ([0; 20], [0; 20]);
+        match self.page_numbers(host) {
+            Some((page, pages)) => text::concat(&[
+                text::decimal_u64(u64::from(page), &mut digits.0),
+                " / ",
+                text::decimal_u64(u64::from(pages), &mut digits.1),
+            ]),
+            None => text::concat(&[
+                text::decimal_u64(u64::from(self.ppm() / 10_000), &mut digits.0),
+                " %",
+            ]),
+        }
+    }
+
+    /// How far the page on show is into the book, in millionths (the progress
+    /// stored where the book's sections are not known).
+    pub(super) fn ppm(&self) -> u32 {
+        self.progress
+            .as_ref()
+            .map_or(self.stored_ppm, |p| p.ppm(self.at.0, self.at.1))
     }
 }
 

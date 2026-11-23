@@ -458,3 +458,18 @@ fn on_standby_a_waiting_screen_batch_runs_and_the_room_goes_back() {
 fn a_waiting_screen_batch_keeps_the_queues_room() {
     assert_eq!(screen_room_after(true, false), (1, true));
 }
+
+/// An event raised for a parked plugin after the pump ran (a command's, the
+/// kernel's own) wakes the kernel at once: nothing has asked its start yet,
+/// so no start time would wake it, and it waited for the next key (#483).
+#[test]
+fn an_event_for_a_parked_plugin_not_tried_yet_is_due_at_once() {
+    let mut w = world(&[Ok(())]);
+    w.kernel
+        .native_screen_ready(&Id::new_static("menu.page"), 3);
+    assert_eq!(w.made.get(), 0);
+    assert_eq!(w.kernel.service_due(), Some(w.kernel.shared.now));
+    assert!(!w.kernel.native_setting_pump(), "told");
+    assert_eq!(w.made.get(), 1);
+    assert_eq!(w.kernel.service_due(), None, "nothing waits");
+}

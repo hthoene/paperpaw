@@ -11,7 +11,7 @@ use paperpaw_sdk::Handled;
 use paperpaw_sdk::Point;
 use paperpaw_sdk::native::callbacks::{DrawFrame, Input, InputGestureKind};
 use paperpaw_sdk::native::commands::{CommandSender, RedrawMode};
-use paperpaw_sdk::native::document::{Documents, ReaderCursor};
+use paperpaw_sdk::native::document::Documents;
 use paperpaw_sdk::native::events::{AnswerOutcome, Answered, Event, Incoming};
 use paperpaw_sdk::native::formatting::Arg;
 use paperpaw_sdk::native::library::{BookRef, Library};
@@ -21,10 +21,10 @@ use paperpaw_sdk::native::{Error, Host, Plugin, registrations, reply::Reply};
 use paperpaw_ui_kit::list::redraw_areas;
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer, push};
 use paperpaw_ui_kit::text::{concat, copy};
-use paperpaw_ui_kit::{Messages, Screens, uitext};
+use paperpaw_ui_kit::{Messages, Screens, readers, uitext};
 
 use crate::browser::{Browser, Button, is_own_data};
-use crate::card::{with_card, with_card_noted};
+use crate::card::with_card;
 use crate::model::Disk;
 use crate::model::folder::Entry;
 use crate::native_draw::{self, Hits};
@@ -41,10 +41,6 @@ const HIDDEN: &str = "file-manager.hidden";
 const NAME_LIMIT: usize = 1_024;
 /// Every option an entry can have (the labels are `file-manager.option.*`).
 const OPTIONS: [&str; 6] = ["open", "open-with", "rename", "move", "copy", "delete"];
-/// Reading apps listed for "Open with" at most.
-const MOST_READERS: usize = 12;
-/// The reading apps' list, a page of it: the request and the reply.
-const READERS_INPUT: usize = 256;
 
 /// What an open question is for.
 #[derive(Debug, PartialEq, Eq)]
@@ -231,12 +227,8 @@ impl NativeFileManager {
         let Some(view) = self.screens.top(BROWSER) else {
             return Ok(None);
         };
-        let (done, ran_out) = with_card_noted(host, |card| Ok(work(&mut view.browser, card)))?;
-        if ran_out {
-            // The browser kept it as a storage error ("that did not work").
-            view.browser.lacked_memory();
-        }
-        if ran_out || changed(&done) {
+        let done = with_card(host, |card| Ok(work(&mut view.browser, card)))?;
+        if changed(&done) {
             redraw(host)?;
         }
         Ok(Some(done))
@@ -456,7 +448,7 @@ impl NativeFileManager {
 
     /// The reading apps that read the book at `path` (those of its format
     /// where the library knows it, else all): their screens and titles, at
-    /// most `MOST_READERS`.
+    /// most `readers::MOST`.
     fn readers_for(&mut self, host: &Host<'_>, path: &str) -> Result<Vec<(String, String)>, Error> {
         self.services(host)?;
         let Some(documents) = &self.documents else {
@@ -473,34 +465,7 @@ impl NativeFileManager {
                 Err(_) => {}
             }
         }
-        let (mut input, mut out) = (buffer(READERS_INPUT)?, buffer(SERVICE_BUFFER)?);
-        let mut found: Vec<(String, String)> = Vec::new();
-        let mut cursor = ReaderCursor::start();
-        // The list may change between pages: start again once, then give up.
-        let mut again = true;
-        loop {
-            let page = match documents.readers(host, &format, cursor, &mut input, &mut out) {
-                Ok(page) => page,
-                Err(Error::State) if again => {
-                    again = false;
-                    found.clear();
-                    cursor = ReaderCursor::start();
-                    continue;
-                }
-                Err(Error::NoMemory) => return Err(Error::NoMemory),
-                Err(_) => return Ok(Vec::new()),
-            };
-            for reader in page.rows() {
-                if found.len() >= MOST_READERS {
-                    return Ok(found);
-                }
-                push(&mut found, (copy(reader.screen())?, copy(reader.title())?))?;
-            }
-            match page.end().next() {
-                Some(next) => cursor = next,
-                None => return Ok(found),
-            }
-        }
+        readers::of_format(host, documents, &format)
     }
 
     /// Opens the book at `path`: in the reader the user bound to

@@ -48,17 +48,14 @@ pub(crate) trait Card {
     fn ignores_case(&self) -> bool;
 }
 
-/// A host error as the storage's.
+/// A host error as the storage's: the kit's (the SDK's) mapping, except that
+/// `core.files`' `NoSpace` (a name or path over its cap, a folder too deep)
+/// is `TooLarge`, which the model tells as "too long" rather than as a name
+/// that does not work.
 pub(crate) fn storage_error(error: Error) -> StorageError {
     match error {
-        Error::NotFound => StorageError::NotFound,
-        Error::Full => StorageError::Full,
-        // A path or a name over the cap.
         Error::NoSpace => StorageError::TooLarge,
-        Error::Unsupported | Error::Denied => StorageError::Unsupported,
-        Error::Invalid | Error::Utf8 => StorageError::InvalidPath,
-        // Not the card's fault, and not a missing card either.
-        _ => StorageError::Io,
+        error => paperpaw_ui_kit::storage::error(error),
     }
 }
 
@@ -287,104 +284,21 @@ pub(crate) fn take_buffers<'a>(
     }
 }
 
-/// A [`Card`] that notes whether the host ran out of memory in a call:
-/// [`Storage`] has no word for it (it says [`StorageError::Io`]), so the flag
-/// is how a caller tells the reader.
-pub(crate) struct Watch<C> {
-    inner: C,
-    out_of_memory: Cell<bool>,
-}
-
-impl<C> Watch<C> {
-    pub(crate) fn new(inner: C) -> Self {
-        Self {
-            inner,
-            out_of_memory: Cell::new(false),
-        }
-    }
-
-    /// Whether any call ran out of memory.
-    pub(crate) fn ran_out_of_memory(&self) -> bool {
-        self.out_of_memory.get()
-    }
-
-    fn noted<T>(&self, result: Result<T, Error>) -> Result<T, Error> {
-        if matches!(result, Err(Error::NoMemory)) {
-            self.out_of_memory.set(true);
-        }
-        result
-    }
-}
-
-impl<C: Card> Card for Watch<C> {
-    fn list(&self, dir: &str, cursor: u64, visit: &mut Visit<'_>) -> Result<Option<u64>, Error> {
-        self.noted(self.inner.list(dir, cursor, visit))
-    }
-    fn stat(&self, path: &str) -> Result<Meta, Error> {
-        self.noted(self.inner.stat(path))
-    }
-    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
-        self.noted(self.inner.read_at(path, offset, buf))
-    }
-    fn write(&self, path: &str, data: &[u8]) -> Result<(), Error> {
-        self.noted(self.inner.write(path, data))
-    }
-    fn append(&self, path: &str, data: &[u8]) -> Result<(), Error> {
-        self.noted(self.inner.append(path, data))
-    }
-    fn remove(&self, path: &str) -> Result<(), Error> {
-        self.noted(self.inner.remove(path))
-    }
-    fn make_dir(&self, path: &str) -> Result<(), Error> {
-        self.noted(self.inner.make_dir(path))
-    }
-    fn remove_tree(&self, path: &str) -> Result<(), Error> {
-        self.noted(self.inner.remove_tree(path))
-    }
-    fn move_entry(&self, from: &str, to: &str, replace: bool) -> Result<(), Error> {
-        self.noted(self.inner.move_entry(from, to, replace))
-    }
-    fn sync(&self) -> Result<(), Error> {
-        self.noted(self.inner.sync())
-    }
-    fn ignores_case(&self) -> bool {
-        self.inner.ignores_case()
-    }
-}
-
 /// Runs `work` on the card as a [`Storage`]; the service is given back after,
-/// whatever `work` says. With whether the host ran out of memory on the way:
-/// `work` may have kept that as a storage error ([`StorageError::Io`]) in
-/// what it returns.
+/// whatever `work` says.
 ///
 /// # Errors
 /// What opening, `work` or closing says; the first.
-pub(crate) fn with_card_noted<T>(
-    host: &Host<'_>,
-    work: impl FnOnce(&dyn Disk) -> Result<T, Error>,
-) -> Result<(T, bool), Error> {
-    let card = CardStorage(Watch::new(HostCard::open(host)?));
-    let done = work(&card);
-    let memory = card.0.ran_out_of_memory();
-    let closed = card.0.inner.close();
-    // A storage error cannot tell "no memory"; the host's call did.
-    let value = match done {
-        Err(Error::Io) if memory => return Err(Error::NoMemory),
-        done => done?,
-    };
-    closed?;
-    Ok((value, memory))
-}
-
-/// [`with_card_noted`] without the flag.
-///
-/// # Errors
-/// As [`with_card_noted`].
 pub(crate) fn with_card<T>(
     host: &Host<'_>,
     work: impl FnOnce(&dyn Disk) -> Result<T, Error>,
 ) -> Result<T, Error> {
-    with_card_noted(host, work).map(|(value, _)| value)
+    let card = CardStorage(HostCard::open(host)?);
+    let done = work(&card);
+    let closed = card.0.close();
+    let value = done?;
+    closed?;
+    Ok(value)
 }
 
 impl Card for HostCard<'_, '_> {

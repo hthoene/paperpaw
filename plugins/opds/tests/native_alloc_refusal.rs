@@ -152,7 +152,7 @@ fn the_catalog_list_survives_refused_allocations() {
 fn the_password_and_the_names_survive_refused_allocations() {
     fail_alloc::sweep(|| {
         let password = Secret::copy("s3cret")?;
-        let header = Secret::basic("me", &password)?;
+        let header = Secret::basic("me", password.as_str())?;
         assert!(header.as_str().starts_with("Basic "));
         name_of("https://a.example")?;
         Ok(())

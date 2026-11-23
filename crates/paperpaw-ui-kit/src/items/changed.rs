@@ -79,6 +79,50 @@ fn key_of(item: &Item) -> RowKey {
 }
 
 impl ItemList {
+    /// Asks for the room below the rows of the last frame to be drawn again,
+    /// refreshed fast: for a note below them ([`super::Footer::Note`]) that
+    /// says something new while the rows stay as they are. `region` is the
+    /// last frame's region; the whole screen (partial) before a frame or
+    /// where the host refuses the area.
+    ///
+    /// # Errors
+    /// Propagates command queueing errors.
+    pub fn redraw_below_rows(
+        &self,
+        host: &Host<'_>,
+        region: Option<FrameRect>,
+    ) -> Result<(), Error> {
+        let mut scratch = [0; 64];
+        self.redraw_below_on(&mut CommandSender::new(host, &mut scratch), region)
+    }
+
+    pub(super) fn redraw_below_on(
+        &self,
+        to_host: &mut impl crate::list::Redraws,
+        region: Option<FrameRect>,
+    ) -> Result<(), Error> {
+        if let Some(area) = region.and_then(|region| self.below_rows(region))
+            && to_host.area(RedrawMode::Fast, area).is_ok()
+        {
+            return Ok(());
+        }
+        to_host.whole(RedrawMode::Partial)
+    }
+
+    /// The room below the rows of the last frame, from the lowest row drawn
+    /// to the bottom of `region`, in the region's pixels; `None` before a
+    /// frame.
+    fn below_rows(&self, region: FrameRect) -> Option<FrameRect> {
+        let bottom = self
+            .hits
+            .iter()
+            .map(|(rect, _)| i32::from(rect.y) + i32::from(rect.height))
+            .max()?;
+        let top = bottom.saturating_sub(region.y);
+        let height = u32::try_from(i64::from(region.height) - i64::from(top)).ok()?;
+        Some(FrameRect::new(0, top, region.width, height))
+    }
+
     /// A key of each row, in order, for [`Self::swap_rows`]; `None` where
     /// there is no room for them.
     #[must_use]

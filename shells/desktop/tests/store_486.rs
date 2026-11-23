@@ -206,6 +206,9 @@ impl Shop {
     }
 
     fn started(mut device: Device, card: Rc<MemoryStorage>, library: Library) -> Self {
+        // On USB in a network joined before, as a reader opens the store: the
+        // emulator brings no network up for a request by itself (as the X4).
+        device.set_wifi_online(true);
         device.start();
         let mut shop = Self {
             device,

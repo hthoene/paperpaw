@@ -14,8 +14,8 @@ use alloc::vec::Vec;
 use paperpaw_sdk::native::{
     Error, Host,
     library::{
-        AnnotationCursor, AnnotationEdit, AnnotationKind, BookRef, Library, MAX_EDITS_PER_CALL,
-        Transaction,
+        AnnotationCursor, AnnotationEdit, AnnotationKind, AnnotationTextKind, AnnotationTextQuery,
+        BookRef, Library, MAX_EDITS_PER_CALL, NOTE_MAX_BYTES, Transaction,
     },
 };
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
@@ -45,7 +45,8 @@ pub struct New<'a> {
     pub drawn: &'a [Span],
 }
 
-/// A highlight of the library.
+/// A highlight of the library, its text and note whole (as kept, not as
+/// the list's previews show them): a replace writes them back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
     pub id: u32,
@@ -81,6 +82,44 @@ pub fn snippet(text: &str) -> Result<String, Error> {
     crate::native_bookmark::snippet(text, TEXT_MAX)
 }
 
+/// The whole text or note (`kind`) of the annotation `id`: its `preview` where
+/// that is not `cut`, else read from the library in parts. A note longer than
+/// an edit carries is `NoSpace`: nothing is written over it.
+///
+/// # Errors
+/// `NoMemory`, `NoSpace`, the host's refusals.
+pub fn whole(
+    host: &Host<'_>,
+    library: &Library,
+    book: BookRef<'_>,
+    (id, kind): (u32, AnnotationTextKind),
+    (preview, cut): (&str, bool),
+) -> Result<String, Error> {
+    let mut to = String::new();
+    if !cut {
+        to.try_reserve(preview.len()).map_err(|_| Error::NoMemory)?;
+        to.push_str(preview);
+        return Ok(to);
+    }
+    let (mut input, mut out) = (buffer(1024)?, buffer(SERVICE_BUFFER)?);
+    let mut offset = 0;
+    loop {
+        let query = AnnotationTextQuery::new(id, kind).from(offset);
+        let part = library.annotation_text(host, book, query, &mut input, &mut out)?;
+        if kind == AnnotationTextKind::Note && to.len() + part.text().len() > NOTE_MAX_BYTES {
+            return Err(Error::NoSpace);
+        }
+        to.try_reserve(part.text().len())
+            .map_err(|_| Error::NoMemory)?;
+        to.push_str(part.text());
+        match part.next_offset() {
+            Some(next) if next > offset => offset = next,
+            Some(_) => return Err(Error::Invalid),
+            None => return Ok(to),
+        }
+    }
+}
+
 /// Whether two stretches share a place (a stretch of no length shares none).
 #[must_use]
 pub fn overlaps(a: &Span, b: &Span) -> bool {
@@ -102,7 +141,8 @@ pub fn overlapping(
     (span, mine): (Span, u64),
     drawn: &[Span],
 ) -> Result<Overlap, Error> {
-    let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
+    // The library's calls take 1,024 bytes of input (a path of 512 and more).
+    let (mut input, mut out) = (buffer(1024)?, buffer(SERVICE_BUFFER)?);
     let mut found = Overlap::default();
     let mut cursor = AnnotationCursor::start();
     let mut seen = 0usize;
@@ -136,8 +176,20 @@ pub fn overlapping(
                     span: there,
                     percent: row.percent(),
                     created: row.created(),
-                    text: crate::native_bookmark::snippet(row.text(), TEXT_MAX)?,
-                    note: crate::native_bookmark::snippet(row.note(), TEXT_MAX)?,
+                    text: whole(
+                        host,
+                        library,
+                        book,
+                        (row.id(), AnnotationTextKind::Text),
+                        (row.text(), row.text_cut()),
+                    )?,
+                    note: whole(
+                        host,
+                        library,
+                        book,
+                        (row.id(), AnnotationTextKind::Note),
+                        (row.note(), row.note_cut()),
+                    )?,
                 });
             }
         }

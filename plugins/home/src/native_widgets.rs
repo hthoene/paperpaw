@@ -60,6 +60,9 @@ pub struct Mine {
     banded: RefCell<Vec<Banded>>,
     /// The covers' places were drawn without them, the covers to follow.
     held: Cell<bool>,
+    /// What it showed at the last minute (a clock, date or status line on
+    /// Home's own page: [`Mine::ticked`]).
+    shown: Cell<Option<u64>>,
     /// What the card or the shelf composed at the last frame it drew whole,
     /// kept across returns for as long as what it composes from is the same
     /// (`content_key`): the measuring and wrapping of its lines is most of what
@@ -252,7 +255,38 @@ impl Mine {
             banded: RefCell::new(Vec::new()),
             memo: RefCell::new(Vec::new()),
             held: Cell::new(false),
+            shown: Cell::new(None),
         }))
+    }
+
+    /// What it shows, as a number that changes with it (the minute for the
+    /// clock, the day for the date, the books for the card and the shelf).
+    ///
+    /// # Errors
+    /// The host's refusals.
+    pub fn shows(&self, host: &Host<'_>, ui: &Ui) -> Result<u64, Error> {
+        match self.token {
+            DATE => native_date::shows(host),
+            CARD => native_card::shows(host),
+            SHELF => native_shelf::shows(host, &self.widget),
+            STATUS_WIDGET => Cx::open(host, &self.widget)
+                .and_then(|cx| native_status::shows(&cx, ui, &self.look)),
+            _ => native_clock::shows(host),
+        }
+    }
+
+    /// The minute came for one on Home's own page: whether it is a clock, a
+    /// date or a status line (their height stays what they show) that shows
+    /// something new, so draws its own place again. The first minute after it
+    /// was made counts as new; one that cannot tell waits for the next.
+    pub fn ticked(&self, host: &Host<'_>, ui: &Ui) -> bool {
+        if !matches!(self.token, CLOCK | DATE | STATUS_WIDGET) {
+            return false;
+        }
+        let Ok(now) = self.shows(host, ui) else {
+            return false;
+        };
+        self.shown.replace(Some(now)) != Some(now)
     }
 
     fn ask<'a>(&'a self, listing: &'a Listing) -> Ask<'a> {
@@ -797,15 +831,7 @@ impl Widgets {
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);
         for item in &mut self.items {
-            let now = match item.mine.token {
-                DATE => native_date::shows(host),
-                CARD => native_card::shows(host),
-                SHELF => native_shelf::shows(host, &item.mine.widget),
-                STATUS_WIDGET => Cx::open(host, &item.mine.widget)
-                    .and_then(|cx| native_status::shows(&cx, ui, &item.mine.look)),
-                _ => native_clock::shows(host),
-            };
-            let Ok(now) = now else {
+            let Ok(now) = item.mine.shows(host, ui) else {
                 continue;
             };
             let instance = item.instance;

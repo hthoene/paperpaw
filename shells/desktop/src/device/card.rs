@@ -40,6 +40,11 @@ pub(super) fn set_out(out: bool) {
     CARD_OUT.set(out);
 }
 
+/// Whether the card is out of its slot.
+pub(super) fn is_out() -> bool {
+    CARD_OUT.get()
+}
+
 /// A new device has its card: one made earlier on this thread may have
 /// ended with it out.
 pub(super) fn insert() {

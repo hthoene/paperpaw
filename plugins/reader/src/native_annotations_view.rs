@@ -14,6 +14,7 @@
 //!   moved over the old file at the end; the stage `reader.notes-exported` runs
 //!   after a successful write only. A refused write says so and leaves the old
 //!   file.
+use crate::native_marks::edit::whole;
 use crate::{
     native_annotations::{self as model, Headings, Kind, Note},
     native_chapter::{self, Chapter},
@@ -31,7 +32,7 @@ use paperpaw_sdk::{
         document::{DocId, Documents},
         files::{self, Files},
         formatting::Arg,
-        library::{AnnotationCursor, AnnotationKind, BookRef, Library},
+        library::{AnnotationCursor, AnnotationKind, AnnotationTextKind, BookRef, Library},
         settings::{self, SettingValue},
         snapshot,
         storage::{self, MAX_DATA, Root},
@@ -50,6 +51,8 @@ pub const MAX_ROWS: usize = 100;
 pub const TEXT_SHOWN: usize = 160;
 /// The most one write to the card carries; the Markdown goes in pieces of it.
 pub const PIECE: usize = MAX_DATA;
+/// The input the library's calls take (a book's path is up to 512 bytes).
+const LIBRARY_INPUT: usize = 1024;
 /// How often a list is read again when the notes changed under the read.
 const TRIES: usize = 3;
 /// The setting that names the library folder (`Notes` goes beside it).
@@ -193,7 +196,7 @@ impl AnnotationsView {
         (bookmark, highlight): (&str, &str),
     ) -> Result<Vec<Item>, Error> {
         let book = BookRef::path(&self.path)?;
-        let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
+        let (mut input, mut out) = (buffer(LIBRARY_INPUT)?, buffer(SERVICE_BUFFER)?);
         let mut items = Vec::new();
         let mut cursor = AnnotationCursor::start();
         let (mut notes, mut chapter) = (0, None);
@@ -390,7 +393,7 @@ pub fn open_screen(
 /// # Errors
 /// `NoMemory`, and the host's refusal to write (the old file is intact then).
 pub fn export(host: &Host<'_>, library: &Library, path: &str) -> Result<String, Error> {
-    let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
+    let (mut input, mut out) = (buffer(LIBRARY_INPUT)?, buffer(SERVICE_BUFFER)?);
     let book = BookRef::path(path)?;
     let (title, author) = {
         let found = library.book(host, book, &mut input, &mut out)?;
@@ -477,16 +480,23 @@ impl<'a, 'h> Sink<'a, 'h> {
         })
     }
 
-    /// Adds `text`, writing the piece first when it would not fit.
-    fn put(&mut self, text: &str) -> Result<(), Error> {
-        if self.piece.len() + text.len() > PIECE {
+    /// Adds `text`, writing the piece first when it would not fit; a text
+    /// longer than a piece goes in several, cut at characters.
+    fn put(&mut self, mut text: &str) -> Result<(), Error> {
+        loop {
+            if self.piece.len() + text.len() <= PIECE {
+                self.piece.push_str(text);
+                return Ok(());
+            }
             self.flush()?;
+            let mut end = PIECE.min(text.len());
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            let (head, rest) = text.split_at(end);
+            self.piece.push_str(head);
+            text = rest;
         }
-        if text.len() > PIECE {
-            return Err(Error::NoSpace);
-        }
-        self.piece.push_str(text);
-        Ok(())
     }
 
     fn flush(&mut self) -> Result<(), Error> {
@@ -523,7 +533,7 @@ fn stream(
     let mut markdown = Markdown::new(title, author, headings, &mut put);
     markdown.begin()?;
     for kind in [Kind::Highlight, Kind::Bookmark] {
-        let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
+        let (mut input, mut out) = (buffer(LIBRARY_INPUT)?, buffer(SERVICE_BUFFER)?);
         let book = BookRef::path(path)?;
         let mut cursor = AnnotationCursor::start();
         loop {
@@ -533,7 +543,25 @@ fn stream(
                 if kind_of(row.kind()) != kind {
                     continue;
                 }
-                let note = Note::new(kind, percent_of(row.percent()), row.text(), row.note());
+                // The whole text and note, as Beta 3 wrote them, not the
+                // list's previews.
+                let (id, text, said) =
+                    (row.id(), AnnotationTextKind::Text, AnnotationTextKind::Note);
+                let text = whole(
+                    host,
+                    library,
+                    book,
+                    (id, text),
+                    (row.text(), row.text_cut()),
+                )?;
+                let said = whole(
+                    host,
+                    library,
+                    book,
+                    (id, said),
+                    (row.note(), row.note_cut()),
+                )?;
+                let note = Note::new(kind, percent_of(row.percent()), &text, &said);
                 markdown.note(&note)?;
             }
             match page.end().next() {

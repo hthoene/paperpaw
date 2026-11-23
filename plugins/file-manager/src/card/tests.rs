@@ -10,7 +10,7 @@ use std::vec::Vec;
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::{Storage, StorageError};
 
-use super::{Card, CardStorage, Meta, Visit, Watch, take_buffers};
+use super::{Card, CardStorage, Meta, Visit, take_buffers};
 use crate::model::testing::{fixture, sweep_on};
 
 const PAGE: usize = 3;
@@ -377,13 +377,34 @@ fn the_card_says_whether_names_differ_in_case() {
 #[test]
 fn host_errors_are_told_as_storage_errors() {
     use super::storage_error;
-    assert_eq!(storage_error(Error::NotFound), StorageError::NotFound);
-    assert_eq!(storage_error(Error::Full), StorageError::Full);
-    assert_eq!(storage_error(Error::NoSpace), StorageError::TooLarge);
-    assert_eq!(storage_error(Error::Denied), StorageError::Unsupported);
-    assert_eq!(storage_error(Error::Invalid), StorageError::InvalidPath);
-    for other in [Error::Io, Error::NoMemory, Error::Busy, Error::State] {
-        assert_eq!(storage_error(other), StorageError::Io);
+    for (error, expected) in [
+        (Error::NotFound, StorageError::NotFound),
+        (Error::Full, StorageError::Full),
+        (Error::NoSpace, StorageError::TooLarge),
+        (Error::Unsupported, StorageError::Unsupported),
+        (Error::Denied, StorageError::Unsupported),
+        (Error::Invalid, StorageError::InvalidPath),
+        (Error::Utf8, StorageError::InvalidPath),
+        (Error::NoMemory, StorageError::OutOfMemory),
+        (Error::Io, StorageError::Io),
+        (Error::Busy, StorageError::Io),
+        (Error::State, StorageError::Io),
+    ] {
+        assert_eq!(storage_error(error), expected, "{error:?}");
+    }
+}
+
+#[test]
+fn the_model_tells_a_refused_allocation_and_a_long_name_as_the_host_did() {
+    use super::storage_error;
+    use crate::model::error_of;
+    for error in [Error::NoMemory, Error::NoSpace, Error::Denied, Error::Full] {
+        let expected = if error == Error::Denied {
+            Error::Unsupported
+        } else {
+            error
+        };
+        assert_eq!(error_of(storage_error(error)), expected, "{error:?}");
     }
 }
 
@@ -402,29 +423,20 @@ fn a_call_while_another_uses_the_buffers_is_busy_not_a_panic() {
 }
 
 #[test]
-fn the_host_running_out_of_memory_is_noted_and_reaches_the_reader() {
+fn the_host_running_out_of_memory_reaches_the_reader() {
     use crate::browser::{Browser, Note};
-    let watch = Watch::new(Fake::with(&[("a.txt", "1")], &[]));
-    let card = CardStorage(watch);
+    let card = CardStorage(Fake::with(&[("a.txt", "1")], &[]));
     let mut browser = Browser::new(String::new(), false, 10);
     browser.reload(&card, None);
-    assert!(!card.0.ran_out_of_memory());
     assert_eq!(browser.note, None);
-    card.0.inner.list_fails.set(Some(Error::NoMemory));
+    card.0.list_fails.set(Some(Error::NoMemory));
     browser.reload(&card, None);
-    // The storage's word for it is a general failure ...
-    assert_eq!(browser.note, Some(Note::Failed(crate::model::Error::Io)));
-    assert!(card.0.ran_out_of_memory());
-    // ... which the flag makes into "not enough memory".
-    browser.lacked_memory();
     assert_eq!(
         browser.note,
         Some(Note::Failed(crate::model::Error::NoMemory))
     );
-    // Another failure stays what it was.
-    card.0.inner.list_fails.set(Some(Error::NotFound));
+    card.0.list_fails.set(Some(Error::NotFound));
     browser.reload(&card, None);
-    browser.lacked_memory();
     assert_eq!(
         browser.note,
         Some(Note::Failed(crate::model::Error::NotFound))

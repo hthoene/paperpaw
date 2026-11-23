@@ -32,12 +32,34 @@ impl Secret {
         copy(text).map(Self)
     }
 
+    /// A second copy of the secret (both are zeroed when dropped).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        copy(&self.0).map(Self)
+    }
+
     /// The text.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Whether there is nothing in it.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
+
+impl PartialEq for Secret {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for Secret {}
 
 impl Secret {
     /// `Basic ` and the Base64 of `user:password`: what a server that wants an

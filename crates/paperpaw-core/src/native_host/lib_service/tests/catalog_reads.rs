@@ -258,3 +258,85 @@ fn the_facets_of_the_adapter_pass_the_services_checks() {
         [(std::string::String::from("books"), 4, u32::MAX)]
     );
 }
+
+/// One call through a frame that lends `declarations` (none: it lends none).
+fn declared_call(
+    host: &Rc<dyn LibHost>,
+    declarations: Option<&crate::native_host::declaration_store::DeclarationStore>,
+    id: u32,
+    records: &[Record<'_>],
+) -> std::vec::Vec<u8> {
+    let op = schema_op(id);
+    let bytes = input(id, records).unwrap();
+    let mut out = std::vec![0; op.max_reply];
+    let length = with_declared(host.clone(), declarations, |frame| {
+        frame.run(op, &bytes, &mut out)
+    })
+    .unwrap();
+    out.truncate(length);
+    validate_reply(&out, op).unwrap();
+    out
+}
+
+/// The status of the first `lib_result` of an op 9 or 10 reply.
+fn first_status(reply: &[u8]) -> i32 {
+    let (Record::ServiceLibResult(row), _) = wire::record_decode_prefix(reply).unwrap() else {
+        panic!("a lib_result")
+    };
+    row.status
+}
+
+/// #487: what is a book and its format are the kernel's, from the formats the
+/// plugins declared (the shells know none): the delete preflight takes a file
+/// a declared format reads for a book, the book names that format, and a
+/// delete removes it as a book. Without the declaration it is a plain file.
+#[test]
+fn the_declared_formats_tell_a_book_its_format_and_its_delete() {
+    use crate::native_host::native_book_formats::tests::{Plugin, declare};
+    let card = card();
+    let moves = Rc::new(crate::native_host::lib_moves_service::LibraryMoves::new(
+        card.storage.clone(),
+    ));
+    let host: Rc<dyn LibHost> = Rc::new(crate::native_host::lib_host::LibraryHost::new(
+        card.storage.clone(),
+        card.env.clone(),
+        Some(moves.clone()),
+    ));
+    let mut store = crate::native_host::declaration_store::DeclarationStore::default();
+    let plugin = Rc::new(Plugin {
+        id: "format-books",
+        live: core::cell::Cell::new(true),
+    });
+    declare(&mut store, &plugin, "books", "epub");
+    let c = Record::ServiceLibPaths(wire::ServiceLibPaths {
+        paths: "books/c.epub",
+        flags: 0,
+    });
+    let preflight = |declarations| first_status(&declared_call(&host, declarations, 9, &[c]));
+    assert_eq!(preflight(None), paperpaw_native::host_glue::ERR_INVALID);
+    assert_eq!(preflight(Some(&store)), paperpaw_native::host_glue::OK);
+    // A file no declared format reads stays a plain file.
+    let d = Record::ServiceLibPaths(wire::ServiceLibPaths {
+        paths: "books/d.txt",
+        flags: 0,
+    });
+    assert_eq!(
+        first_status(&declared_call(&host, Some(&store), 9, &[d])),
+        paperpaw_native::host_glue::ERR_INVALID
+    );
+    let format = |declarations| {
+        let reply = declared_call(&host, declarations, 3, &[path_ref("books/c.epub")]);
+        let Record::ServiceLibBook(book) = wire::record_decode_one(&reply).unwrap() else {
+            panic!("a book")
+        };
+        std::string::String::from(book.format)
+    };
+    assert_eq!(format(None), "");
+    assert_eq!(format(Some(&store)), "format-books.books");
+    // The delete is the library's: the file goes and the catalog's part is
+    // the move job's.
+    let reply = declared_call(&host, Some(&store), 10, &[c]);
+    assert_eq!(first_status(&reply), paperpaw_native::host_glue::OK);
+    assert!(paperpaw_platform::Storage::size(&*card.storage, "books/c.epub").is_err());
+    assert!(moves.pending_delete("books/c.epub"));
+}

@@ -131,6 +131,56 @@ pub(crate) struct Slot {
     pub streak: crate::native_widget_streak::Cache,
     pub calendar: crate::native_widget_calendar::Cache,
     pub year: crate::native_widget_year::Cache,
+    pub today: Kept<(u64, Option<u64>, u8, bool), crate::native_widget_today::Numbers>,
+    pub week: Kept<(u64, usize, u8), Vec<crate::native_widget_week::Shown>>,
+    pub ring: Kept<(u64, Option<u64>), crate::native_widget_ring::Numbers>,
+}
+
+/// What a widget worked out and what for (the [`stamp`] of the day and the
+/// statistics' files, and the settings the figures depend on): the day log
+/// (up to 48 KiB) is read again only when one of them changed, never at each
+/// draw, as Beta 3's widgets kept their figures.
+#[derive(Debug)]
+pub(crate) struct Kept<K, V>(core::cell::RefCell<Option<(K, V)>>);
+
+impl<K, V> Default for Kept<K, V> {
+    fn default() -> Self {
+        Self(core::cell::RefCell::new(None))
+    }
+}
+
+impl<K: PartialEq, V> Kept<K, V> {
+    /// Makes it hold the figures for `key`, worked out by `make` only where
+    /// it holds none for it; whether it holds them (`make` gives none where
+    /// the device does not know the time). A refusal keeps nothing.
+    ///
+    /// # Errors
+    /// What `make` refuses.
+    pub(crate) fn refresh(
+        &self,
+        key: K,
+        make: impl FnOnce() -> Result<Option<V>, Error>,
+    ) -> Result<bool, Error> {
+        if self
+            .0
+            .borrow()
+            .as_ref()
+            .is_some_and(|(kept, _)| *kept == key)
+        {
+            return Ok(true);
+        }
+        *self.0.borrow_mut() = None;
+        let Some(made) = make()? else {
+            return Ok(false);
+        };
+        *self.0.borrow_mut() = Some((key, made));
+        Ok(true)
+    }
+
+    /// The figures held, after [`Kept::refresh`].
+    pub(crate) fn value(&self) -> Option<core::cell::Ref<'_, V>> {
+        core::cell::Ref::filter_map(self.0.borrow(), |kept| kept.as_ref().map(|(_, v)| v)).ok()
+    }
 }
 
 /// The widgets made for screens, by the host's instance.
@@ -246,12 +296,16 @@ impl Widgets {
     /// minute: the day changed, or there is more reading. One that fails is
     /// left for the next tick and costs the others nothing.
     pub(crate) fn tick(&mut self, host: &Host<'_>) {
+        if self.items.is_empty() {
+            return;
+        }
+        // The same for every widget: read once a minute, not once for each.
+        let Ok(now) = stamp(host) else {
+            return;
+        };
         let mut scratch = [0; 64];
         let mut commands = paperpaw_sdk::native::commands::CommandSender::new(host, &mut scratch);
         for item in &mut self.items {
-            let Ok(now) = stamp(host) else {
-                continue;
-            };
             let instance = item.instance;
             if item.shown.is_some_and(|before| before != now)
                 && commands.widget_changed(instance).is_err()

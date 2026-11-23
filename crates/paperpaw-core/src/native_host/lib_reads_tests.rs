@@ -26,11 +26,6 @@ impl CatalogEnv for Facts {
     fn today(&self) -> Option<u32> {
         self.today.get()
     }
-    fn format_id(&self, path: &str, visit: &mut dyn FnMut(&str)) {
-        if path.ends_with(".epub") {
-            visit("epub");
-        }
-    }
     /// `stars.rating` is kept with the book only, `stars.tag` in the catalog.
     fn book_field(&self, id: &str) -> Option<bool> {
         match id {
@@ -42,6 +37,16 @@ impl CatalogEnv for Facts {
     /// Plugins keep data for book E only.
     fn book_data_kept(&self, path: &str) -> Result<bool, i32> {
         Ok(path == "books/e.epub")
+    }
+}
+
+/// The formats of the tests: EPUB (the id `epub`) and nothing else.
+pub(crate) struct Epub;
+impl BookFormats for Epub {
+    fn format_id(&self, path: &str, visit: &mut dyn FnMut(&str)) {
+        if path.ends_with(".epub") {
+            visit("epub");
+        }
     }
 }
 
@@ -148,7 +153,7 @@ struct Got {
 
 fn book(reads: &CatalogReads, book: BookRef<'_>) -> Result<Got, i32> {
     let mut got = None;
-    reads.book(book, &mut |record| {
+    reads.book(book, &Epub, &mut |record| {
         let Record::ServiceLibBook(b) = record else {
             panic!("a book")
         };
@@ -533,8 +538,13 @@ impl LibQuery for Host {
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
         self.0.state(visit)
     }
-    fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
-        self.0.book(book, visit)
+    fn book(
+        &self,
+        book: BookRef<'_>,
+        formats: &dyn BookFormats,
+        visit: One<'_>,
+    ) -> Result<(), i32> {
+        self.0.book(book, formats, visit)
     }
     fn book_file_present(&self, path: &str) -> Result<bool, i32> {
         self.0.book_file_present(path)

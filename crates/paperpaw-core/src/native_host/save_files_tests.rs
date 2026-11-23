@@ -90,7 +90,7 @@ const TARGET: &str = "Books/Äpfel.epub";
 const STAGED: &str = "Books/Äpfel.epub.pp-staged";
 
 fn saves(card: &Rc<Card>) -> SaveFiles {
-    SaveFiles::new(card.clone(), Rc::new(PathsInUse::default()))
+    SaveFiles::new(card.clone(), Rc::new(PathsInUse::default()), NET_JOURNAL)
 }
 
 /// A claimed save with `new` staged and the old file in place.
@@ -152,6 +152,39 @@ fn the_staged_file_is_flushed_before_it_is_renamed_over_the_target() {
     assert!(card.get(STAGED).is_none());
     assert!(saves.release(OWNER, TARGET));
     assert_eq!(card.get(TARGET).unwrap(), b"new bytes", "release keeps it");
+}
+
+#[test]
+fn the_next_start_removes_what_a_power_cut_left_of_a_staged_file_and_nothing_else() {
+    let card = Card::new();
+    let first_run = saves(&card);
+    staged_save(&card, &first_run);
+    // The journal names the staged file while it is written.
+    assert_eq!(
+        card.get(NET_JOURNAL).unwrap(),
+        alloc::format!("{STAGED}\n").as_bytes()
+    );
+    // The power goes: nothing of the run is left but the card.
+    drop(first_run);
+    // A name without the staged suffix and a last line cut short (no line
+    // break) are left alone.
+    card.files.write("Books/keep.epub", b"mine").unwrap();
+    card.files.write("Books/cut.pp-staged", b"cut").unwrap();
+    card.files
+        .append(NET_JOURNAL, b"Books/keep.epub\nBooks/cut.pp-staged")
+        .unwrap();
+    sweep(&*card, NET_JOURNAL);
+    assert!(card.get(STAGED).is_none(), "the leftover is gone");
+    assert!(card.get(NET_JOURNAL).is_none());
+    assert_eq!(card.get(TARGET).unwrap(), b"old");
+    assert_eq!(card.get("Books/keep.epub").unwrap(), b"mine");
+    assert_eq!(card.get("Books/cut.pp-staged").unwrap(), b"cut");
+    // A save that ends leaves no journal behind.
+    let next_run = saves(&card);
+    staged_save(&card, &next_run);
+    next_run.commit(OWNER, TARGET, STAGED).unwrap();
+    assert!(next_run.release(OWNER, TARGET));
+    assert!(card.get(NET_JOURNAL).is_none());
 }
 
 #[test]
@@ -319,7 +352,7 @@ fn a_kept_file_whose_target_exists_again_is_stale_and_goes() {
 fn a_claim_ends_without_memory_and_without_leaving_the_file_or_the_claim() {
     let card = Card::new();
     let in_use = Rc::new(PathsInUse::default());
-    let saves = SaveFiles::new(card.clone(), in_use.clone());
+    let saves = SaveFiles::new(card.clone(), in_use.clone(), NET_JOURNAL);
     staged_save(&card, &saves);
     assert!(in_use.holds(TARGET, true));
     // Every allocation is refused: the claim still goes.
@@ -407,7 +440,7 @@ fn a_kept_file_that_cannot_come_back_is_not_replaced_by_a_new_save() {
 fn a_sweep_leaves_a_live_writers_staged_file_alone() {
     let card = Card::new();
     let in_use = Rc::new(PathsInUse::default());
-    let saves = SaveFiles::new(card.clone(), in_use.clone());
+    let saves = SaveFiles::new(card.clone(), in_use.clone(), NET_JOURNAL);
     lost_target(&card, &saves);
     card.rename_fails.set(false);
     // Another plugin holds the target and the staged name now (its claim was
