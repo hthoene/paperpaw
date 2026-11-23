@@ -377,7 +377,7 @@ impl Sync {
         let prepared = (|| {
             let auth = match &job.password {
                 Some(password) if !job.catalog.user.is_empty() => {
-                    Some(Secret::basic(&job.catalog.user, password)?)
+                    Some(Secret::basic(&job.catalog.user, password.as_str())?)
                 }
                 _ => None,
             };

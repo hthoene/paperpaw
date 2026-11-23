@@ -29,7 +29,6 @@ use paperpaw_sdk::{
         secrets::Secrets,
         settings::{SettingValue, read_setting},
         snapshot::capture_snapshot,
-        storage::{self, Root},
         ui::{
             Instance, Notify, RequestId as AskId, Ui, WidgetInputKind, WidgetTarget,
             stages::WidgetCall,
@@ -39,7 +38,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::{
     Footer, ItemList, ItemStep, Messages, Screens,
-    files::Volume,
+    files::{OnHost, Volume},
     mem::{self, buffer, wipe},
     paint, read_event,
     text::copy,
@@ -146,33 +145,6 @@ impl Handles {
     }
 }
 
-/// The plugin's data folder.
-pub(crate) struct Data<'a, 'h>(pub &'a Host<'h>);
-
-impl Volume for Data<'_, '_> {
-    fn size(&self, name: &str) -> Result<u64, Error> {
-        storage::size(self.0, Root::Data, name)
-    }
-    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.0, Root::Data, name, at, out)
-    }
-    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.0, Root::Data, name, data)
-    }
-    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.0, Root::Data, name, data)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        storage::rename(self.0, Root::Data, from, to)
-    }
-    fn remove(&self, name: &str) -> Result<(), Error> {
-        storage::remove(self.0, Root::Data, name)
-    }
-    fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.0)
-    }
-}
-
 /// The text setting `key`, without blanks around it.
 pub(crate) fn text_setting(host: &Host<'_>, key: &str) -> Result<String, Error> {
     let mut scratch = buffer(1100)?;
@@ -221,7 +193,7 @@ fn keep_days(host: &Host<'_>) -> Result<i32, Error> {
 struct HostWire<'a, 'h> {
     host: &'a Host<'h>,
     handles: &'a mut Handles,
-    data: Data<'a, 'h>,
+    data: OnHost<'a, 'h>,
 }
 
 impl<'a, 'h> HostWire<'a, 'h> {
@@ -229,7 +201,7 @@ impl<'a, 'h> HostWire<'a, 'h> {
         Self {
             host,
             handles,
-            data: Data(host),
+            data: OnHost::data(host),
         }
     }
 
@@ -524,7 +496,7 @@ impl NativeTasks {
         if self.kept != Kept::NotRead {
             return Ok(());
         }
-        match keep::load(&Data(host)) {
+        match keep::load(&OnHost::data(host)) {
             Ok(Loaded::Store(store)) => {
                 self.store = store;
                 self.kept = Kept::Read;
@@ -554,7 +526,7 @@ impl NativeTasks {
     /// The tasks were changed on the reader: written to the card, shown anew,
     /// and sent when the network allows.
     pub(crate) fn changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        match keep::save(&Data(host), &self.store) {
+        match keep::save(&OnHost::data(host), &self.store) {
             Ok(()) => {}
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => notice(host, "tasks.not-saved"),
@@ -695,7 +667,7 @@ impl NativeTasks {
             self.message = String::new();
             if self.kept == Kept::Read {
                 self.store.forget_server();
-                keep::save(&Data(host), &self.store).ok();
+                keep::save(&OnHost::data(host), &self.store).ok();
             }
         }
         self.refresh(host)
@@ -760,7 +732,7 @@ impl NativeTasks {
             // Marked: it goes if the account's lists come before it is used.
             list.ctag = copy(FIRST)?;
         }
-        keep::save(&Data(host), &self.store).ok();
+        keep::save(&OnHost::data(host), &self.store).ok();
         Ok(())
     }
 

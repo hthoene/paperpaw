@@ -16,7 +16,7 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_ui_kit::{
     Messages,
-    files::Volume,
+    files::OnHost,
     mem::{SERVICE_BUFFER, buffer},
     text::{concat, copy, decimal_u64, format},
 };
@@ -34,35 +34,6 @@ const QUESTION_TEXT: usize = 1000;
 /// Room kept at the end of the question's text for the count of the books
 /// that are not named.
 const MORE_ROOM: usize = 100;
-
-/// The data folder as [`Volume`], for reading the offer a line at a time.
-struct DataVolume<'a, 'h> {
-    host: &'a Host<'h>,
-}
-
-impl Volume for DataVolume<'_, '_> {
-    fn size(&self, name: &str) -> Result<u64, Error> {
-        storage::size(self.host, Root::Data, name)
-    }
-    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.host, Root::Data, name, at, out)
-    }
-    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.host, Root::Data, name, data)
-    }
-    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.host, Root::Data, name, data)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        storage::rename(self.host, Root::Data, from, to)
-    }
-    fn remove(&self, name: &str) -> Result<(), Error> {
-        storage::remove(self.host, Root::Data, name)
-    }
-    fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.host)
-    }
-}
 
 /// [`CableHost`] on the host.
 pub struct HostCable<'a, 'h> {
@@ -142,7 +113,7 @@ impl CableHost for HostCable<'_, '_> {
     }
 
     fn read_offer(&mut self, body: &str) -> Result<Option<Offer>, Error> {
-        read_offer(&DataVolume { host: self.host }, body)
+        read_offer(&OnHost::data(self.host), body)
     }
 
     fn free_space(&mut self) -> Result<Option<u64>, Error> {

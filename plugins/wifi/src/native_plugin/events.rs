@@ -575,7 +575,7 @@ impl NativeWifi {
     }
 }
 
-/// The answer for the status item: drawn (the sign, `status_icon`) while a
+/// The answer for the status item: drawn (the sign, `status_line::icon`) while a
 /// network is joined; no text hides the item.
 fn status_answer(item: &str, online: bool) -> Result<StatusAnswer<'_>, Error> {
     if online {
@@ -589,7 +589,7 @@ fn status_answer(item: &str, online: bool) -> Result<StatusAnswer<'_>, Error> {
 const STATUS_ITEM: &str = "wifi.status";
 
 impl NativeWifi {
-    /// The status item: drawn by the plugin (the Wi-Fi sign, `status_icon`)
+    /// The status item: drawn by the plugin (the Wi-Fi sign, `status_line::icon`)
     /// while a network is joined, nothing else. A call that is not the host's
     /// `core.status` is not ours.
     pub(super) fn status(

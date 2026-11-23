@@ -225,9 +225,10 @@ impl ListRenderer {
 
 /// Asks for the two `areas` of a focus step (in screen pixels; the frame's
 /// region began at `origin`) to be drawn again, as interface 6's
-/// `request_redraw_area`: what the focus leaves and what it reaches. The
-/// whole screen where one is not known (`None`: off the page drawn last) or
-/// the host refuses an area.
+/// `request_redraw_area`: what the focus leaves and what it reaches, refreshed
+/// fast as Beta 3 did (a step in a menu: a fraction of a frame). The whole
+/// screen, a little more thoroughly (partial), where one is not known (`None`:
+/// off the page drawn last, the step turns it) or the host refuses an area.
 ///
 /// # Errors
 /// Propagates command queueing errors.
@@ -243,18 +244,18 @@ pub fn redraw_areas(
 /// Where the redraws of a focus step go: the host's command stage, or a test's
 /// record.
 pub(crate) trait Redraws {
-    /// Asks for `area` of the region to be drawn again.
-    fn area(&mut self, area: FrameRect) -> Result<(), Error>;
-    /// Asks for the whole screen to be drawn again.
-    fn whole(&mut self) -> Result<(), Error>;
+    /// Asks for `area` of the region to be drawn again, refreshed as `mode`.
+    fn area(&mut self, mode: RedrawMode, area: FrameRect) -> Result<(), Error>;
+    /// Asks for the whole screen to be drawn again, refreshed as `mode`.
+    fn whole(&mut self, mode: RedrawMode) -> Result<(), Error>;
 }
 
 impl Redraws for CommandSender<'_, '_> {
-    fn area(&mut self, area: FrameRect) -> Result<(), Error> {
-        self.queue_redraw_area(RedrawMode::Partial, area)
+    fn area(&mut self, mode: RedrawMode, area: FrameRect) -> Result<(), Error> {
+        self.queue_redraw_area(mode, area)
     }
-    fn whole(&mut self) -> Result<(), Error> {
-        self.queue_redraw(RedrawMode::Partial)
+    fn whole(&mut self, mode: RedrawMode) -> Result<(), Error> {
+        self.queue_redraw(mode)
     }
 }
 
@@ -274,14 +275,14 @@ pub(crate) fn redraw_step(
             )
         };
         if to
-            .area(area(left))
-            .and_then(|()| to.area(area(reached)))
+            .area(RedrawMode::Fast, area(left))
+            .and_then(|()| to.area(RedrawMode::Fast, area(reached)))
             .is_ok()
         {
             return Ok(());
         }
     }
-    to.whole()
+    to.whole(RedrawMode::Partial)
 }
 /// Prepares one list row: focus, separator, title at the left and value at the right.
 ///
