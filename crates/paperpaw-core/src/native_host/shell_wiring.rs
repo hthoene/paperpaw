@@ -558,9 +558,11 @@ type Hosts = super::host_services::HostServices;
 
 /// `core.net` and `core.sockets` are made at their first call (#248): the
 /// directory, the pool and the policy they share are the device's from here
-/// on, the device itself waits with the shell's inputs.
+/// on, the device itself waits with the shell's inputs. What a power cut left
+/// of their staged files goes now, at start (`save_files::sweep`, #489).
 #[inline(never)]
 fn wire_net(hosts: &Hosts, inputs: NetInputs) -> Result<NetReports, i32> {
+    super::save_files::sweep(&*inputs.storage, super::save_files::NET_JOURNAL);
     hosts.owners()?;
     let (bytes, sessions) = inputs.pool_shape();
     hosts.net_pool(bytes, sessions)?;
@@ -576,6 +578,7 @@ fn wire_net(hosts: &Hosts, inputs: NetInputs) -> Result<NetReports, i32> {
 
 #[inline(never)]
 fn wire_sockets(hosts: &Hosts, inputs: SockInputs) -> Result<SockReports, i32> {
+    super::save_files::sweep(&*inputs.storage, super::save_files::SOCK_JOURNAL);
     hosts.owners()?;
     let (bytes, sessions) = inputs.pool_shape();
     hosts.net_pool(bytes, sessions)?;

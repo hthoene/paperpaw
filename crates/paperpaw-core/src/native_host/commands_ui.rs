@@ -768,18 +768,6 @@ impl crate::Kernel {
             self.warn_runtime("native close dropped: its screen no longer exists");
             return;
         }
-        // A notify without the announce bit is for a plugin that shows a
-        // screen: otherwise it is dropped (`OK` at submit, logged here).
-        if matches!(command, Ask::Notify(_))
-            && !self
-                .shared
-                .stack
-                .iter()
-                .any(|entry| entry.screen.namespace() == owner.as_str())
-        {
-            self.warn_runtime("native notify dropped: the plugin shows no screen");
-            return;
-        }
         // A preview is shown for a screen of the owner on top; an end ends
         // the owner's own (`commands_preview.rs`).
         if let Ask::PreviewSettings(values) = &command

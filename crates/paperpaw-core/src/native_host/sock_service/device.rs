@@ -19,7 +19,7 @@ use crate::native_host::{
     owner_directory::OwnerDirectory,
     owner_paths::{self, OwnerPaths},
     paths_in_use::PathsInUse,
-    save_files::SaveFiles,
+    save_files::{SOCK_JOURNAL as JOURNAL, SaveFiles},
     shared::Shared,
     shell_wiring::ShellNetwork,
     staged_name,
@@ -67,7 +67,7 @@ impl SockDevice {
         Self {
             policy,
             table: SockTable::new(pool),
-            saves: SaveFiles::new(storage.clone(), in_use),
+            saves: SaveFiles::new(storage.clone(), in_use, JOURNAL),
             storage,
             transport,
             tls,

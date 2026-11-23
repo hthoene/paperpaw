@@ -54,7 +54,8 @@ pub(crate) fn nested_closed(memory: MemoryClass) -> bool {
     is_x4(memory) && cfg!(feature = "x4-gate-closed")
 }
 
-/// Largest text of a hand-over or a request.
+/// Largest text of a hand-over or a request where texts are kept in memory
+/// (`Limits::ELSEWHERE`); the X4 has its own, smaller one.
 pub(crate) const TEXT_MAX: usize = 24_576;
 /// Largest part one write brings.
 pub(crate) const PART_MAX: usize = 3_072;
@@ -71,6 +72,9 @@ pub(crate) struct Limits {
     pub(crate) text_memory: usize,
     /// Bytes a live-typing answer may hold of a text that is not secret.
     pub(crate) typing_bytes: usize,
+    /// The cap of one text that is not secret (`ui_question.max_bytes`,
+    /// `ERR_NO_SPACE` beyond): what one text alone can hold of the pool.
+    pub(crate) text_max: usize,
     /// Open requests (not counting a nested one).
     pub(crate) requests: u8,
     /// Hand-overs alive at once, whatever their params (an empty one still
@@ -94,6 +98,11 @@ impl Limits {
         texts: 4,
         text_memory: 2_048,
         typing_bytes: 512,
+        // Each chunk costs its bytes and a descriptor of 24 and holds at least
+        // 256 bytes (all but the last), so 1,856 bytes take at most 8 chunks:
+        // 1,856 + 8 * 24 = 2,048, the whole pool. There is no card file for
+        // the rest, so this is all one text can be on the X4 (#489).
+        text_max: 1_856,
         requests: 1,
         handovers: 12,
         requests_kept: 3,
@@ -107,6 +116,7 @@ impl Limits {
         texts: 16,
         text_memory: usize::MAX,
         typing_bytes: usize::MAX,
+        text_max: TEXT_MAX,
         requests: 4,
         handovers: 64,
         requests_kept: 16,
@@ -654,7 +664,7 @@ impl UiStore {
         )?;
         // A text the device has no room for (the X4 keeps 2 KiB of texts) is
         // left out; the params are kept.
-        if !text.is_empty() && text.len() <= TEXT_MAX {
+        if !text.is_empty() && text.len() <= self.limits.text_max {
             self.host_text(id, text.as_bytes());
         }
         Ok(id)
@@ -673,7 +683,7 @@ impl UiStore {
         let rules = WriteRules {
             slots_free: Self::text_slots(&inner) < self.limits.texts,
             memory_cap: self.limits.text_memory,
-            text_cap: TEXT_MAX,
+            text_cap: self.limits.text_max,
         };
         let Inner {
             entries,
@@ -791,7 +801,7 @@ impl UiStore {
             &WriteRules {
                 slots_free,
                 memory_cap: self.limits.text_memory,
-                text_cap: TEXT_MAX,
+                text_cap: self.limits.text_max,
             },
             offset,
             data,
