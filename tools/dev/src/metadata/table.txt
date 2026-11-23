@@ -531,6 +531,7 @@ field service.reg_setup_step page 1
 field service.reg_setup_step order 1
 field service.reg_setup_step flags 1
 field service.reg_setup_step title 1
+field service.reg_setup_step badge 1
 record service.reg_value 1
 field service.reg_value key 1
 field service.reg_value value 1

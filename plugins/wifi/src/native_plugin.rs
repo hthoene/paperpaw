@@ -105,6 +105,8 @@ pub struct NativeWifi {
     /// longer wants (its screen closed, or the setup ended, before the
     /// network opened): left once the host says it opened.
     unwanted_host: Option<u32>,
+    /// The setup's step says "Connected" (its last item state pushed).
+    said_connected: bool,
 }
 
 impl Plugin for NativeWifi {
@@ -144,7 +146,8 @@ impl Plugin for NativeWifi {
             }
             Event::WifiChanged { now_ms, state, .. } if token == WIFI_CHANGED => {
                 self.radio_off = state == WifiLinkState::Off;
-                self.radio_changed(host, now_ms)
+                self.radio_changed(host, now_ms)?;
+                self.say_connected(host, state == WifiLinkState::Connected)
             }
             Event::NetworkWanted { now_ms, .. } if token == NETWORK_WANTED => {
                 self.network_wanted(host, now_ms)

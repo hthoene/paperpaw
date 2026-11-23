@@ -53,6 +53,8 @@ enum Mode {
     Retitled,
     /// No room: `make` fails with `ERR_NO_MEMORY` before it submits.
     NoRoom,
+    /// The screen, and told `event.registry_changed` (as the menu): parked.
+    Registry,
 }
 
 std::thread_local! {
@@ -141,6 +143,17 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
     }
     let status = match mode {
         Mode::Parkable | Mode::Started => submit(host, ctx, slice(image.screen)),
+        Mode::Registry => match submit(host, ctx, slice(image.screen)) {
+            host_glue::OK => submit_registrations(
+                host,
+                ctx,
+                &[wire::Registration::Event {
+                    event_tag: wire::EVENT_REGISTRY_CHANGED_TAG,
+                    token: 94,
+                }],
+            ),
+            status => status,
+        },
         Mode::Retitled => submit(host, ctx, slice(image.retitled)),
         Mode::Copied => {
             let copy = slice(image.screen).to_vec();
@@ -337,6 +350,28 @@ fn a_plugin_with_a_widget_runs() {
     let key = admit(&mut kernel);
     assert_eq!((makes(), drops()), (1, 0));
     assert!(!lease(&kernel, key).is_parked());
+}
+
+#[test]
+fn a_parked_subscriber_is_not_made_to_be_told_that_the_registry_changed() {
+    let mut kernel = kernel(Mode::Registry);
+    let key = admit(&mut kernel);
+    assert!(lease(&kernel, key).is_parked());
+    // An item state pushed, a setting's menu changed: a hint to read again
+    // what it shows, and a parked plugin shows nothing (#496).
+    let waiting = |kernel: &crate::Kernel| {
+        let instances = &kernel.shared.native_instances;
+        instances.setting_events.waiting_count()
+    };
+    kernel.native_registry_changed(1);
+    assert_eq!(waiting(&kernel), 0);
+    kernel.native_setting_pump();
+    assert_eq!((makes(), drops()), (1, 1));
+    assert!(lease(&kernel, key).is_parked());
+    // Made, it is told.
+    assert!(lease(&kernel, key).live().is_ok());
+    kernel.native_registry_changed(1);
+    assert_eq!(waiting(&kernel), 1);
 }
 
 #[test]

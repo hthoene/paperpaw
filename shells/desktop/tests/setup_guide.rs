@@ -239,3 +239,39 @@ fn every_page_is_entered_left_and_gone_on_from_with_the_buttons() {
         );
     }
 }
+
+/// The guide's pages Next to Next up to the one titled `title`.
+fn page_titled(device: &mut Device, title_wanted: &str) {
+    for _ in 0..20 {
+        if title(device) == title_wanted {
+            return;
+        }
+        run_script(device, "confirm,wait:1000").unwrap();
+    }
+    panic!("no page {title_wanted}: {:?}", labels(device));
+}
+
+#[test]
+fn the_wifi_steps_card_says_connected_where_the_reader_is() {
+    // In a network joined before (as the flasher writes one), as in Beta 3
+    // (#496): the card says so instead of *Open*.
+    let files = MemoryStorage::new().with(
+        "paperpaw.ini",
+        "[core]\nlanguage = de\n[help]\nshow = false\n",
+    );
+    paperpaw_emulator::budget::override_limit(None);
+    let profile = profiles::find("xteink-x4").unwrap();
+    let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
+    device.set_wifi_online(true);
+    device.start();
+    run_script(&mut device, "wait:3000").unwrap();
+    page_titled(&mut device, "WLAN");
+    let shown = labels(&mut device);
+    assert!(shows(&shown, "Verbunden ›"), "{shown:?}");
+    assert!(!shows(&shown, "Öffnen ›"), "{shown:?}");
+    // Not connected: the card says that it opens.
+    let mut device = fresh("xteink-x4", "[core]\nlanguage = de\n[help]\nshow = false\n");
+    page_titled(&mut device, "WLAN");
+    let shown = labels(&mut device);
+    assert!(shows(&shown, "Öffnen ›"), "{shown:?}");
+}

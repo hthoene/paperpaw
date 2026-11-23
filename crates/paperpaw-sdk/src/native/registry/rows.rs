@@ -719,6 +719,13 @@ impl<'a> RegistrySetupStep<'a> {
     pub fn title(&self) -> &'a str {
         self.row.title
     }
+    /// What the step's plugin says of it now (e.g. "Connected"), translated
+    /// in the host language; empty where it says nothing, or from a host
+    /// before draft 40.
+    #[must_use]
+    pub fn badge(&self) -> &'a str {
+        self.row.badge
+    }
 }
 
 /// One preset or placement value, never truncated.

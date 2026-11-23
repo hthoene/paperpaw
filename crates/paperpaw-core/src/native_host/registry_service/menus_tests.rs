@@ -901,6 +901,59 @@ fn op_15_applies_by_the_plugins_last_push_before_the_declaration() {
     );
 }
 
+#[test]
+fn op_15_carries_the_badge_the_plugin_pushed_for_its_step() {
+    use crate::native_host::item_state::HIDDEN;
+    let mut kernel = kernel();
+    kernel.shared.translator.add(
+        paperpaw_i18n::Catalog::parse(Cow::Borrowed(
+            "[meta]\nlanguage = de\nname = Deutsch\nplural = one-other\n\n[messages]\n\
+             nat.connected = Verbunden\n",
+        ))
+        .unwrap(),
+    );
+    kernel.shared.translator.set_language("de");
+    let directory = declarations(&[Record::SetupStep(wire::SetupStep {
+        name: "net",
+        title: "nat.step",
+        help: "",
+        order: 15,
+        page_kind: 1,
+        page: "nat.page",
+        applies_key: "",
+        applies_value: "",
+        need: 0,
+        capability: 0,
+        flags: 1,
+    })]);
+    let step = |directory: &NativeDeclarations| {
+        rows_of(&kernel, Some(directory), schema::OP_SETUP, "", 0)
+            .into_iter()
+            .find(|row| row.starts_with("step nat.net "))
+            .unwrap()
+    };
+    // Before a push: no badge (the setup says it opens).
+    assert_eq!(step(&directory), "step nat.net 1 nat.page 15 1 nat.step");
+    // The plugin's badge, in the user's language; the step still applies.
+    push(&directory, "nat", "net", 0, "", "nat.connected");
+    assert_eq!(
+        step(&directory),
+        "step nat.net 1 nat.page 15 1 badge=Verbunden nat.step"
+    );
+    // A key no catalog has: no badge, never the raw key.
+    push(&directory, "nat", "net", 0, "", "gone.badge");
+    assert_eq!(step(&directory), "step nat.net 1 nat.page 15 1 nat.step");
+    // Hidden with a badge: listed as not applying, the badge kept.
+    push(&directory, "nat", "net", HIDDEN, "", "nat.connected");
+    assert_eq!(
+        step(&directory),
+        "step nat.net 1 nat.page 15 0 badge=Verbunden nat.step"
+    );
+    // The default state: as declared again, no badge.
+    push(&directory, "nat", "net", 0, "", "");
+    assert_eq!(step(&directory), "step nat.net 1 nat.page 15 1 nat.step");
+}
+
 fn widget(
     name: &'static str,
     category: &'static str,
