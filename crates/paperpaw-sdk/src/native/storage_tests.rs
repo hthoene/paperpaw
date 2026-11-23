@@ -281,3 +281,22 @@ fn document_roots_forward_scoped_paths_and_host_refusals() {
         Err(Error::Denied)
     );
 }
+
+#[test]
+fn each_host_refusal_is_one_storage_error() {
+    for (error, expected) in [
+        (Error::NotFound, StorageError::NotFound),
+        (Error::Full, StorageError::Full),
+        (Error::Unsupported, StorageError::Unsupported),
+        (Error::Denied, StorageError::Unsupported),
+        (Error::Invalid, StorageError::InvalidPath),
+        (Error::NoSpace, StorageError::InvalidPath),
+        (Error::Utf8, StorageError::InvalidPath),
+        (Error::NoMemory, StorageError::OutOfMemory),
+        (Error::Io, StorageError::Io),
+        (Error::Busy, StorageError::Io),
+        (Error::Other(-99), StorageError::Io),
+    ] {
+        assert_eq!(storage_error(error), expected, "{error:?}");
+    }
+}
