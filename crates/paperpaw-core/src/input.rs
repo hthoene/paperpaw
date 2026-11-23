@@ -109,12 +109,15 @@ impl Recognizer {
     }
 
     /// Whether a press is still to be told: a button down or a finger down
-    /// unmoved whose click, tap or long press is not recognized yet. At most
-    /// the long-press time: then it is told as a long press (a button that
-    /// turns as it is pressed is told at once).
+    /// whose long press is not recognized yet and may still be. At most the
+    /// long-press time: then it is told as a long press (a button that turns
+    /// as it is pressed is told at once). A finger that can make no long
+    /// press (a thumb resting at a side, two fingers together) is not
+    /// waited for: it may rest there for as long as the device is held.
     pub(crate) fn deciding(&self) -> bool {
+        let (together, alone) = (self.together(), self.pointers.len() == 1);
         self.buttons.iter().any(|b| !b.long_fired)
-            || self.pointers.iter().any(|p| !p.moved && !p.long_fired)
+            || self.pointers.iter().any(|p| p.waits(together, alone))
     }
 
     /// Whether button `name` is held: pressed and not let go yet.
