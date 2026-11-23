@@ -81,7 +81,7 @@ impl Facts {
         official: bool,
         mut have: Vec<(String, Have)>,
     ) -> Result<Self, Error> {
-        have.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        paperpaw_sdk::sort::sort_unstable_by(&mut have, |a, b| a.0.cmp(&b.0));
         Ok(Self {
             name: copy(name)?,
             code_file: copy(code_file)?,
@@ -224,7 +224,7 @@ fn installed(
     })();
     registry.release(host).ok();
     result?;
-    have.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    paperpaw_sdk::sort::sort_unstable_by(&mut have, |a, b| a.0.cmp(&b.0));
     Ok(have)
 }
 
