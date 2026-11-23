@@ -5,15 +5,12 @@
 //! host owns that cache per conversion, so the parsers' own stamps and
 //! variants there are redundant but harmless.
 use alloc::string::String;
-use core::cmp::min;
 use paperpaw_sdk::native::{
     Error, Host,
     storage::{self, Root},
 };
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
-
-/// The code a refused allocation travels as through `StorageError`.
-pub(crate) const NO_MEMORY: u16 = 0x6e6d;
+use paperpaw_ui_kit::storage::{error as storage_error, error_in, read_full};
 
 /// Roots 3 and 6 of the document being called, through the host.
 pub struct NativeIo<'h, 'cb> {
@@ -45,14 +42,15 @@ impl NativeIo<'_, '_> {
         // bytes, and the rename would publish them.
         match storage::remove(self.host, root, staged) {
             Ok(()) | Err(Error::NotFound) => {}
-            Err(error) => return Err(storage_error(error)),
+            Err(error) => return Err(error_in(root, error)),
         }
         for piece in data.chunks(storage::MAX_DATA) {
-            storage::append(self.host, root, staged, piece).map_err(storage_error)?;
+            storage::append(self.host, root, staged, piece)
+                .map_err(|error| error_in(root, error))?;
         }
         // The pieces reach the card before the rename that publishes them.
         self.sync()?;
-        storage::rename(self.host, root, staged, name).map_err(storage_error)
+        storage::rename(self.host, root, staged, name).map_err(|error| error_in(root, error))
     }
 }
 
@@ -72,40 +70,15 @@ pub(crate) fn route<'a>(prefix: &str, path: &'a str) -> (Root, &'a str) {
     }
 }
 
-pub(crate) fn storage_error(error: Error) -> StorageError {
-    match error {
-        Error::NotFound => StorageError::NotFound,
-        Error::Full | Error::NoSpace => StorageError::Full,
-        Error::Unsupported | Error::Denied => StorageError::Unsupported,
-        Error::Invalid => StorageError::InvalidPath,
-        // A refused allocation is not a damaged book: it keeps its name.
-        Error::NoMemory => StorageError::Other(NO_MEMORY),
-        _ => StorageError::Io,
-    }
-}
-
 impl Storage for NativeIo<'_, '_> {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         let (root, name) = route(&self.prefix, path);
-        let mut done = 0;
-        while done < buf.len() {
-            let end = min(buf.len(), done + storage::MAX_DATA);
-            let Some(part) = buf.get_mut(done..end) else {
-                break;
-            };
-            let at = offset.saturating_add(done as u64);
-            let n = storage::read_at(self.host, root, name, at, part).map_err(storage_error)?;
-            done += n;
-            if n < part.len() {
-                break;
-            }
-        }
-        Ok(done)
+        read_full(self.host, root, name, offset, buf).map_err(|error| error_in(root, error))
     }
 
     fn size(&self, path: &str) -> Result<u64, StorageError> {
         let (root, name) = route(&self.prefix, path);
-        storage::size(self.host, root, name).map_err(storage_error)
+        storage::size(self.host, root, name).map_err(|error| error_in(root, error))
     }
 
     /// A write of at most [`storage::MAX_DATA`] is the host's, which is
@@ -119,12 +92,13 @@ impl Storage for NativeIo<'_, '_> {
             return Err(StorageError::Unsupported);
         }
         if data.len() <= storage::MAX_DATA {
-            return storage::write(self.host, root, name, data).map_err(storage_error);
+            return storage::write(self.host, root, name, data)
+                .map_err(|error| error_in(root, error));
         }
         let mut staged = String::new();
         staged
             .try_reserve_exact(name.len() + STAGED.len())
-            .map_err(|_| StorageError::Other(NO_MEMORY))?;
+            .map_err(|_| StorageError::OutOfMemory)?;
         staged.push_str(name);
         staged.push_str(STAGED);
         let written = self.stage(root, &staged, name, data);
@@ -141,10 +115,11 @@ impl Storage for NativeIo<'_, '_> {
             return Err(StorageError::Unsupported);
         }
         if data.is_empty() {
-            return storage::append(self.host, root, name, data).map_err(storage_error);
+            return storage::append(self.host, root, name, data)
+                .map_err(|error| error_in(root, error));
         }
         for piece in data.chunks(storage::MAX_DATA) {
-            storage::append(self.host, root, name, piece).map_err(storage_error)?;
+            storage::append(self.host, root, name, piece).map_err(|error| error_in(root, error))?;
         }
         Ok(())
     }
@@ -167,7 +142,7 @@ impl Storage for NativeIo<'_, '_> {
         if root == Root::Book {
             return Err(StorageError::Unsupported);
         }
-        storage::remove(self.host, root, name).map_err(storage_error)
+        storage::remove(self.host, root, name).map_err(|error| error_in(root, error))
     }
 
     /// The cache the host gives a conversion starts empty and is the host's to
@@ -188,7 +163,7 @@ impl Storage for NativeIo<'_, '_> {
         if root == Root::Book || to_root != root {
             return Err(StorageError::Unsupported);
         }
-        storage::rename(self.host, root, from, to).map_err(storage_error)
+        storage::rename(self.host, root, from, to).map_err(|error| error_in(root, error))
     }
 }
 
@@ -237,15 +212,7 @@ fn plugin_css(host: &Host<'_>) -> Result<String, Error> {
     let len = usize::try_from(size).map_err(|_| Error::NoSpace)?;
     bytes.try_reserve_exact(len).map_err(|_| Error::NoMemory)?;
     bytes.resize(len, 0);
-    let mut done = 0;
-    while let Some(part) = bytes.get_mut(done..).filter(|rest| !rest.is_empty()) {
-        let end = min(part.len(), storage::MAX_DATA);
-        let n = storage::read_at(host, Root::PluginCss, "", done as u64, &mut part[..end])?;
-        if n == 0 {
-            break;
-        }
-        done += n;
-    }
+    let done = read_full(host, Root::PluginCss, "", 0, &mut bytes)?;
     bytes.truncate(done);
     match String::from_utf8(bytes) {
         Ok(text) => Ok(text),

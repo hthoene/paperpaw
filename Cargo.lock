@@ -1848,6 +1848,7 @@ dependencies = [
  "miniz_oxide 0.9.1",
  "paperpaw-layout",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
  "proptest",
 ]
@@ -2217,6 +2218,7 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
  "proptest",
 ]
@@ -2275,6 +2277,7 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2297,6 +2300,7 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2308,6 +2312,7 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2320,6 +2325,7 @@ dependencies = [
  "paperpaw-layout",
  "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2331,6 +2337,7 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 

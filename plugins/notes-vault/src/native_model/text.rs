@@ -13,6 +13,7 @@ pub(crate) fn error_of(error: StorageError) -> Error {
         StorageError::Unsupported => Error::Unsupported,
         StorageError::Full => Error::Full,
         StorageError::TooLarge => Error::NoSpace,
+        StorageError::OutOfMemory => Error::NoMemory,
         _ => Error::Io,
     }
 }
