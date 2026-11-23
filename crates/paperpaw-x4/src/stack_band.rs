@@ -194,6 +194,31 @@ mod tests {
         assert!(native_call_allowed(true, false));
     }
 
+    /// The start's warnings are logged once the linked plugins are hosted:
+    /// before, every configured value of a setting they declare was logged
+    /// as an "unknown setting" that the kernel takes back on their
+    /// registration (#509). The order is the shell's (a separate workspace,
+    /// built for the device only): it is read from its source here.
+    #[test]
+    fn the_start_logs_its_warnings_after_hosting_the_linked_plugins() {
+        let firmware = include_str!("../../../shells/xteink/src/firmware.rs");
+        let run = firmware
+            .find("pub fn run(&mut self)")
+            .expect("Firmware::run");
+        let start = &firmware[run..];
+        let start = &start[..start
+            .find("self.kernel.start(now())")
+            .expect("the kernel's start")];
+        let hosted = start
+            .find("register_linked(")
+            .expect("the linked plugins hosted");
+        let warned = start.find("take_warnings()").expect("the warnings logged");
+        assert!(
+            hosted < warned,
+            "warnings logged before the linked plugins declared their settings"
+        );
+    }
+
     #[test]
     fn a_lost_band_refuses_calls_from_then_on() {
         // A re-arm after a wake failed: lost, whatever armed says.
