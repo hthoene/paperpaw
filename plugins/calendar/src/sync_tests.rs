@@ -57,6 +57,8 @@ struct World {
     denies: bool,
     /// A calendar whose `REPORT` fails with a server error.
     broken: Option<String>,
+    /// Where the principal says the calendars are, if not at [`HOME`].
+    home_href: Option<String>,
 }
 
 impl World {
@@ -94,8 +96,9 @@ xmlns:card=\"urn:ietf:params:xml:ns:carddav\">{inner}</d:multistatus>"
                 "<d:current-user-principal><d:href>{PRINCIPAL}</d:href></d:current-user-principal>"
             ))
         } else if path == PRINCIPAL {
+            let home = self.home_href.as_deref().unwrap_or(HOME);
             plain(&format!(
-                "<c:calendar-home-set><d:href>{HOME}</d:href></c:calendar-home-set>"
+                "<c:calendar-home-set><d:href>{home}</d:href></c:calendar-home-set>"
             ))
         } else if path == HOME {
             let mut inner = plain("");
@@ -431,6 +434,29 @@ fn a_subscription_a_file_and_contacts() {
     assert_eq!(occs[0].age, 41);
     // Max's birthday has no year; his anniversary is a year known: June.
     assert_eq!(reader.store.entries.len(), 5);
+}
+
+#[test]
+fn calendars_on_another_server_or_on_http_are_not_looked_for() {
+    // `World::answer` fails the test on any address that is not on
+    // `https://cloud.example/`: nothing, nor the password, goes there.
+    for home in [
+        "http://cloud.example/dav/calendars/anna/",
+        "https://evil.example/dav/calendars/anna/",
+    ] {
+        let mut world = World::new();
+        personal(&mut world);
+        world.home_href = Some(home.into());
+        let mut reader = Reader::default();
+        let id = reader.add(Kind::Caldav, "Work", ROOT);
+        let report = reader.run(&mut world, false);
+        assert_eq!((report.read, report.failed), (0, 1), "{home}");
+        assert_eq!(reader.store.source(id).unwrap().state, state::FAILED);
+        assert_eq!(
+            world.log,
+            ["PROPFIND /dav/", format!("PROPFIND {PRINCIPAL}").as_str()]
+        );
+    }
 }
 
 #[test]

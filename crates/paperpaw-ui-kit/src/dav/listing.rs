@@ -206,7 +206,12 @@ impl Reader<'_, '_> {
         }
         // An `href` may be a whole address, a path or relative (RFC 4918); only
         // the path of the address it makes tells whether it is the folder itself.
-        let url = resolve(self.base, &r.href)?;
+        // One on another server is not of this folder: it is left out, so the
+        // account's password is never sent there.
+        let url = match resolve(self.base, &r.href) {
+            Err(Error::Denied) => return Ok(()),
+            other => other?,
+        };
         if url.bytes().any(|b| b.is_ascii_control()) {
             return Ok(());
         }
@@ -373,5 +378,26 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn an_entry_on_another_server_or_without_https_is_left_out() {
+        let listing = Saved(
+            "<d:multistatus xmlns:d=\"DAV:\">\
+             <d:response><d:href>https://evil.example/a.jpg</d:href>\
+             <d:propstat><d:prop><d:resourcetype/></d:prop></d:propstat></d:response>\
+             <d:response><d:href>http://host/dav/b.jpg</d:href>\
+             <d:propstat><d:prop><d:resourcetype/></d:prop></d:propstat></d:response>\
+             <d:response><d:href>/dav/c.jpg</d:href>\
+             <d:propstat><d:prop><d:resourcetype/></d:prop></d:propstat></d:response>\
+             </d:multistatus>",
+        );
+        let mut urls = Vec::new();
+        read_each(&listing, LISTING, "https://host/dav/", &mut |item| {
+            urls.push(item.url);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(urls, ["https://host/dav/c.jpg"]);
     }
 }

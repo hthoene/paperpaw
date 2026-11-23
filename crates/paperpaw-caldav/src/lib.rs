@@ -50,6 +50,9 @@ pub enum Error {
     NoMemory,
     /// Not what it should be (a date, an address).
     Invalid,
+    /// An address on another server than the account's, or one without the
+    /// `https` the account has: the password is not sent there.
+    Foreign,
 }
 
 /// Appends `text` to `out` in memory that may be refused.

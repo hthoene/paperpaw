@@ -5,9 +5,11 @@ use paperpaw_sdk::native::{
     ui::{TextId, TextWrite, Ui},
 };
 
-use crate::mem::{SERVICE_BUFFER, buffer};
+use crate::mem::{SERVICE_BUFFER, buffer, wipe, wipe_text};
 
-/// The whole text `text` of `ui`, read part by part into one string.
+/// The whole text `text` of `ui`, read part by part into one string. The
+/// text may be a secret (a password, a phone's answer): the buffers it passed
+/// through are wiped, and so is the string where the reading fails.
 ///
 /// # Errors
 /// [`Error::NoSpace`] when the text is longer than `limit` bytes (nothing is
@@ -17,22 +19,55 @@ pub fn read_all(ui: &Ui, host: &Host<'_>, text: TextId, limit: usize) -> Result<
     let mut input = buffer(SERVICE_BUFFER)?;
     let mut output = buffer(SERVICE_BUFFER)?;
     let mut result = String::new();
+    let read = read_parts(
+        ui,
+        host,
+        (text, limit),
+        (&mut input, &mut output),
+        &mut result,
+    );
+    wipe(&mut input);
+    wipe(&mut output);
+    match read {
+        Ok(()) => Ok(result),
+        Err(error) => {
+            wipe_text(result);
+            Err(error)
+        }
+    }
+}
+
+fn read_parts(
+    ui: &Ui,
+    host: &Host<'_>,
+    (text, limit): (TextId, usize),
+    (input, output): (&mut [u8], &mut [u8]),
+    result: &mut String,
+) -> Result<(), Error> {
     let mut offset = 0usize;
     loop {
         let at = u32::try_from(offset).map_err(|_| Error::NoSpace)?;
-        let part = ui.text_read(host, text, at, &mut input, &mut output)?;
+        let part = ui.text_read(host, text, at, input, output)?;
         let total = usize::try_from(part.total()).map_err(|_| Error::NoSpace)?;
         if total > limit {
             return Err(Error::NoSpace);
         }
         let data = part.data();
-        result
-            .try_reserve(data.len())
-            .map_err(|_| Error::NoMemory)?;
+        let needed = result.len().saturating_add(data.len());
+        if needed > result.capacity() {
+            // Room for all of it at once, and the string it grew out of
+            // wiped: growing in place would leave copies behind.
+            let mut grown = String::new();
+            grown
+                .try_reserve_exact(total.max(needed))
+                .map_err(|_| Error::NoMemory)?;
+            grown.push_str(result);
+            wipe_text(core::mem::replace(result, grown));
+        }
         result.push_str(data);
         offset = offset.checked_add(data.len()).ok_or(Error::NoSpace)?;
         if offset >= total {
-            return Ok(result);
+            return Ok(());
         }
         if data.is_empty() {
             return Err(Error::Invalid);
@@ -63,6 +98,20 @@ fn part_end(text: &str, offset: usize) -> usize {
 pub fn write_all(ui: &Ui, host: &Host<'_>, text_id: TextId, text: &str) -> Result<(), Error> {
     let mut input = buffer(SERVICE_BUFFER)?;
     let mut output = buffer(SERVICE_BUFFER)?;
+    let written = write_parts(ui, host, text_id, text, (&mut input, &mut output));
+    // The text may be a secret: the buffers it passed through are wiped.
+    wipe(&mut input);
+    wipe(&mut output);
+    written
+}
+
+fn write_parts(
+    ui: &Ui,
+    host: &Host<'_>,
+    text_id: TextId,
+    text: &str,
+    (input, output): (&mut [u8], &mut [u8]),
+) -> Result<(), Error> {
     let mut offset = 0usize;
     loop {
         let end = part_end(text, offset);
@@ -79,8 +128,8 @@ pub fn write_all(ui: &Ui, host: &Host<'_>, text_id: TextId, text: &str) -> Resul
             } else {
                 TextWrite::Continue
             },
-            &mut input,
-            &mut output,
+            input,
+            output,
         )?;
         offset = end;
         if last {

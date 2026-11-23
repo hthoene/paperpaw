@@ -839,6 +839,16 @@ impl Sync {
             self.finished(store, wire, state::FAILED)?;
             return self.next_source(store, wire);
         };
+        // An answer that points to another server (or from `https` to
+        // `http`) is not followed: the password is sent only to the source's
+        // (of the calendars only the paths are kept).
+        if [&found.home, &found.principal]
+            .into_iter()
+            .any(|href| dav::foreign(&url, href))
+        {
+            self.finished(store, wire, state::FAILED)?;
+            return self.next_source(store, wire);
+        }
         if found.hrefs.is_empty() {
             // Not where the calendars are: the server may say where they are.
             let next = [&found.home, &found.principal]

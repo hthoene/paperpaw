@@ -168,6 +168,9 @@ pub enum Outcome {
     NotFound,
     /// The address has no list of tasks.
     NoLists,
+    /// The server named an address on another server, or one without its
+    /// `https`: nothing was sent there, nor the password.
+    Foreign,
     /// The server answered with this status, or (0) something else failed.
     Failed(u32),
 }
@@ -653,7 +656,9 @@ impl Sync {
         }
         let step = (|| {
             self.base = copy(address)?;
-            let url = if store.home.is_empty() {
+            // Where the lists were found is followed only on the account's
+            // own server, the password with it.
+            let url = if store.home.is_empty() || !dav::same_origin(&store.home, address) {
                 copy(address)?
             } else {
                 copy(&store.home)?
@@ -722,6 +727,13 @@ impl Sync {
             404 | 410 => Found::default(),
             other => return Ok(self.end(Outcome::Failed(other))),
         };
+        let elsewhere = [&found.home, &found.principal]
+            .into_iter()
+            .chain(found.calendars.iter().map(|calendar| &calendar.href))
+            .any(|href| dav::foreign(&url, href));
+        if elsewhere {
+            return Ok(self.end(Outcome::Foreign));
+        }
         if found.calendars.is_empty() && remembered {
             store.home.clear();
             let base = copy(&self.base)?;

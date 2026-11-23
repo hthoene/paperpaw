@@ -53,10 +53,26 @@ pub fn wipe(bytes: &mut [u8]) {
     core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
 
-/// Zeroes `text` and frees it.
+/// Fills the whole allocation of `bytes` with zeros, its spare capacity too
+/// (what a shorter text or a cut left there), as [`wipe`] does: `bytes` is
+/// then its capacity of zeros long.
+pub fn wipe_vec(bytes: &mut Vec<u8>) {
+    let capacity = bytes.capacity();
+    let start = bytes.as_mut_ptr();
+    for at in 0..capacity {
+        // SAFETY: `at` is inside the allocation, which `bytes` owns and
+        // exclusively borrows; a `u8` may be written over uninitialised
+        // memory. The volatile store keeps the wipe when it is freed after.
+        unsafe { core::ptr::write_volatile(start.add(at), 0) };
+    }
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+    // SAFETY: every byte up to the capacity was just written.
+    unsafe { bytes.set_len(capacity) };
+}
+
+/// Zeroes all of `text`'s allocation and frees it.
 pub fn wipe_text(text: String) {
-    let mut bytes = text.into_bytes();
-    wipe(&mut bytes);
+    wipe_vec(&mut text.into_bytes());
 }
 
 /// The least a full vector grows by at one push.
@@ -339,6 +355,19 @@ mod tests {
         assert_eq!(bytes, [0; 7]);
         wipe(&mut []);
         wipe_text(String::from("hunter2"));
+    }
+
+    #[test]
+    fn wipe_vec_zeroes_the_whole_capacity() {
+        let mut bytes = Vec::with_capacity(32);
+        bytes.extend_from_slice(b"correct horse battery staple");
+        bytes.truncate(4);
+        wipe_vec(&mut bytes);
+        assert!(bytes.len() >= 32);
+        assert!(bytes.iter().all(|&byte| byte == 0));
+        let mut none = Vec::new();
+        wipe_vec(&mut none);
+        assert!(none.is_empty());
     }
 
     #[test]
