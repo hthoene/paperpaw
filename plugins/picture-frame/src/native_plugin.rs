@@ -29,7 +29,9 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    Screens, geometry,
+    Screens,
+    files::OnHost,
+    geometry,
     mem::{SERVICE_BUFFER, buffer},
     paint, read_event,
     text::copy,
@@ -43,7 +45,7 @@ use crate::declarations::{
 use crate::native_cache as cache;
 use crate::native_home::Home;
 use crate::native_keep::Secret;
-use crate::native_link::{Data, HostLink, folder_url};
+use crate::native_link::{HostLink, folder_url};
 use crate::native_photos::{Change, Fit, Found, Photos, choose, tone};
 use crate::native_pics::{Answer, Pics, SLOTS, Slot};
 use crate::native_state::Kept;
@@ -323,7 +325,7 @@ impl NativePictureFrame {
             Err(_) => Vec::new(),
         };
         let mut cached = Vec::new();
-        for entry in cache::read(&Data(host)) {
+        for entry in cache::read(&OnHost::data(host)) {
             paperpaw_ui_kit::mem::push(&mut cached, entry.name)?;
         }
         self.photos = Photos {
@@ -457,7 +459,7 @@ impl NativePictureFrame {
     // --- events -----------------------------------------------------------
 
     fn started(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        self.kept = Kept::read(&Data(host));
+        self.kept = Kept::read(&OnHost::data(host));
         self.powered = capture_snapshot(host).is_ok_and(|s| s.is_charging());
         self.day = Self::clock(host).map_or(0, |(_, day)| day);
         self.reload(host)?;
@@ -583,7 +585,7 @@ impl NativePictureFrame {
                 // asked for now, while the device is awake.
                 if Change::of(&Self::text_setting(host, CHANGE)?) == Change::Sleep {
                     self.kept.cursor = self.kept.cursor.wrapping_add(1);
-                    self.kept.write(&Data(host)).ok();
+                    self.kept.write(&OnHost::data(host)).ok();
                 }
                 if Self::sleep_chosen(host) {
                     self.want(host, Slot::Sleep);
@@ -832,7 +834,7 @@ impl NativePictureFrame {
         }
         let policy = Policy::of(&Self::text_setting(host, SYNC_WHEN)?);
         let now = Self::clock(host).map(|(unix, _)| unix);
-        let synced = Kept::read(&Data(host)).synced;
+        let synced = Kept::read(&OnHost::data(host)).synced;
         if due(policy, trigger, synced, now) {
             self.begin(host, false)?;
         }
@@ -866,7 +868,7 @@ impl NativePictureFrame {
                 password.as_ref().map_or("", Secret::as_str),
             )?)
         };
-        self.kept = Kept::read(&Data(host));
+        self.kept = Kept::read(&OnHost::data(host));
         let cap =
             u64::try_from(Self::int_setting(host, CACHE_MB, 64).clamp(8, 1024)).unwrap_or(64) << 20;
         let job = Job {
@@ -881,7 +883,7 @@ impl NativePictureFrame {
         let mut link = HostLink {
             host,
             net: &mut self.net,
-            data: Data(host),
+            data: OnHost::data(host),
             auth: self.account.as_ref(),
         };
         match self.sync.start(&mut link, job) {
@@ -919,7 +921,7 @@ impl NativePictureFrame {
         let mut link = HostLink {
             host,
             net: &mut self.net,
-            data: Data(host),
+            data: OnHost::data(host),
             auth: self.account.as_ref(),
         };
         let step = self.sync.done(&mut link, &done);
@@ -934,7 +936,7 @@ impl NativePictureFrame {
         let mut link = HostLink {
             host,
             net: &mut self.net,
-            data: Data(host),
+            data: OnHost::data(host),
             auth: self.account.as_ref(),
         };
         self.sync.cancel(&mut link);
@@ -946,12 +948,12 @@ impl NativePictureFrame {
     fn finished(&mut self, host: &Host<'_>, finish: &Finish, tell: bool) -> Result<(), Error> {
         self.account = None;
         if finish.ok {
-            self.kept = Kept::read(&Data(host));
+            self.kept = Kept::read(&OnHost::data(host));
             self.kept.window = finish.window;
             if let Some((unix, _)) = Self::clock(host) {
                 self.kept.synced = unix;
             }
-            self.kept.write(&Data(host)).ok();
+            self.kept.write(&OnHost::data(host)).ok();
         }
         let mut say = paperpaw_ui_kit::Messages::new()?;
         let text = if finish.key == "picture-frame.synced" {

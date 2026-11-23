@@ -52,6 +52,7 @@ pub mod online;
 pub mod page;
 pub mod paint;
 pub mod parts;
+pub mod readers;
 pub mod screens;
 pub mod sheet;
 pub mod slider;

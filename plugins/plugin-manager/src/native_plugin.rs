@@ -215,21 +215,8 @@ impl Plugin for NativePluginManager {
             View::List(view) => (&mut view.list, true),
             View::Places(view) => (&mut view.list, false),
         };
-        // Select held, or the menu button, is a hold with buttons alone (as on
-        // a touch screen): without this the host takes them for its menu.
-        let hold = plugins
-            && matches!(
-                input,
-                Input::Action {
-                    action: "core.long-confirm" | "core.menu",
-                    ..
-                }
-            );
-        let step = if hold {
-            ItemStep::Held(list.focus())
-        } else {
-            list.input(host, &input)?
-        };
+        // Held, a plugin offers what can be done with it.
+        let step = list.input_holding(host, &input, plugins)?;
         match step {
             ItemStep::Chosen(index) => self.chosen(host, token, index)?,
             ItemStep::Held(index) => self.held(host, token, index)?,

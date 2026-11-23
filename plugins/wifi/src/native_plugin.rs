@@ -25,6 +25,7 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, RowsChange, Screens, key_bar,
     mem::{SERVICE_BUFFER, buffer, wipe},
+    status_line,
     text::{concat, copy},
 };
 
@@ -43,7 +44,6 @@ use crate::native_policy::{Password, Policy, Radio, Step};
 
 mod events;
 mod phone;
-mod status_icon;
 mod views;
 
 use views::{Count, Found, Info, Mark, Named, Networks, Page, row_item};
@@ -216,7 +216,7 @@ impl Plugin for NativeWifi {
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         // The status item is drawn by its owner into the place the line gives it.
         if token == STATUS {
-            return status_icon::draw(host, &mut frame);
+            return status_line::icon::draw(host, &mut frame, "wifi", "wifi.status.item");
         }
         // The list translates a title that is a catalog key: no catalog
         // buffers of ours are made for a frame.
@@ -256,14 +256,12 @@ impl Plugin for NativeWifi {
             return Ok(Handled::No);
         };
         let step = match view {
-            // Select held, or the menu button, forgets the network kept that
-            // has the focus, as a long press does on a touch screen (with the
-            // buttons alone nothing else can); elsewhere they are the host's.
-            View::Networks(view) if forgets(&input) && view.kept(view.list.focus()) => {
-                ItemStep::Held(view.list.focus())
-            }
             View::Page(view) => view.list.input(host, &input)?,
-            View::Networks(view) => view.list.input(host, &input)?,
+            // Held, a network kept is forgotten.
+            View::Networks(view) => {
+                let kept = view.kept(view.list.focus());
+                view.list.input_holding(host, &input, kept)?
+            }
             View::Phone(view) => view.list.input(host, &input)?,
         };
         match step {
@@ -276,17 +274,6 @@ impl Plugin for NativeWifi {
         }
         Ok(ItemList::handled(step))
     }
-}
-
-/// Select held or the menu button: what forgets a network kept.
-fn forgets(input: &Input<'_>) -> bool {
-    matches!(
-        input,
-        Input::Action {
-            action: "core.long-confirm" | "core.menu",
-            ..
-        }
-    )
 }
 
 /// The key bar names *Forget* for the menu button while the focus is on a

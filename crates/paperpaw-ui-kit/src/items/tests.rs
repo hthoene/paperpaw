@@ -3,24 +3,28 @@ use super::*;
 use alloc::vec;
 use paperpaw_sdk::native::callbacks::FrameRect;
 
-/// What a focus step asked of the host, and the areas it refuses.
+/// What a focus step asked of the host (and how each was to be refreshed),
+/// and the areas it refuses.
 #[derive(Default)]
 struct Asked {
     areas: Vec<FrameRect>,
     whole: usize,
+    modes: Vec<RedrawMode>,
     refuse_after: Option<usize>,
 }
 
 impl crate::list::Redraws for Asked {
-    fn area(&mut self, area: FrameRect) -> Result<(), Error> {
+    fn area(&mut self, mode: RedrawMode, area: FrameRect) -> Result<(), Error> {
         if self.refuse_after.is_some_and(|n| self.areas.len() >= n) {
             return Err(Error::Full);
         }
         self.areas.push(area);
+        self.modes.push(mode);
         Ok(())
     }
-    fn whole(&mut self) -> Result<(), Error> {
+    fn whole(&mut self, mode: RedrawMode) -> Result<(), Error> {
         self.whole += 1;
+        self.modes.push(mode);
         Ok(())
     }
 }
@@ -48,6 +52,8 @@ fn a_step_within_the_page_asks_for_its_two_rows() {
         ]
     );
     assert_eq!(asked.whole, 0);
+    // Refreshed fast, as Beta 3 refreshed a focus step on the page.
+    assert_eq!(asked.modes, [RedrawMode::Fast, RedrawMode::Fast]);
 }
 
 #[test]
@@ -56,6 +62,8 @@ fn a_step_off_the_page_or_a_refused_area_asks_for_the_screen() {
     let mut asked = Asked::default();
     drawn().redraw_focus_on(&mut asked, 3, 4).unwrap();
     assert_eq!((asked.areas.len(), asked.whole), (0, 1));
+    // A page turned is refreshed more thoroughly.
+    assert_eq!(asked.modes, [RedrawMode::Partial]);
     // The host takes the first area and refuses the second.
     let mut asked = Asked {
         refuse_after: Some(1),
@@ -746,4 +754,47 @@ fn a_page_that_starts_with_a_heading_or_before_any_carries_none() {
     // next heading would end it alone, so it goes to the third page.
     let starts = paginate(&items("hrrrhr"), &[10; 6], 30).unwrap();
     assert_eq!(starts, [0, 3, 4]);
+}
+
+#[test]
+fn select_held_and_the_menu_button_hold_the_row_in_focus_where_it_offers_more() {
+    let mut list = ItemList::new(items("hrr"));
+    list.set_focus(2);
+    for key in ["core.long-confirm", "core.menu"] {
+        assert_eq!(
+            list.held_by_button(&action(key), true),
+            Some(ItemStep::Held(2)),
+            "{key}"
+        );
+        // A row that offers nothing more leaves them to the host (its menu).
+        assert_eq!(list.held_by_button(&action(key), false), None, "{key}");
+    }
+    for key in ["core.confirm", "core.down", "core.back"] {
+        assert_eq!(list.held_by_button(&action(key), true), None, "{key}");
+    }
+    // A list with no row to hold leaves them to the host too.
+    let empty = ItemList::new(Vec::new());
+    assert_eq!(empty.held_by_button(&action("core.menu"), true), None);
+}
+
+#[test]
+fn a_note_below_the_rows_is_drawn_again_alone_and_fast() {
+    // The rows end at 258 px on the screen, 248 px down the region.
+    let region = FrameRect::new(0, 10, 480, 790);
+    let mut asked = Asked::default();
+    drawn().redraw_below_on(&mut asked, Some(region)).unwrap();
+    assert_eq!(asked.areas, [FrameRect::new(0, 248, 480, 542)]);
+    assert_eq!(asked.modes, [RedrawMode::Fast]);
+    // Before a frame, or where the host refuses the area: the screen.
+    for (list, refuse_after) in [(ItemList::new(items("rr")), None), (drawn(), Some(0))] {
+        let mut asked = Asked {
+            refuse_after,
+            ..Asked::default()
+        };
+        list.redraw_below_on(&mut asked, Some(region)).unwrap();
+        assert_eq!(
+            (asked.whole, asked.modes.as_slice()),
+            (1, [RedrawMode::Partial].as_slice())
+        );
+    }
 }

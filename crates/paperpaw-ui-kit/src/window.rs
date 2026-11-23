@@ -407,7 +407,7 @@ fn draw_window_row(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use paperpaw_sdk::native::callbacks::FrameRect;
+    use paperpaw_sdk::native::{callbacks::FrameRect, commands::RedrawMode};
 
     fn action(action: &str) -> Input<'_> {
         Input::Action { now_ms: 0, action }
@@ -558,11 +558,11 @@ mod tests {
     }
 
     impl crate::list::Redraws for Asked {
-        fn area(&mut self, area: FrameRect) -> Result<(), Error> {
+        fn area(&mut self, _: RedrawMode, area: FrameRect) -> Result<(), Error> {
             self.areas.push(area);
             Ok(())
         }
-        fn whole(&mut self) -> Result<(), Error> {
+        fn whole(&mut self, _: RedrawMode) -> Result<(), Error> {
             self.whole += 1;
             Ok(())
         }

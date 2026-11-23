@@ -26,9 +26,32 @@ pub trait Volume {
     fn sync(&self) -> Result<(), Error>;
 }
 
-struct OnHost<'a, 'h> {
+/// The host's storage calls on one root as a [`Volume`], for code written
+/// over any volume (and tested on one in memory): the one every plugin uses
+/// for its data folder or the card.
+#[derive(Clone, Copy)]
+pub struct OnHost<'a, 'h> {
     host: &'a Host<'h>,
     root: Root,
+}
+
+impl core::fmt::Debug for OnHost<'_, '_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("OnHost")
+            .field("root", &self.root)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a, 'h> OnHost<'a, 'h> {
+    /// The plugin's data folder.
+    #[must_use]
+    pub const fn data(host: &'a Host<'h>) -> Self {
+        Self {
+            host,
+            root: Root::Data,
+        }
+    }
 }
 
 impl Volume for OnHost<'_, '_> {
@@ -55,9 +78,9 @@ impl Volume for OnHost<'_, '_> {
     }
 }
 
-/// The host's storage calls on `root` as a [`Volume`], for code written
-/// over any volume (and tested on one in memory).
-pub fn volume<'a, 'h>(host: &'a Host<'h>, root: Root) -> impl Volume + use<'a, 'h> {
+/// The host's storage calls on `root` as a [`Volume`] ([`OnHost`]).
+#[must_use]
+pub const fn volume<'a, 'h>(host: &'a Host<'h>, root: Root) -> OnHost<'a, 'h> {
     OnHost { host, root }
 }
 

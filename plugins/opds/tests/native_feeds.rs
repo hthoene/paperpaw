@@ -523,6 +523,21 @@ fn webdav_folders() {
 }
 
 #[test]
+fn a_webdav_folder_is_left_out_of_its_own_listing_also_where_its_href_is_a_whole_address() {
+    // RFC 4918 lets the href be a whole address; IIS and some others send one.
+    let listing = LISTING.replace(
+        "<d:href>/remote.php/dav/files/me/Books/</d:href>",
+        "<d:href>https://cloud.example.org/remote.php/dav/files/me/Books</d:href>",
+    );
+    let feed = webdav(
+        &listing,
+        "https://cloud.example.org/remote.php/dav/files/me/Books/",
+    );
+    let titles: Vec<&str> = feed.entries.iter().map(|e| e.title.as_str()).collect();
+    assert_eq!(titles, ["Krimis", "Die Verwandlung"], "{feed:?}");
+}
+
+#[test]
 fn webdav_entries_with_hostile_names_stay_titles() {
     let listing = r#"<d:multistatus xmlns:d="DAV:">
 <d:response><d:href>/dav/Books/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>

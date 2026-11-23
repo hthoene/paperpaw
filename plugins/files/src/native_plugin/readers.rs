@@ -3,17 +3,14 @@
 //! for the books in its folder. The host keeps the choice when the book opens
 //! with the hand-over param `keep` and resolves it at every open after.
 use super::*;
+use paperpaw_ui_kit::readers;
 
-/// Reading apps listed at most.
-const MOST_READERS: usize = 12;
-/// The reading apps' list, a page of it: the request.
-const READERS_INPUT: usize = 256;
 /// The hand-over param that keeps the reading app chosen (`book`, `folder`).
 const KEEP: &str = "keep";
 
 impl NativeFiles {
     /// The reading apps of books of `format` (all where it is empty): their
-    /// screens and titles, at most [`MOST_READERS`]. None where the device
+    /// screens and titles, at most `readers::MOST`. None where the device
     /// has no document service.
     pub(super) fn readers_for(
         &mut self,
@@ -28,34 +25,7 @@ impl NativeFiles {
             }
         }
         let documents = self.documents.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(READERS_INPUT)?, buffer(SERVICE_BUFFER)?);
-        let mut found: Vec<(String, String)> = Vec::new();
-        let mut cursor = ReaderCursor::start();
-        // The list may change between pages: start again once, then give up.
-        let mut again = true;
-        loop {
-            let page = match documents.readers(host, format, cursor, &mut input, &mut out) {
-                Ok(page) => page,
-                Err(Error::State) if again => {
-                    again = false;
-                    found.clear();
-                    cursor = ReaderCursor::start();
-                    continue;
-                }
-                Err(Error::NoMemory) => return Err(Error::NoMemory),
-                Err(_) => return Ok(Vec::new()),
-            };
-            for reader in page.rows() {
-                if found.len() >= MOST_READERS {
-                    return Ok(found);
-                }
-                push(&mut found, (copy(reader.screen())?, copy(reader.title())?))?;
-            }
-            match page.end().next() {
-                Some(next) => cursor = next,
-                None => return Ok(found),
-            }
-        }
+        readers::of_format(host, documents, format)
     }
 
     /// The format of the book at `path`, as the library knows it (empty where

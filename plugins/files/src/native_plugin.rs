@@ -29,7 +29,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
         device::{Device, DeviceClass},
-        document::{Documents, ReaderCursor},
+        document::Documents,
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         files::Files,
         formatting::Arg,
