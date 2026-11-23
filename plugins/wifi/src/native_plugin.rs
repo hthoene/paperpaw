@@ -754,6 +754,19 @@ impl NativeWifi {
         self.screens.open(instance, view)
     }
 
+    /// Looks for networks once the radio is switched on (`Radio::On`, not
+    /// joined or joining) while a Wi-Fi screen is open, as opening the page
+    /// with the radio on does: the device scans only when asked, and the list
+    /// of networks would stay empty until the reader asks again.
+    fn search_if_switched_on(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let open =
+            self.screens.top(PAGE_TOKEN).is_some() || self.screens.top(NETWORKS_TOKEN).is_some();
+        if open && self.read_info(host)?.radio == Radio::On {
+            self.search_if_idle(host)?;
+        }
+        Ok(())
+    }
+
     /// Looks for networks if the radio is on and nothing else goes on (a scan
     /// takes the radio's time).
     fn search_if_idle(&mut self, host: &Host<'_>) -> Result<(), Error> {
