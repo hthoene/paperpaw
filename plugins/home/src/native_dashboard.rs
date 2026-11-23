@@ -362,6 +362,10 @@ impl Dashboard {
         }
     }
 
+    /// The new layout of [`Self::ensure`], in a frame of its own: inlined,
+    /// what it reads and makes sat beside the snapshot and the layout kept
+    /// there, over the 2 KiB band of the S3 (2208 bytes after #486).
+    #[inline(never)]
     fn lay_out(
         &mut self,
         host: &Host<'_>,
