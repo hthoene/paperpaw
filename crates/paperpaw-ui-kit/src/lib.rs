@@ -57,6 +57,7 @@ pub mod sheet;
 pub mod slider;
 pub mod status_items;
 pub mod status_line;
+pub mod storage;
 pub mod style;
 pub mod text;
 pub mod uitext;

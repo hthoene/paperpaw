@@ -2,31 +2,19 @@
 //! listings, information) and the card root of the storage calls (reads).
 //!
 //! The vault is never changed (`PORTING-7.md`), so writing, moving and removal
-//! answer [`StorageError::Unsupported`]. A refused allocation is remembered
-//! (`Storage` has no word for it, so it says [`StorageError::Io`]) and told as
-//! [`Error::NoMemory`] by [`with_card`]. This is a small copy of what the file
-//! manager's card adapter does for writing too; it moves into the kit when
-//! that one does.
+//! answer [`StorageError::Unsupported`]. A refused allocation is
+//! [`StorageError::OutOfMemory`], and is also remembered and told as
+//! [`Error::NoMemory`] by [`with_card`]: the model keeps a failed read as
+//! "nothing there". This is a small copy of what the file manager's card
+//! adapter does for writing too; it moves into the kit when that one does.
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell, RefMut};
 
 use paperpaw_sdk::native::files::{self, Files};
-use paperpaw_sdk::native::storage::{self, MAX_DATA, Root};
+use paperpaw_sdk::native::storage::Root;
 use paperpaw_sdk::native::{Error, Host};
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
-
-/// A host error as the storage's.
-fn storage_error(error: Error) -> StorageError {
-    match error {
-        Error::NotFound => StorageError::NotFound,
-        Error::Full => StorageError::Full,
-        Error::NoSpace => StorageError::TooLarge,
-        Error::Unsupported | Error::Denied => StorageError::Unsupported,
-        Error::Invalid | Error::Utf8 => StorageError::InvalidPath,
-        // Not the card's fault, and not a missing card either.
-        _ => StorageError::Io,
-    }
-}
+use paperpaw_ui_kit::storage::{error as storage_error, read_full};
 
 /// The card through `core.files` for one callback.
 struct Card<'h, 'cb> {
@@ -98,21 +86,7 @@ impl<'h, 'cb> Card<'h, 'cb> {
 
 impl Storage for Card<'_, '_> {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        let mut done = 0;
-        while done < buf.len() {
-            let end = buf.len().min(done + MAX_DATA);
-            let Some(part) = buf.get_mut(done..end) else {
-                break;
-            };
-            let at = offset.saturating_add(done as u64);
-            let n = self.noted(storage::read_at(self.host, Root::Files, path, at, part))?;
-            done += n;
-            // A short read is the end.
-            if n < part.len() {
-                break;
-            }
-        }
-        Ok(done)
+        self.noted(read_full(self.host, Root::Files, path, offset, buf))
     }
 
     fn size(&self, path: &str) -> Result<u64, StorageError> {
@@ -191,8 +165,8 @@ impl Storage for Card<'_, '_> {
 /// back after, whatever `work` says.
 ///
 /// The model keeps a read that failed as "nothing there" (a card taken out is
-/// an empty folder), so a refused allocation, which `Storage` cannot word, is
-/// told here whatever `work` returned.
+/// an empty folder), so a refused allocation is told here whatever `work`
+/// returned.
 ///
 /// # Errors
 /// [`Error::NoMemory`] where the host ran out of memory on the way; what

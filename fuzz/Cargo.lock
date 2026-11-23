@@ -168,6 +168,7 @@ version = "1.0.5"
 dependencies = [
  "miniz_oxide",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -262,6 +263,7 @@ name = "paperpaw-plugin-format-rtf"
 version = "1.0.1"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -269,6 +271,7 @@ name = "paperpaw-plugin-format-txt"
 version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -276,6 +279,7 @@ name = "paperpaw-plugin-format-xtc"
 version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

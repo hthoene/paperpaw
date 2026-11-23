@@ -22,8 +22,6 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_sdk::{OpenOptions, Storage, StorageError};
 
-use crate::native_io::NO_MEMORY;
-
 mod op {
     pub const SNIFF: u32 = 1;
     pub const OPEN: u32 = 2;
@@ -136,7 +134,7 @@ pub(crate) fn document_error(error: &DocumentError) -> Error {
         DocumentError::Storage(StorageError::Unsupported) | DocumentError::UnsupportedFormat => {
             Error::Unsupported
         }
-        DocumentError::OutOfMemory | DocumentError::Storage(StorageError::Other(NO_MEMORY)) => {
+        DocumentError::OutOfMemory | DocumentError::Storage(StorageError::OutOfMemory) => {
             Error::NoMemory
         }
         DocumentError::Malformed(_) => Error::Invalid,

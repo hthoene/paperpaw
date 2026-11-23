@@ -8,7 +8,6 @@ use paperpaw_sdk::{Storage, StorageError};
 
 use paperpaw_sdk::document::DocumentError;
 
-use crate::provider::NO_MEMORY;
 use crate::{MAX_NAME, MAX_PAGES, pictures};
 
 /// Names that wait while a folder is listed, at most: a list of this many
@@ -124,7 +123,7 @@ pub(crate) fn pages_from(
         Ok(()) => {}
         // No folder to list here (a book that is one file): the picture alone.
         Err(StorageError::NotFound | StorageError::Unsupported) => pages.clear(),
-        Err(StorageError::Other(NO_MEMORY)) => return Err(DocumentError::OutOfMemory),
+        Err(StorageError::OutOfMemory) => return Err(DocumentError::OutOfMemory),
         Err(error) => return Err(DocumentError::Storage(error)),
     }
     pages
@@ -138,7 +137,6 @@ pub(crate) fn pages_from(
 #[cfg(test)]
 mod tests {
     use super::{Page, pages_from};
-    use crate::provider::NO_MEMORY;
     use alloc::string::ToString;
     use paperpaw_sdk::document::DocumentError;
     use paperpaw_sdk::{DirEntry, Storage, StorageError};
@@ -182,7 +180,7 @@ mod tests {
     #[test]
     fn a_listing_that_fails_otherwise_is_an_error_not_a_book_of_one_page() {
         assert_eq!(
-            pages_from(&Refusing(StorageError::Other(NO_MEMORY)), "", &first()),
+            pages_from(&Refusing(StorageError::OutOfMemory), "", &first()),
             Err(DocumentError::OutOfMemory)
         );
         for error in [StorageError::Io, StorageError::Full] {
