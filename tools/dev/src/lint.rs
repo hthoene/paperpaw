@@ -15,7 +15,7 @@
 //! `lint.pseudo-overflow`, `lint.hardcoded`, `lint.how-it-works` (a plugin
 //! with code that says not, or hardly, how it works: `Manifest::how`),
 //! `lint.language-mixed` (the setup guide with the language changed while
-//! it is open shows another language's text: [`switch`]).
+//! it is open shows another language's text: `lint::switch`).
 
 pub(crate) mod catalogs;
 mod drawn;
