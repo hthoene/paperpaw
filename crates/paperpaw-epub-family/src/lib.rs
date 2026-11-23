@@ -1234,7 +1234,7 @@ mod tests {
         assert_eq!(math_blocks(&html(alt), true), ["Es gilt a/b immer."]);
     }
 
-    /// The format's answer to the host (`core.format`, ops 2 and 8) for the
+    /// The format's answer to the host (`core.format`, ops 2, 3 and 8) for the
     /// block of section 1 at `offset`: the foreign element it writes into the
     /// block stream, as the host reads it.
     #[test]
@@ -1267,6 +1267,10 @@ mod tests {
             out
         };
         ask(2, 1, 0);
+        // Not converted yet, the book opened "preparing": the host's
+        // `prepare` calls open it, then convert it (#510).
+        ask(3, 1, 0);
+        ask(3, 1, 0);
         let reply = ask(8, 1, 1);
         let rows: Vec<_> = stage::reply_decode(&reply)
             .unwrap()
