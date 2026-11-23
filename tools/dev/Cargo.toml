@@ -26,6 +26,9 @@ paperpaw-i18n.workspace = true
 paperpaw-json.workspace = true
 paperpaw-native = { workspace = true, features = ["kernel"] }
 paperpaw-platform.workspace = true
+# What the store offers in the setup (`lint::switch`: its step hides where
+# all of it is on).
+paperpaw-plugin-store.workspace = true
 # The plugin store's rules and the check before publishing (`check-publish`).
 paperpaw-publish.workspace = true
 paperpaw-sdk.workspace = true

@@ -26,7 +26,9 @@
 //! - `sweep.text-cut`: text cut at the edge of its area without an
 //!   ellipsis (the errors of `visual.text-cut`).
 //! - `sweep.text`: a text is missing: a translation key is shown as it
-//!   is, or German shows the English text of a key it lacks.
+//!   is, or German shows the English text of a key it lacks; or a text
+//!   is another language's: one only another language of the app has
+//!   (#505, English showing "Mehr hinzufügen").
 //! - `sweep.unreachable`: no way leads to it with the buttons alone.
 //!   Only where every place there is was searched: where the search
 //!   ended at its bound, the note on how a screen was shown
@@ -59,6 +61,7 @@ use crate::cases::{self, Shown};
 use crate::cli::Context;
 use crate::image::Image;
 use crate::lint::catalogs::{self, Language};
+use crate::lint::switch::Foreign;
 use crate::reach::{self, Driver, Found, Limits};
 use crate::report::{Finding, Report};
 use crate::session::{self, Session, Start};
@@ -315,6 +318,8 @@ struct Texts {
     plugins: Vec<String>,
     /// Ids the app has, shown as they are at times.
     ids: Vec<String>,
+    /// Tells the texts of the app's other languages.
+    foreign: Foreign,
 }
 
 impl Texts {
@@ -334,9 +339,11 @@ impl Texts {
                 }
                 by_text
             });
+        let foreign = Foreign::new(&language, &languages);
         Ok(Texts {
             language,
             english,
+            foreign,
             plugins: kernel
                 .plugins()
                 .iter()
@@ -375,6 +382,13 @@ impl Texts {
                     "\"{label}\" is shown in English: `i18n/{}.ini` has no text for `{}`",
                     self.language.code,
                     keys.join("`, `")
+                ));
+            } else if let Some((code, keys)) = self.foreign.of(label) {
+                missing.insert(format!(
+                    "\"{label}\" is shown in `{code}`, the text of `{}` there: the screen \
+                     is in `{}`",
+                    keys.join("`, `"),
+                    self.language.code
                 ));
             }
         }
@@ -713,7 +727,13 @@ mod tests {
     }
 
     fn texts(language: Language, english: Option<&Language>) -> Texts {
+        let all: Vec<Language> = english
+            .into_iter()
+            .cloned()
+            .chain([language.clone()])
+            .collect();
         Texts {
+            foreign: Foreign::new(&language, &all),
             language,
             english: english.map(|english| {
                 let mut by_text: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -781,6 +801,18 @@ mod tests {
         ]));
         assert_eq!(missing.len(), 1, "{missing:?}");
         assert!(missing[0].contains("\"Add a feed\"") && missing[0].contains("`news.add`"));
+    }
+
+    #[test]
+    fn german_shown_in_english_is_told() {
+        // The owner's X4 Classic in English (#505).
+        let english = language("en", &[("news.add", "Add a feed"), ("news.ok", "OK")]);
+        let german = language("de", &[("news.add", "Feed hinzufügen"), ("news.ok", "OK")]);
+        let mut texts = texts(english.clone(), None);
+        texts.foreign = Foreign::new(&english, &[english.clone(), german]);
+        let missing = texts.missing(&drawn(&["Feed hinzufügen", "OK", "Add a feed"]));
+        assert_eq!(missing.len(), 1, "{missing:?}");
+        assert!(missing[0].contains("`de`") && missing[0].contains("`news.add`"));
     }
 
     #[test]

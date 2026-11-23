@@ -297,3 +297,131 @@ fn the_stores_step_card_says_that_the_plugins_chosen_were_added() {
     assert!(shows(&shown, "Hinzugefügt ›"), "{shown:?}");
     assert!(!shows(&shown, "Öffnen ›"), "{shown:?}");
 }
+
+/// The texts of `language`'s catalogs (`i18n/<language>.ini` of every crate,
+/// plugin and shell) that no catalog of `other` has: text that is plainly
+/// `language`'s where `other` is the reader's.
+fn only_in(language: &str, other: &str) -> std::collections::HashSet<String> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let texts = |language: &str| {
+        let mut texts = std::collections::HashSet::new();
+        for group in ["crates", "plugins", "shells"] {
+            for member in std::fs::read_dir(root.join(group)).unwrap().flatten() {
+                let file = member.path().join(format!("i18n/{language}.ini"));
+                let Ok(source) = std::fs::read_to_string(file) else {
+                    continue;
+                };
+                let catalog = paperpaw_i18n::Catalog::parse(source).unwrap();
+                texts.extend(
+                    catalog
+                        .keys()
+                        .filter_map(|k| catalog.get(k))
+                        .map(String::from),
+                );
+            }
+        }
+        texts
+    };
+    let others = texts(other);
+    texts(language)
+        .into_iter()
+        .filter(|text| !others.contains(text) && text.chars().any(char::is_alphabetic))
+        .collect()
+}
+
+/// Every page of the guide after the language's, and the screen each page's
+/// card opens: all their labels.
+fn every_page_and_its_screen(device: &mut Device) -> Vec<String> {
+    let mut seen = labels(device);
+    run_script(device, "confirm,wait:1000").unwrap();
+    for _ in 0..20 {
+        if screen(device) != "setup.guide" {
+            break;
+        }
+        seen.extend(labels(device));
+        run_script(device, "left,wait:300,confirm,wait:1500").unwrap();
+        seen.extend(labels(device));
+        run_script(device, "back,wait:1500,right,wait:300,confirm,wait:1500").unwrap();
+    }
+    seen
+}
+
+#[test]
+fn the_guide_and_its_steps_speak_only_the_language_chosen() {
+    // The owner's X4 Classic in English showed the store's step as "Mehr
+    // hinzufügen" (#505). In English and in German, set before and chosen on
+    // the guide's first page: no page and no screen of a step shows a text
+    // that only the other language has.
+    for profile in BUTTONS_ONLY {
+        for (config, switch, language, other, store) in [
+            ("en", "", "en", "de", "Add more"),
+            ("de", "", "de", "en", "Mehr hinzufügen"),
+            (
+                "de",
+                "left,wait:300,confirm,wait:1500,right,wait:300",
+                "en",
+                "de",
+                "Add more",
+            ),
+            (
+                "en",
+                "left,wait:300,confirm,wait:1500,right,wait:300",
+                "de",
+                "en",
+                "Mehr hinzufügen",
+            ),
+        ] {
+            let mut device = fresh(
+                profile,
+                &format!("[core]\nlanguage = {config}\n[help]\nshow = false\n"),
+            );
+            if !switch.is_empty() {
+                run_script(&mut device, switch).unwrap();
+            }
+            let seen = every_page_and_its_screen(&mut device);
+            assert!(
+                shows(&seen, store),
+                "{profile} {config}→{language}: {seen:?}"
+            );
+            let foreign = only_in(other, language);
+            let wrong: Vec<&String> = seen
+                .iter()
+                .filter(|label| foreign.contains(label.trim_end_matches(" ›").trim()))
+                .collect();
+            assert!(
+                wrong.is_empty(),
+                "{profile} {config}→{language} shows {other}: {wrong:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_step_its_plugin_hides_takes_the_language_chosen_too() {
+    // Where nothing of its offer can be added (here: all of it is on), the
+    // store hides its step once it has looked; the guide keeps the steps it
+    // opened with. The language changed after that, the step kept its German
+    // title in an English guide (#505, the owner's X4 Classic).
+    let mut device = fresh(
+        "xteink-x4-classic",
+        "[core]\nlanguage = de\n[help]\nshow = false\n\
+         [plugins]\nstats = on\nwidgets = on\ncalibre = on\nkosync = on\n",
+    );
+    page_titled(&mut device, "Mehr hinzufügen");
+    // The store's page, nothing on it to choose, and back: the store has
+    // looked and says that its step no longer applies.
+    run_script(
+        &mut device,
+        "left,wait:300,confirm,wait:1500,back,wait:1500",
+    )
+    .unwrap();
+    assert_eq!(
+        screen(&mut device),
+        "setup.guide",
+        "{:?}",
+        labels(&mut device)
+    );
+    device.call(|kernel, now| kernel.set_setting(now, "core.language", "en").unwrap());
+    run_script(&mut device, "wait:1500").unwrap();
+    assert_eq!(title(&mut device), "Add more", "{:?}", labels(&mut device));
+}
