@@ -109,6 +109,8 @@ struct Laid {
     handle: u16,
     /// The status line above the grid (`home.status-bar`), made and placed.
     status: Option<(Made, Rect)>,
+    /// The footer's status items (`footer_status.rs`).
+    footer_status: footer_status::FooterStatus,
     /// How far the focus ring reaches outside a target: what a focus step
     /// draws again around it, kept here so that a step reads no style.
     ring_room: i32,
@@ -150,6 +152,7 @@ enum Next {
 }
 
 mod area;
+mod footer_status;
 mod arrange;
 mod kept;
 mod look;
@@ -473,6 +476,7 @@ impl Dashboard {
             kept: Kept::of(host, &self.listing, display, &shown),
             handle: metrics.row.max(44),
             status,
+            footer_status: footer_status::FooterStatus::read(host),
             ring_room: look.first().map_or(0, |look| ring_room(&look.style)),
             look: RefCell::new(look),
         })
@@ -999,6 +1003,7 @@ impl Dashboard {
             ring(&mut above, target.rect, style)?;
         }
         paint::replay_icons(frame, font, fonts.icons, below.iter())?;
+        self.draw_footer_status(host, ui, frame, (font, style, laid))?;
         Self::compose_widgets(host, ui, &self.listing, frame, laid)?;
         paint::replay(frame, font, above.iter())
     }
