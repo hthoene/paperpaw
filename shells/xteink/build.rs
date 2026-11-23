@@ -55,6 +55,12 @@ fn main() {
         std::fs::copy("text-s3.x", out.join("text.x")).expect("text-s3.x");
         println!("cargo::rustc-link-search={}", out.display());
         println!("cargo::rustc-link-arg=-Wl,-Tlinkall.x");
+        // No `.eh_frame_hdr`: GNU ld makes it by default and places it in
+        // flash after `.rodata` (esp-hal keeps `.eh_frame` out of flash, so
+        // the table points at nothing; nothing unwinds with it): about 119 KB
+        // of each ESP32-S3 image (#501). The plugins' linker scripts drop it
+        // too.
+        println!("cargo::rustc-link-arg=-Wl,--no-eh-frame-hdr");
         stack_floor(&out);
         no_rodata_gap(&out);
         return;
@@ -299,7 +305,16 @@ fn german_pack() {
     }
     let merged = paperpaw_i18n::Catalog::merge_sources(sources.iter().map(String::as_str));
     let compiled = paperpaw_i18n::Catalog::compile(&merged).expect("the German catalogs compile");
-    let packed = miniz_oxide::deflate::compress_to_vec(&compiled, 10);
+    // Zopfli's deflate: about 2.2 KB smaller than miniz's best level, read by
+    // the same inflater (#501).
+    let mut packed = Vec::new();
+    zopfli::compress(
+        zopfli::Options::default(),
+        zopfli::Format::Deflate,
+        &compiled[..],
+        &mut packed,
+    )
+    .expect("the German catalog compresses");
     std::fs::write(out.join("german_pack.deflate"), packed).expect("german_pack.deflate");
     let data = std::fs::read_to_string("../../tools/plugin-files/data.toml").expect("data.toml");
     let section = data

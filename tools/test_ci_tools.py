@@ -630,12 +630,27 @@ class FirmwareRemap(unittest.TestCase):
         self.assertEqual(value, "[" + ",".join(f'"--remap-path-prefix={a}={b}"' for a, b in flags) + "]")
         # rustc takes the last prefix that matches: the cargo home's own
         # folders come after the home itself.
-        self.assertEqual(flags, [
+        self.assertEqual(flags[:4], [
             (str(self.home), "cargo"),
             (f"{self.home}/registry/src/index.crates.io-0123/", ""),
             ("/opt/rust/lib/rustlib/src/rust/", ""),
             (f"{HERE.parent}/", ""),
         ])
+        # Then each crate's and plugin's sources by a short name (#501).
+        root = HERE.parent
+        crates = sorted(root.glob("crates/paperpaw-*/src"))
+        plugins = sorted(root.glob("plugins/*/src"))
+        self.assertIn((f"{root}/crates/paperpaw-core/src/", "core/"), flags)
+        self.assertIn((f"{root}/plugins/reader/src/", "p/reader/"), flags)
+        # The kernel's host last, as it is in the kernel's folder; no other
+        # folder holds another, so their order (the shell's) does not matter.
+        self.assertEqual(flags[-1], (f"{root}/crates/paperpaw-core/src/native_host/", "core/host/"))
+        self.assertEqual(sorted(flags[4:-1]), sorted([
+            *((f"{d}/", d.parent.name.removeprefix("paperpaw-") + "/") for d in crates),
+            *((f"{d}/", f"p/{d.parent.name}/") for d in plugins),
+        ]))
+        short = [b for _, b in flags[4:]]
+        self.assertEqual(len(short), len(set(short)), "two folders under one name")
 
     def test_a_path_that_would_break_the_flag_is_refused(self):
         for name in ['with"quote', "with=sign", "with\\slash"]:
