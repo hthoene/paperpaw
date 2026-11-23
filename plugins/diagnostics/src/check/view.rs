@@ -242,7 +242,7 @@ impl Ink<'_> {
         on: bool,
         focused: bool,
     ) -> Result<(), Error> {
-        paperpaw_ui_kit::parts::button(ops, self.font, self.style, rect, label, on || focused)
+        paperpaw_ui_kit::parts::button_on(ops, self.font, self.style, rect, label, (on, focused))
     }
 
     /// A row: a name and its value at the other end.
