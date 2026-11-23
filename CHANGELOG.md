@@ -6,7 +6,7 @@ change the plugin SDK.
 
 ## [Unreleased]
 
-## [0.6.0-beta.4] - 2026-11-22
+## [0.6.0-beta.4] - 2026-11-23
 
 - Interface 7 SDK: `native::storage::DataStorage`, the plugin's data folder as a
   `Storage`. Reads and appends over 4 KiB are split; a longer write is staged in
@@ -3683,6 +3683,14 @@ change the plugin SDK.
 
 - **Moving the focus in the status items editor redraws two rows, not the screen** (#484); a button that moves nothing (at the end of the list, or a held item at the end of the shown ones) redraws nothing.
 
+- **Smaller firmware images** (#501). The X4 Pro's, the X4 Classic's and the Boox Picco's firmware no longer carries an unwinding table that nothing read (about 119 KB each); the panic messages of every device name their source files by shorter paths, and the German language pack the firmware carries is compressed better (2,219 bytes). Measured on release-like local builds: X4 11,760 bytes smaller, X4 Classic 131,504 bytes smaller.
+
+- **The firmware takes about 26 KB less flash** (#501). The UI kit keeps
+  every plugin's open screens and grows its lists with one code for all of
+  them instead of a copy per screen type, draws a page's operations in one
+  function, and the store sorts its installed plugins with the shared
+  sorter. Nothing changes in what is shown or how fast.
+
 ### Fixed
 
 - `paperpaw-sqlite` never copies over a database: a storage that cannot move files is refused
@@ -5332,6 +5340,41 @@ change the plugin SDK.
   the device had no network (or no clock, or no memory), the check still
   tried every other account, the radio on for each. It now stops and tries
   again at the next check.
+
+- **Setup shows again what is already connected** (#496). The cards of the
+  first-run setup said *Open* for every step. As in Beta 3, the Wi-Fi step
+  says *Connected* where the reader is in a network already, and the store's
+  step says how many plugins are being added, or that they were added.
+
+- **Setup speaks only the language chosen** (#505). With the language changed
+  while the first-run setup was open, a step its plugin had just hidden kept
+  the title of the language before: an English setup on the X4 Classic showed
+  the store's step as "Mehr hinzufügen". Every step takes the new title now.
+  `paperpaw-dev` tells text of another language on a screen (`sweep.text`) and
+  walks the setup with the language changed while it is open
+  (`lint.language-mixed`).
+
+- **The reader shows "page / pages" again soon after a book opens** (#506).
+  The pages of a book are counted in the background, and until they are the
+  corner shows a percentage. Beta 4 counted them only a few pages a second,
+  so a book that had not been counted yet showed "x %" for a minute or more;
+  now the count runs as fast as in Beta 3 and the page number appears within
+  moments of opening the book.
+
+- **Opening a book for the first time says so again** (#510). As in Beta 3,
+  the reader now shows "Opening the book for the first time. This takes a
+  moment." at once while an EPUB book is prepared for its first reading,
+  instead of a screen that seemed to hang; books opened before open at once,
+  without the note.
+- **Store plugins on the same book opening** (#510). "EPUB: picture books and
+  math" 1.1.1 and "Notes vault" 1.0.6 are built with the changed EPUB
+  conversion they share with the reader.
+
+- **The selected key on the keyboard is always seen, OK too** (#512). The
+  OK key (and Shift while capitals are locked) was always black, the same
+  look as the key chosen with the buttons, so nobody could tell when it was
+  selected. It now has a bold line and turns black only while selected, like
+  every other key.
 
 ## [0.6.0-beta.3] - 2026-11-05
 
