@@ -682,10 +682,9 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        // A tap in the middle of the page: the reader's menu bar, opened
-        // before the pages are counted (a page turns as its button goes
-        // down). The count goes on below it, and the bar shows "2 / 185"
-        // once it ends (#117).
+        // A tap in the middle of the page: the reader's menu bar (a page
+        // turns as its button goes down). The pages are counted by then
+        // (#506), and the bar and the status line show "2 / 185" (#117).
         name: "boox-reader-menu",
         profile: "boox-go-7",
         book: Some("books/alice-in-wonderland.epub"),

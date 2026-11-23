@@ -19,10 +19,19 @@ use crate::native_pages::Reading;
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::digest::fnv1a64;
 
-/// Pages laid out in one step (a step is one `core.work` run).
+/// Pages laid out in one step on a device that cannot read its clock, and the
+/// most a step keeps before it adds them to the file (a step is one
+/// `core.work` run).
 pub const PAGES_PER_STEP: usize = 8;
-/// The same on a small device (the X4 lays a page out slowly).
+/// Pages laid out in one step on a small device: one, as in Beta 3 (the X4
+/// lays a page out slowly; a button waits no longer than that).
 pub const PAGES_PER_STEP_SMALL: usize = 1;
+/// How long a step lays pages out on a device that is not small, in
+/// microseconds: the second the host waits at least before the next step
+/// (`work.md` 1.1, work declared in a run). The next step is declared as the
+/// step begins (`NativeReader::count_step`), so the steps follow each other
+/// as Beta 3's did (2 ms apart) instead of a second apart (#506).
+pub const STEP_MICROS: u64 = 1_000_000;
 /// The wait between two steps, in milliseconds.
 pub const DELAY_MS: u32 = 2;
 /// The same on a small device.
@@ -64,14 +73,37 @@ pub enum Step {
     Stopped,
 }
 
-/// Pages a step lays out and the wait before the next, for a device of the
+/// How far one step of the count goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pace {
+    /// So many pages.
+    Pages(usize),
+    /// Pages for so many microseconds (at least one page).
+    Micros(u64),
+}
+
+impl Pace {
+    /// Whether a step that began at `began` and has laid out `laid` pages lays
+    /// out another at `now` (microseconds of the host's clock; none where the
+    /// host cannot tell them: the step ends after [`PAGES_PER_STEP`] pages).
+    #[must_use]
+    pub fn goes_on(self, laid: usize, began: Option<u64>, now: Option<u64>) -> bool {
+        match (self, began, now) {
+            (Self::Pages(pages), _, _) => laid < pages,
+            (Self::Micros(micros), Some(began), Some(now)) => now.saturating_sub(began) < micros,
+            (Self::Micros(_), _, _) => laid < PAGES_PER_STEP,
+        }
+    }
+}
+
+/// How far a step goes and the wait before the next, for a device of the
 /// memory class `class` (none: the host did not tell, so small): only a small
-/// device lays out slowly, as in Beta 3.
+/// device lays out slowly, a page a step as in Beta 3.
 #[must_use]
-pub const fn pace(class: Option<DeviceClass>) -> (usize, u32) {
+pub const fn pace(class: Option<DeviceClass>) -> (Pace, u32) {
     match class {
-        Some(DeviceClass::Medium | DeviceClass::Large) => (PAGES_PER_STEP, DELAY_MS),
-        _ => (PAGES_PER_STEP_SMALL, DELAY_SMALL_MS),
+        Some(DeviceClass::Medium | DeviceClass::Large) => (Pace::Micros(STEP_MICROS), DELAY_MS),
+        _ => (Pace::Pages(PAGES_PER_STEP_SMALL), DELAY_SMALL_MS),
     }
 }
 
@@ -491,11 +523,12 @@ impl Counter {
         storage.remove(&self.name).ok();
     }
 
-    /// Lays out up to `per_step` pages with `lay` and adds them.
+    /// Lays out pages with `lay` and adds them, while `more` says another
+    /// (asked with the pages laid out so far, after each one).
     pub fn step(
         &mut self,
         storage: &dyn Storage,
-        per_step: usize,
+        more: &mut dyn FnMut(usize) -> bool,
         lay: &mut dyn FnMut(Locator) -> Result<Laid, Error>,
     ) -> Step {
         if self.stopped {
@@ -509,16 +542,17 @@ impl Counter {
             return Step::Stopped;
         };
         let mut starts = [Locator::START; PAGES_PER_STEP];
-        let mut n = 0;
+        let (mut n, mut laid) = (0, 0);
         let mut done = false;
-        for slot in starts.iter_mut().take(per_step.min(PAGES_PER_STEP)) {
+        loop {
             let Ok(page) = lay(next) else {
                 self.stopped = true;
                 return Step::Stopped;
             };
             if page.unreliable {
-                // The pages of this step are not kept; they are laid out again
-                // at the next step, for a few steps; then the card is out.
+                // The pages not yet added are not kept; they are laid out
+                // again at the next step, for a few steps; then the card is
+                // out.
                 self.failures += 1;
                 if self.failures >= RETRIES {
                     self.stopped = true;
@@ -530,14 +564,27 @@ impl Counter {
                 done = true;
                 break;
             }
-            *slot = page.start;
+            starts[n] = page.start;
             n += 1;
+            laid += 1;
             if page.end <= page.start {
                 // A page that ends where it started would never move on.
                 done = true;
                 break;
             }
             next = page.end;
+            if n == PAGES_PER_STEP {
+                // A long step adds its pages as they come, a few at a time.
+                if !self.index.append(storage, &starts) {
+                    self.stopped = true;
+                    return Step::Stopped;
+                }
+                self.next = Some(next);
+                n = 0;
+            }
+            if !more(laid) {
+                break;
+            }
         }
         self.failures = 0;
         if n > 0 && !self.index.append(storage, &starts[..n]) {
@@ -578,6 +625,11 @@ mod tests {
     use super::*;
     use paperpaw_sdk::MemoryStorage;
 
+    /// A step of up to `pages` pages.
+    fn upto(pages: usize) -> impl FnMut(usize) -> bool {
+        move |laid| laid < pages
+    }
+
     /// A book of `pages` pages, 10 characters each, in one section.
     fn book(pages: u32) -> impl FnMut(Locator) -> Result<Laid, Error> {
         move |at| {
@@ -597,10 +649,10 @@ mod tests {
         let mut counter = Counter::open(&storage, String::from("pages-x.bin")).unwrap();
         let mut lay = book(20);
         assert!(counter.counting());
-        assert_eq!(counter.step(&storage, 8, &mut lay), Step::More);
-        assert_eq!(counter.step(&storage, 8, &mut lay), Step::More);
+        assert_eq!(counter.step(&storage, &mut upto(8), &mut lay), Step::More);
+        assert_eq!(counter.step(&storage, &mut upto(8), &mut lay), Step::More);
         assert_eq!(counter.page_at(&storage, (0, 0)), None);
-        assert_eq!(counter.step(&storage, 8, &mut lay), Step::Done);
+        assert_eq!(counter.step(&storage, &mut upto(8), &mut lay), Step::Done);
         assert!(!counter.counting());
         assert_eq!(counter.pages(), Some(20));
         assert_eq!(counter.page_at(&storage, (0, 0)), Some((1, 20)));
@@ -668,7 +720,7 @@ mod tests {
     fn a_chapter_that_begins_a_file_is_on_its_first_page() {
         let storage = MemoryStorage::new();
         let mut counter = Counter::open(&storage, String::from("pages-s.bin")).unwrap();
-        while counter.step(&storage, 4, &mut sections) == Step::More {}
+        while counter.step(&storage, &mut upto(4), &mut sections) == Step::More {}
         assert_eq!(counter.pages(), Some(9));
         assert_eq!(counter.locate(&storage, (0, 0)), Some((0, true)));
         assert_eq!(counter.locate(&storage, (1, 0)), Some((3, true)));
@@ -688,7 +740,7 @@ mod tests {
     fn a_page_is_found_with_few_reads_and_the_next_ones_with_none() {
         let storage = Counting(MemoryStorage::new(), core::cell::Cell::new(0));
         let mut counter = Counter::open(&storage, String::from("pages-w.bin")).unwrap();
-        while counter.step(&storage, 500, &mut book(4000)) == Step::More {}
+        while counter.step(&storage, &mut upto(500), &mut book(4000)) == Step::More {}
         assert_eq!(counter.pages(), Some(4000));
         let counter = Counter::open(&storage, String::from("pages-w.bin")).unwrap();
         let reads = |run: &dyn Fn()| {
@@ -731,7 +783,7 @@ mod tests {
         let storage = MemoryStorage::new();
         let mut counter = Counter::open(&storage, String::from("pages-v.bin")).unwrap();
         let mut lay = book(50);
-        assert_eq!(counter.step(&storage, 20, &mut lay), Step::More);
+        assert_eq!(counter.step(&storage, &mut upto(20), &mut lay), Step::More);
         let (so_far, _) = counter.counted();
         assert!((1..50).contains(&so_far), "{so_far}");
         let last = so_far - 1;
@@ -740,7 +792,7 @@ mod tests {
             counter.search(&storage, Locator::new(0, last * 10 + 5)),
             Some((last, false))
         );
-        while counter.step(&storage, 20, &mut lay) == Step::More {}
+        while counter.step(&storage, &mut upto(20), &mut lay) == Step::More {}
         assert_eq!(
             counter.locate(&storage, (0, last * 10 + 5)),
             Some((last, false))
@@ -753,9 +805,15 @@ mod tests {
     fn goes_on_from_the_file_after_a_new_open() {
         let storage = MemoryStorage::new();
         let mut first = Counter::open(&storage, String::from("pages-y.bin")).unwrap();
-        assert_eq!(first.step(&storage, 8, &mut book(12)), Step::More);
+        assert_eq!(
+            first.step(&storage, &mut upto(8), &mut book(12)),
+            Step::More
+        );
         let mut again = Counter::open(&storage, String::from("pages-y.bin")).unwrap();
-        assert_eq!(again.step(&storage, 8, &mut book(12)), Step::Done);
+        assert_eq!(
+            again.step(&storage, &mut upto(8), &mut book(12)),
+            Step::Done
+        );
         assert_eq!(again.pages(), Some(12));
     }
 
@@ -770,7 +828,10 @@ mod tests {
                 book(100)(at)
             }
         };
-        assert_eq!(counter.step(&storage, 8, &mut lay), Step::Stopped);
+        assert_eq!(
+            counter.step(&storage, &mut upto(8), &mut lay),
+            Step::Stopped
+        );
         assert!(!counter.counting());
         assert_eq!(counter.pages(), None);
     }
@@ -785,15 +846,21 @@ mod tests {
                 ..page
             })
         };
-        assert_eq!(counter.step(&storage, 8, &mut bad), Step::More);
-        assert_eq!(counter.step(&storage, 8, &mut bad), Step::More);
-        assert_eq!(counter.step(&storage, 8, &mut bad), Step::Stopped);
+        assert_eq!(counter.step(&storage, &mut upto(8), &mut bad), Step::More);
+        assert_eq!(counter.step(&storage, &mut upto(8), &mut bad), Step::More);
+        assert_eq!(
+            counter.step(&storage, &mut upto(8), &mut bad),
+            Step::Stopped
+        );
         // A readable step in between starts the count of failures again.
         let mut again = Counter::open(&storage, String::from("pages-v.bin")).unwrap();
-        assert_eq!(again.step(&storage, 8, &mut bad), Step::More);
-        assert_eq!(again.step(&storage, 8, &mut book(100)), Step::More);
-        assert_eq!(again.step(&storage, 8, &mut bad), Step::More);
-        assert_eq!(again.step(&storage, 8, &mut bad), Step::More);
+        assert_eq!(again.step(&storage, &mut upto(8), &mut bad), Step::More);
+        assert_eq!(
+            again.step(&storage, &mut upto(8), &mut book(100)),
+            Step::More
+        );
+        assert_eq!(again.step(&storage, &mut upto(8), &mut bad), Step::More);
+        assert_eq!(again.step(&storage, &mut upto(8), &mut bad), Step::More);
         assert_eq!(again.page_at(&storage, (0, 0)), None);
     }
 
@@ -822,6 +889,38 @@ mod tests {
         assert!(storage.exists("p2") && storage.exists("p5"));
     }
 
+    /// A step of a device that is not small lays pages out for its time, not
+    /// for 8 pages: the host lets steps declared in a run follow a second
+    /// apart at the soonest (#506), and 8 pages a second left a book counted
+    /// minutes after Beta 3 had it.
+    #[test]
+    fn a_long_step_adds_its_pages_a_few_at_a_time() {
+        let storage = MemoryStorage::new();
+        let mut counter = Counter::open(&storage, String::from("pages-l.bin")).unwrap();
+        let mut lay = book(30);
+        assert_eq!(counter.step(&storage, &mut upto(21), &mut lay), Step::More);
+        assert_eq!(counter.counted(), (21, false));
+        assert_eq!(counter.start(&storage, 20), Some((0, 200)));
+        // Its time ends it after any page; the next step goes on from there.
+        assert_eq!(counter.step(&storage, &mut |_| true, &mut lay), Step::Done);
+        assert_eq!(counter.pages(), Some(30));
+        assert_eq!(counter.page_at(&storage, (0, 290)), Some((30, 30)));
+    }
+
+    #[test]
+    fn a_step_goes_on_for_its_pages_or_its_time() {
+        let (large, _) = pace(Some(DeviceClass::Large));
+        assert_eq!(large, Pace::Micros(STEP_MICROS));
+        assert!(large.goes_on(500, Some(10), Some(10 + STEP_MICROS - 1)));
+        assert!(!large.goes_on(1, Some(10), Some(10 + STEP_MICROS)));
+        // A clock the host cannot read: 8 pages, as Beta 3's steps.
+        assert!(large.goes_on(PAGES_PER_STEP - 1, None, None));
+        assert!(!large.goes_on(PAGES_PER_STEP, Some(10), None));
+        let (small, _) = pace(None);
+        assert_eq!(small, Pace::Pages(PAGES_PER_STEP_SMALL));
+        assert!(!small.goes_on(1, Some(0), Some(0)));
+    }
+
     #[test]
     fn a_small_device_lays_out_a_page_a_step() {
         let storage = MemoryStorage::new();
@@ -829,12 +928,12 @@ mod tests {
         let mut lay = book(3);
         for _ in 0..3 {
             assert_eq!(
-                counter.step(&storage, PAGES_PER_STEP_SMALL, &mut lay),
+                counter.step(&storage, &mut upto(PAGES_PER_STEP_SMALL), &mut lay),
                 Step::More
             );
         }
         assert_eq!(
-            counter.step(&storage, PAGES_PER_STEP_SMALL, &mut lay),
+            counter.step(&storage, &mut upto(PAGES_PER_STEP_SMALL), &mut lay),
             Step::Done
         );
         assert_eq!(counter.pages(), Some(3));
@@ -932,7 +1031,7 @@ mod tests {
         let storage = MemoryStorage::new();
         let mut counter = Counter::open(&storage, String::from("pages-x.bin")).unwrap();
         let mut lay = book(5);
-        while counter.step(&storage, 8, &mut lay) == Step::More {}
+        while counter.step(&storage, &mut upto(8), &mut lay) == Step::More {}
         assert_eq!(counter.pages(), Some(5));
         // Page 3 of 5 has pages after it, the last none; a place the index
         // does not know promises nothing.
