@@ -383,19 +383,7 @@ impl Dashboard {
             ..
         } = Shown::read_with(host, display, font, self.listing.inputs())?;
         let turned = self.page_after_turn(&src, &pages, wide)?;
-        let nav = self.nav.get_or_insert(Nav::new(pages.len()));
-        nav.resize(pages.len());
-        if let Some(at) = turned {
-            nav.page = at;
-        }
-        if let Some(at) = self
-            .wanted
-            .take()
-            .and_then(|slot| pages.iter().position(|p| p.slot == slot))
-        {
-            nav.page = at;
-        }
-        let (page, count) = (nav.page, nav.pages);
+        let (page, count) = turn::page_to_show((&mut self.nav, &mut self.wanted), &pages, turned);
         let slot = pages.get(page).map_or(0, |p| p.slot);
         let items = pages.get(page).map_or_else(
             || Ok(Vec::new()),
