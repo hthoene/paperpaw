@@ -256,8 +256,8 @@ paperpaw-update = { path = "../../crates/paperpaw-update" }
 paperpaw-native = { path = "../../crates/paperpaw-native" }
 # The device's texts without their keys (`device_messages`, #306).
 paperpaw-i18n = { path = "../../crates/paperpaw-i18n" }
-# The German language pack, compressed (`german_pack`, #251).
-miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
+# The German language pack, compressed (`german_pack`, #251, #501).
+zopfli = { version = "=0.8.4", default-features = false, features = ["std"] }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
