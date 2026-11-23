@@ -412,6 +412,13 @@ fn a_host_that_cannot_keep_the_key_still_uses_it_this_time() {
     assert!(world.log.borrow().contains(&"keep".to_string()));
     assert!(world.key.borrow().is_none(), "nothing was kept");
     assert_eq!(requests(&world).len(), 1, "used all the same");
+    // Held by the offline power mode: Go online sends again with the key
+    // typed, not asking for it again.
+    done(&p, 1, 0, 11);
+    assert_eq!(action(&p, "core.confirm"), 1);
+    let sent = requests(&world);
+    assert_eq!(sent.len(), 2, "{:?}", world.log.borrow());
+    assert!(sent[1].contains("DeepL-Auth-Key abc "), "{}", sent[1]);
 }
 
 /// A key the secrets cannot take (the list full, the card) is used this time

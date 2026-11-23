@@ -606,9 +606,119 @@ impl Sink for CardsSink {
     }
 }
 
+/// Leaves the style sheets (`<style>…</style>`) out of the cards' HTML as the
+/// answer streams by, before the parser keeps a string: Anki puts the note
+/// type's CSS in front of each side, and CSS longer than the parser keeps of
+/// a string ([`MAX_STRING`](paperpaw_sdk::json::stream::MAX_STRING)) would
+/// leave nothing of the card. A sheet ends at the latest with its JSON string
+/// (an unescaped `"`), so a broken one cannot take the rest of the answer.
+#[derive(Debug, Default)]
+struct StyleCut {
+    /// What may be the start of `<style`, not passed on yet.
+    held: [u8; OPEN.len()],
+    held_len: usize,
+    /// In a sheet: how much of `</style` was seen, and whether a `\` escapes
+    /// the next byte.
+    skipping: bool,
+    closing: usize,
+    escaped: bool,
+}
+
+const OPEN: &[u8] = b"<style";
+const CLOSE: &[u8] = b"</style";
+
+impl StyleCut {
+    /// Passes `piece` on to `pass` without its sheets, in runs.
+    fn feed(
+        &mut self,
+        piece: &[u8],
+        pass: &mut dyn FnMut(&[u8]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let mut run = 0;
+        for (at, &byte) in piece.iter().enumerate() {
+            if self.skipping {
+                if self.ends_sheet(byte) {
+                    // The quote that ends the string is the parser's.
+                    run = if byte == b'"' { at } else { at + 1 };
+                }
+                continue;
+            }
+            if self.held_len > 0 {
+                if OPEN
+                    .get(self.held_len)
+                    .is_some_and(|c| c.eq_ignore_ascii_case(&byte))
+                {
+                    self.held_len += 1;
+                    run = at + 1;
+                    if self.held_len == OPEN.len() {
+                        self.held_len = 0;
+                        self.skipping = true;
+                    }
+                    continue;
+                }
+                // No sheet: what was held goes, then this byte as any other.
+                let held = self.held;
+                pass(held.get(..self.held_len).unwrap_or_default())?;
+                self.held_len = 0;
+                run = at;
+            }
+            if byte == b'<' {
+                pass(piece.get(run..at).unwrap_or_default())?;
+                self.held[0] = byte;
+                self.held_len = 1;
+                run = at + 1;
+            }
+        }
+        if self.skipping {
+            return Ok(());
+        }
+        pass(piece.get(run..).unwrap_or_default())
+    }
+
+    /// The end of the answer: what was held goes.
+    fn end(&mut self, pass: &mut dyn FnMut(&[u8]) -> Result<(), Error>) -> Result<(), Error> {
+        let held = self.held;
+        let len = core::mem::take(&mut self.held_len);
+        pass(held.get(..len).unwrap_or_default())
+    }
+
+    /// Whether `byte`, in a sheet, ends it.
+    fn ends_sheet(&mut self, byte: u8) -> bool {
+        if core::mem::take(&mut self.escaped) {
+            return false;
+        }
+        let ends = match byte {
+            b'\\' => {
+                self.escaped = true;
+                self.closing = 0;
+                false
+            }
+            b'"' => true,
+            b'>' if self.closing == CLOSE.len() => true,
+            _ if self.closing == CLOSE.len() => false,
+            _ => {
+                self.closing = if CLOSE
+                    .get(self.closing)
+                    .is_some_and(|c| c.eq_ignore_ascii_case(&byte))
+                {
+                    self.closing + 1
+                } else {
+                    usize::from(byte == b'<')
+                };
+                false
+            }
+        };
+        if ends {
+            self.skipping = false;
+            self.closing = 0;
+        }
+        ends
+    }
+}
+
 /// A reading of the cards of an answer.
 #[derive(Debug)]
-pub struct Cards(Reading<CardsSink>);
+pub struct Cards(Reading<CardsSink>, StyleCut);
 
 impl Default for Cards {
     fn default() -> Self {
@@ -620,7 +730,7 @@ impl Cards {
     /// A reading.
     #[must_use]
     pub fn new() -> Self {
-        Self(Reading::new(CardsSink::default()))
+        Self(Reading::new(CardsSink::default()), StyleCut::default())
     }
 
     /// The next piece of the answer.
@@ -628,14 +738,17 @@ impl Cards {
     /// # Errors
     /// `NoMemory`; the reading is over then.
     pub fn feed(&mut self, piece: &[u8]) -> Result<(), Error> {
-        self.0.feed(piece)
+        let Self(reading, cut) = self;
+        cut.feed(piece, &mut |run| pass_on(reading, run))
     }
 
     /// The cards, once the answer ended.
     ///
     /// # Errors
     /// `NoMemory`.
-    pub fn finish(self) -> Result<Reply<Vec<Card>>, Error> {
+    pub fn finish(mut self) -> Result<Reply<Vec<Card>>, Error> {
+        let Self(reading, cut) = &mut self;
+        cut.end(&mut |run| pass_on(reading, run))?;
         let sink = self.0.finish()?;
         let listed = sink.listed;
         Ok(match reply(sink, |s| s.cards) {
@@ -643,6 +756,13 @@ impl Cards {
             other => other,
         })
     }
+}
+
+fn pass_on(reading: &mut Reading<CardsSink>, run: &[u8]) -> Result<(), Error> {
+    if run.is_empty() {
+        return Ok(());
+    }
+    reading.feed(run)
 }
 
 /// How `answerCards` went: the answers it took and the ones it did not (a card
@@ -951,6 +1071,29 @@ mod tests {
             .feed(br#"{"result": [true, false], "error": null}"#)
             .unwrap();
         assert_eq!(answered.finish().unwrap(), Reply::Ok(2));
+    }
+
+    #[test]
+    fn a_style_sheet_longer_than_a_string_leaves_the_card_whole() {
+        let css = ".card { color: black; }\\n\\\"x\\\" ".repeat(300);
+        assert!(css.len() > paperpaw_sdk::json::stream::MAX_STRING);
+        let json = alloc::format!(
+            r#"{{"result": [{{"cardId": 11, "question": "<style>{css}</style><b>Hund</b>", "answer": "<STYLE type=\"text/css\">{css}</style >Hund<hr id=answer>dog <s>x</s>", "css": "{css}"}}], "error": null}}"#
+        );
+        for size in [1, 5, 7, 4096] {
+            let mut cards = Cards::new();
+            for piece in json.as_bytes().chunks(size) {
+                cards.feed(piece).unwrap();
+            }
+            assert_eq!(
+                cards.finish().unwrap(),
+                Reply::Ok(alloc::vec![Card {
+                    id: 11,
+                    front: "Hund".into(),
+                    back: "dog x".into()
+                }])
+            );
+        }
     }
 
     #[test]

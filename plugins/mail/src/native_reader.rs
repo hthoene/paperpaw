@@ -291,7 +291,9 @@ impl NativeMail {
             let storage = DataStorage::new(host);
             let raw = store::raw_file(account, &folder, uid).map_err(fail_error)?;
             let kept = store::text_file(account, &folder, uid).map_err(fail_error)?;
-            let made = match store::make_letter(&storage, &raw, &kept) {
+            let validity =
+                store::folder_validity(&storage, account, &folder).map_err(fail_error)?;
+            let made = match store::make_letter(&storage, &raw, &kept, validity) {
                 Ok(letter) => match self.readers.get(instance) {
                     Some(reading) => show_letter(host, reading, &letter),
                     None => Err(Error::State),
@@ -629,9 +631,7 @@ impl NativeMail {
 /// Reads the mail from the card if it is there.
 fn read_kept(host: &Host<'_>, reading: &mut Reading) -> Result<(), Error> {
     let storage = DataStorage::new(host);
-    let file =
-        store::text_file(reading.account, &reading.folder, reading.uid).map_err(fail_error)?;
-    let letter = match store::read_letter(&storage, &file) {
+    let letter = match store::kept_letter(&storage, reading.account, &reading.folder, reading.uid) {
         Ok(Some(letter)) => letter,
         Ok(None) => return Ok(()),
         Err(Fail::NoMemory) => return Err(Error::NoMemory),

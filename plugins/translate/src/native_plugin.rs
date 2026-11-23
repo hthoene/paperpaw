@@ -55,6 +55,9 @@ pub struct NativeTranslate {
     screens: Screens<Panel>,
     /// The key being asked for, on the keyboard.
     asking_key: Option<RequestId>,
+    /// A key typed that the secrets could not keep: used as long as the plugin
+    /// runs, so that sending again (*Go online*) does not ask for it again.
+    unkept: Option<Secret>,
 }
 
 impl Plugin for NativeTranslate {
@@ -227,7 +230,8 @@ impl NativeTranslate {
     /// Reads the key (or takes `typed`), and sends the text off, or says what
     /// is missing: no network, no key.
     fn ask(&mut self, host: &Host<'_>, typed: Option<Secret>) -> Result<(), Error> {
-        let key = match typed {
+        let unkept = typed.is_none() && self.unkept.is_some();
+        let key = match typed.or_else(|| self.unkept.take()) {
             Some(key) => Some(key),
             None => match self.asker.key(host) {
                 Ok(key) => key,
@@ -246,6 +250,9 @@ impl NativeTranslate {
                 Err(_) => Some(Note::Failed),
             },
         };
+        if unkept {
+            self.unkept = key;
+        }
         let panel = self.panel().ok_or(Error::State)?;
         panel.say(note.unwrap_or(Note::Loading));
         redraw(host)
@@ -362,22 +369,31 @@ impl NativeTranslate {
             return redraw(host);
         };
         let kept = self.asker.keep_key(host, typed.as_str());
-        match kept {
+        let saved = match kept {
             Ok(Kept::Empty) => return Ok(()),
             Ok(Kept::Unsupported) => {
-                // Used this time only; the reader is told (owner decision 141).
+                // Used while the plugin runs; the reader is told (owner decision 141).
                 native_model::best_effort(notice(host, "core.secrets-unsupported"));
+                false
             }
             Err(Error::NoMemory) => return Err(Error::NoMemory),
-            // Not kept (the card, the list is full): used this time all the
-            // same, and the reader is told why it is asked for again.
-            Err(_) => native_model::best_effort(notice(host, "translate.not-kept")),
-            Ok(Kept::Saved) => {}
-        }
+            // Not kept (the card, the list is full): used all the same, and
+            // the reader is told why it is asked for again another time.
+            Err(_) => {
+                native_model::best_effort(notice(host, "translate.not-kept"));
+                false
+            }
+            Ok(Kept::Saved) => true,
+        };
         if let Some(panel) = self.panel() {
             panel.say(Note::Loading);
         }
-        self.ask(host, Some(typed))
+        if saved {
+            self.unkept = None;
+            return self.ask(host, Some(typed));
+        }
+        self.unkept = Some(typed);
+        self.ask(host, None)
     }
 
     /// The key typed, trimmed, read with buffers that are wiped; `None` for one

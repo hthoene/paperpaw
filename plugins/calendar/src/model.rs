@@ -163,6 +163,10 @@ pub struct Entry {
     /// that one calendar's answer replaces that calendar's events alone;
     /// [`WHOLE_SOURCE`] for none of its own.
     pub cal: u32,
+    /// How many days [`Entry::day`] is after the day it starts on in its own
+    /// zone, the day its rule counts by: a Tuesday evening in Los Angeles is
+    /// a Wednesday in Berlin, and repeats on the Wednesdays there.
+    pub shift: i8,
     /// The day of the repeat this one stands in for (until it is linked).
     pub over: Option<i32>,
     /// The rule it repeats by, as written; empty for none.
@@ -253,9 +257,13 @@ impl Entry {
     /// `to`; `visit` says whether to go on.
     pub fn starts(&self, from: i32, to: i32, visit: &mut dyn FnMut(i32) -> bool) {
         match Rule::parse(&self.rule).filter(|_| !self.rule.is_empty()) {
-            Some(rule) => rule.each(self.day, (from, to), &mut |day| {
-                self.skip.contains(&day) || visit(day)
-            }),
+            Some(rule) => {
+                let shift = i32::from(self.shift);
+                rule.each(self.day - shift, (from - shift, to - shift), &mut |own| {
+                    let day = own + shift;
+                    self.skip.contains(&day) || visit(day)
+                });
+            }
             None => {
                 if (from..=to).contains(&self.day) {
                     visit(self.day);
@@ -574,7 +582,11 @@ impl Store {
                 }
                 let _ = write!(line, "{day}");
             }
-            let _ = writeln!(line, "\t{}\t{}\t{}", entry.title, entry.place, entry.cal);
+            let _ = writeln!(
+                line,
+                "\t{}\t{}\t{}\t{}",
+                entry.title, entry.place, entry.cal, entry.shift
+            );
             put(&line)?;
         }
         line.clear();
@@ -662,6 +674,8 @@ fn read_entry<'a>(parts: &mut impl Iterator<Item = &'a str>) -> Result<Option<En
         .next()
         .and_then(|n| n.parse().ok())
         .unwrap_or(WHOLE_SOURCE);
+    // Nor one written before an event's own day was kept.
+    let shift = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0);
     let mut days = Vec::new();
     for day in skip.split(',').filter_map(|day| day.parse::<i32>().ok()) {
         if days.len() < SKIP_MAX {
@@ -677,6 +691,7 @@ fn read_entry<'a>(parts: &mut impl Iterator<Item = &'a str>) -> Result<Option<En
         known: known == "1",
         uid,
         cal,
+        shift,
         over: None,
         rule: if rule == "-" {
             String::new()
@@ -709,6 +724,7 @@ mod tests {
             known: false,
             uid: hash(title),
             cal: WHOLE_SOURCE,
+            shift: 0,
             over: None,
             rule: rule.to_string(),
             skip: Vec::new(),
@@ -850,6 +866,7 @@ mod tests {
         e.place = "Room 4".into();
         e.cal = hash("/dav/calendars/anna/work/");
         e.skip = alloc::vec![day(2026, 11, 23)];
+        e.shift = -1;
         store.entries.push(Entry {
             title: clean(&e.title, 56).unwrap(),
             ..e

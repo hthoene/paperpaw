@@ -637,6 +637,9 @@ pub struct Letter {
     pub attachments: Vec<String>,
     /// Whether the text was cut.
     pub truncated: bool,
+    /// The folder's `UIDVALIDITY` when it was fetched: a folder made anew
+    /// counts its UIDs anew, and its `m<uid>` is another mail then.
+    pub uid_validity: u64,
     /// The text.
     pub text: String,
 }
@@ -671,6 +674,12 @@ impl Letter {
         }
         put("Attachments", &names)?;
         put("Truncated", if self.truncated { "1" } else { "0" })?;
+        if self.uid_validity != 0 {
+            put(
+                "Validity",
+                &text::format(format_args!("{}", self.uid_validity))?,
+            )?;
+        }
         push_char(&mut out, '\n')?;
         Ok(out)
     }
@@ -706,6 +715,7 @@ impl Letter {
                     letter.attachments = names;
                 }
                 "Truncated" => letter.truncated = value == "1",
+                "Validity" => letter.uid_validity = value.parse().unwrap_or(0),
                 _ => {}
             }
         }
@@ -733,11 +743,17 @@ fn written(list: &[header::Address]) -> Result<String, Fail> {
 }
 
 /// The message in `raw` as a [`Letter`] in `out` (and the raw message
-/// removed): what the reader's screen shows.
+/// removed): what the reader's screen shows. `uid_validity` is the folder's
+/// ([`folder_validity`]).
 ///
 /// # Errors
 /// [`Fail::Storage`], [`Fail::NoMemory`].
-pub fn make_letter(storage: &dyn Storage, raw: &str, out: &str) -> Result<Letter, Fail> {
+pub fn make_letter(
+    storage: &dyn Storage,
+    raw: &str,
+    out: &str,
+    uid_validity: u64,
+) -> Result<Letter, Fail> {
     let scratch = text::format(format_args!("{out}.tmp"))?;
     let (info, saves) = render_with_saves(storage, raw, &scratch, MAX_TEXT)?;
     write_saves(storage, out, &saves)?;
@@ -752,6 +768,7 @@ pub fn make_letter(storage: &dyn Storage, raw: &str, out: &str) -> Result<Letter
         references: info.references,
         attachments: info.attachments,
         truncated: info.truncated,
+        uid_validity,
         text: String::new(),
     };
     letter.text = read_text(storage, &scratch, MAX_TEXT + 16)?;
@@ -905,4 +922,31 @@ pub fn read_letter(storage: &dyn Storage, file: &str) -> Result<Option<Letter>, 
         Err(Fail::NoMemory) => Err(Fail::NoMemory),
         Err(_) => Ok(None),
     }
+}
+
+/// The `UIDVALIDITY` of a folder as of its last sync, 0 where it is not
+/// known.
+///
+/// # Errors
+/// [`Fail::NoMemory`].
+pub fn folder_validity(storage: &dyn Storage, account: u8, raw_name: &str) -> Result<u64, Fail> {
+    let status = status_file(account, raw_name)?;
+    Ok(Counts::read(storage, &status).map_or(0, |counts| counts.uid_validity))
+}
+
+/// The mail `uid` of a folder as it was kept, where it is there and was
+/// fetched under the folder's `UIDVALIDITY` of now (one of a folder that was
+/// made anew since is another mail, fetched again).
+///
+/// # Errors
+/// [`Fail::NoMemory`].
+pub fn kept_letter(
+    storage: &dyn Storage,
+    account: u8,
+    raw_name: &str,
+    uid: u32,
+) -> Result<Option<Letter>, Fail> {
+    let file = text_file(account, raw_name, uid)?;
+    let validity = folder_validity(storage, account, raw_name)?;
+    Ok(read_letter(storage, &file)?.filter(|letter| letter.uid_validity == validity))
 }
