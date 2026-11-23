@@ -351,6 +351,31 @@ fn work_due_waits_while_a_press_is_still_to_be_told() {
 }
 
 #[test]
+fn work_due_in_an_inputs_call_runs_in_the_next_pass_after_its_frame() {
+    use paperpaw_platform::{ButtonState, InputEvent};
+    let mut w = world();
+    w.declare(0, &spec("step", 5));
+    // A page button let go: the page it turns is drawn before any step.
+    let state = ButtonState::Released;
+    let now = Instant(1_000);
+    w.kernel.handle(
+        now,
+        InputEvent::Button {
+            name: "right",
+            state,
+        },
+    );
+    assert!(w.told(0).is_empty(), "no step in the input's call");
+    assert_eq!(
+        w.kernel.service_due(),
+        Some(now),
+        "the next pass comes at once"
+    );
+    w.pump();
+    assert_eq!(w.told(0), [due(5, why::TIME, "step", true)]);
+}
+
+#[test]
 fn work_waits_for_its_time_and_the_pump_names_the_wake() {
     let mut w = world();
     w.declare(

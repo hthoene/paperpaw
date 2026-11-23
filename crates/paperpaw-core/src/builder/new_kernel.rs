@@ -300,6 +300,7 @@ impl BuilderParts {
             swapped: Vec::new(),
             pending: None,
             pressed_on: None,
+            answering: false,
             thresholds: core::cell::Cell::new(None),
         }
     }

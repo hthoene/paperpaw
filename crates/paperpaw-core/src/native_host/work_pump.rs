@@ -123,7 +123,8 @@ impl crate::Kernel {
             more |= calls == PER_PASS;
         }
         self.work_end_expired(now_ms);
-        more
+        // Held only for the input call's frame: the next pass comes at once.
+        more || (pass.screen_held && self.input.answering)
     }
 
     /// `event.work_allowed` (105) to every running plugin that subscribed: a
@@ -250,9 +251,10 @@ impl crate::Kernel {
     /// Tells the device's view what the kernel holds: the power level and
     /// stretch of the user's mode, and whether a real-time screen (one that
     /// takes raw keys or runs at a pace, not a native one) is on top or a
-    /// press is still to be told. Work due between a press and its click
-    /// would run before the click's action is drawn: a page turned on the
-    /// release of its button waited for a whole background step (#515).
+    /// press is still to be told, or an input's call is under way. Work due
+    /// between a press and its click, or in the click's own call, would run
+    /// before the click's action is drawn: a page turned on the release of
+    /// its button waited for a whole background step (#515, #518).
     pub(crate) fn tell_work_env(&self, env: &dyn super::work_sched::WorkEnv) {
         use paperpaw_sdk::power::PowerLevel;
         let power = &self.shared.power;
@@ -265,7 +267,10 @@ impl crate::Kernel {
         env.kernel_state(
             level,
             power.stretch,
-            self.top_realtime() || self.top_mode().is_paced() || self.input.recognizer.deciding(),
+            self.top_realtime()
+                || self.top_mode().is_paced()
+                || self.input.recognizer.deciding()
+                || self.input.answering,
         );
     }
 }
