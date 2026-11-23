@@ -377,6 +377,7 @@ pub(super) fn build_list(
         order,
         title,
         icon,
+        ..
     } in pages
     {
         // Passwords and keys show once there are some.
@@ -741,8 +742,15 @@ pub(super) fn page_rows(
         }
         // What plugins do with the group.
         for page in reader.menu(of)? {
+            // At the right the state its item shows (a badge such as
+            // *New*), else the way on.
             if !page.section {
-                push(&mut rows, Row::Action(page.action, page.title, copy("›")?))?;
+                let right = if page.badge.is_empty() {
+                    copy("›")?
+                } else {
+                    page.badge
+                };
+                push(&mut rows, Row::Action(page.action, page.title, right))?;
             }
         }
         if of == LOOK_GROUP {
@@ -803,12 +811,23 @@ pub(super) fn refresh_row(host: &Host<'_>, view: &mut GroupView, key: &str) -> R
         return Ok(false);
     }
     // The new value is shown first; it is stored once the items are made.
+    // With it whether it is the default and the book's own, which the mark
+    // of a value for this book only shows.
     let value = native_data::read(host, key)?;
-    let old = core::mem::replace(&mut view.entries[entry].setting.value, value);
+    let mut reader = Reader::open(host)?;
+    let found = reader.setting_row(key, Fields::Light);
+    let source = reader.finish(found)?;
+    let setting = &mut view.entries[entry].setting;
+    let old = (setting.value.take(), setting.is_default, setting.in_scope);
+    setting.value = value;
+    if let Some(source) = source {
+        (setting.is_default, setting.in_scope) = (source.is_default, source.in_scope);
+    }
     match view.rebuild_items(host) {
         Ok(()) => Ok(true),
         Err(error) => {
-            view.entries[entry].setting.value = old;
+            let setting = &mut view.entries[entry].setting;
+            (setting.value, setting.is_default, setting.in_scope) = old;
             Err(error)
         }
     }
