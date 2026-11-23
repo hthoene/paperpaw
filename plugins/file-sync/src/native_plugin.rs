@@ -455,7 +455,8 @@ impl NativeFileSync {
         }
         let policy = Policy::of(&Self::text_setting(host, WHEN)?);
         let now = Self::clock(host).map(|(unix, _)| unix);
-        if due(policy, trigger, self.known_last(host).time, now) && !pairs::ready(host)?.is_empty()
+        if due(policy, trigger, self.known_last(host).waits_from(), now)
+            && !pairs::ready(host)?.is_empty()
         {
             self.begin(host, false)?;
         }
@@ -464,7 +465,7 @@ impl NativeFileSync {
 
     /// What the last sync said, read where it is not known yet.
     fn known_last(&mut self, host: &Host<'_>) -> Last {
-        if self.last.time == 0 {
+        if self.last.waits_from() == 0 {
             self.last = Last::read(&Data(host));
         }
         self.last
@@ -658,10 +659,10 @@ impl NativeFileSync {
         self.account = None;
         let total = self.total;
         let pending = self.pending(host).unwrap_or(0);
-        let synced = Self::clock(host)
-            .map(|(unix, _)| unix)
-            .filter(|_| self.all_synced);
-        self.last = self.known_last(host).ended(total, pending, synced);
+        let now = Self::clock(host).map(|(unix, _)| unix);
+        self.last = self
+            .known_last(host)
+            .ended(total, pending, now, self.all_synced);
         self.last.write(&Data(host)).ok();
         self.looked = Some(0);
         let mut say = Messages::new()?;
