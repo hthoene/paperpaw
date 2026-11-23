@@ -8,6 +8,11 @@
 //! touch begins the calm again. A screen that has had its grays and draws
 //! itself again with no key since (Home each minute) keeps them: grays at
 //! once, as before.
+//!
+//! A book page waits [`GRAY_REST_PAGE_MS`] (#511, Decision 340): its pictures
+//! come in the frame after its text (the reader's follow-up), are counted
+//! there, and the page shows them in grays once it stayed that long; a turn
+//! begins the wait again for the next page.
 
 use core::mem;
 
@@ -20,6 +25,9 @@ use crate::Kernel;
 /// clean to white of 1.7 s on the X4, which the next move after it pays, so it
 /// is left until the device lies still (Decision 216, #308; 3 s before).
 pub const GRAY_REST_MS: u64 = 30_000;
+/// The rest before the gray pass of a book page: a page is read for longer
+/// than this, and the next turn pays the clean after grays (#511).
+pub const GRAY_REST_PAGE_MS: u64 = 5_000;
 /// Where the pass is due but a frame waits: when the kernel is called again.
 const RETRY_MS: u64 = 250;
 
@@ -89,6 +97,9 @@ pub(crate) struct GrayRule {
     pub(crate) pictures: bool,
     /// The device goes to sleep (or off) on this frame.
     pub(crate) sleeping: bool,
+    /// The frame is a follow-up of areas a screen asked for (a book page's
+    /// pictures after its text).
+    pub(crate) followup: bool,
 }
 
 impl Kernel {
@@ -110,33 +121,33 @@ impl Kernel {
             // are dithered again, so their grays are due again after the next
             // rest (Decision 216). Without this a move after the pass left
             // them dithered for good.
-            let regray =
-                rule.whole && eligible && !screen_grays && !rule.sleeping && !self.gray_reading();
+            let regray = rule.whole && eligible && !screen_grays && !rule.sleeping;
             return (
                 screen_grays,
                 if regray { Frame::Later } else { Frame::Other },
             );
         }
         if !big_whole {
+            let keyed = self.last_user_input == Some(self.shared.now);
+            let reading = self.gray_reading();
+            // A book page that has its grays keeps them over a change with no
+            // key (the clock): the shell leaves a small one for the next page.
+            if reading && rule.whole && eligible && !keyed && self.gray_kept() {
+                return (true, Frame::Other);
+            }
             // A cover that came after the screen's first frame is a part of
             // it: its grays follow once, after the calm. Not after a key (a
-            // focus moved over covers costs no pass), nor on a book page.
-            let keyed = self.last_user_input == Some(self.shared.now);
+            // focus moved over covers costs no pass); on a book page only the
+            // follow-up of its pictures.
             let part = rule.whole
                 && eligible
                 && !screen_grays
-                && !keyed
                 && !rule.sleeping
-                && !self.gray_reading();
+                && if reading { rule.followup } else { !keyed };
             return (screen_grays, if part { Frame::Part } else { Frame::Other });
         }
         if screen_grays || !eligible {
             return (screen_grays, Frame::Whole);
-        }
-        // A book page keeps the rule as it was: its grays at once where it
-        // has pictures (Decision 196 is about Home and the other screens).
-        if self.gray_reading() {
-            return (self.pictures_drawn(), Frame::Whole);
         }
         if self.gray_kept() {
             return (true, Frame::Kept);
@@ -193,7 +204,12 @@ impl Kernel {
         let on_top = self.gray_screen() == Some(gray.screen);
         match gray.phase {
             Phase::Pictured if on_top => {
-                self.frame.gray_later.phase = Phase::At(self.shared.now.add_millis(GRAY_REST_MS));
+                let rest = if self.gray_reading() {
+                    GRAY_REST_PAGE_MS
+                } else {
+                    GRAY_REST_MS
+                };
+                self.frame.gray_later.phase = Phase::At(self.shared.now.add_millis(rest));
             }
             // Something came over it: the calm begins when it is on top again.
             Phase::At(_) if !on_top => self.frame.gray_later.phase = Phase::Pictured,

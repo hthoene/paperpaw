@@ -195,6 +195,7 @@ impl Kernel {
             big: false,
             pictures,
             sleeping: effects.sleep || effects.power_off,
+            followup,
         };
         self.refresh_dirty(&mode, set, requested, followup, rule, &mut effects);
         effects.wake_at = self.next_wake(effects.refresh.is_some());

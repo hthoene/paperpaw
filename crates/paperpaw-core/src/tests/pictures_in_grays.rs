@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::Staging;
-use crate::gray_later::GRAY_REST_MS;
+use crate::gray_later::{GRAY_REST_MS, GRAY_REST_PAGE_MS};
 use core::cell::Cell;
 
 /// A home screen with a picture over most of it, or none (`in_grays`).
@@ -326,18 +326,41 @@ fn the_picture_pass_in_grays_covers_every_row() {
 }
 
 #[test]
-fn a_book_page_keeps_its_grays_at_once() {
-    // Home is in black and white first; a page of a book (the reader's slot)
-    // as before: in grays where it has pictures, at once.
-    let (mut kernel, grays) = comes_up_in_grays(PixelFormat::Mono1, true, "");
-    assert!(!grays);
+fn a_book_page_with_pictures_gets_its_grays_after_a_short_rest_and_a_turn_waits_again() {
+    // #511: a page of a book (the reader's slot) is shown at once in black and
+    // white, its pictures dithered, and in grays once it stayed a few seconds.
+    let (mut kernel, _) = comes_up_in_grays(PixelFormat::Mono1, true, "");
     render(&mut kernel);
     let effects = kernel.open_slot(Instant(500), slots::READER, paperpaw_sdk::Params::new());
+    assert!(effects.refresh().is_some() && !effects.grays());
+    render(&mut kernel);
+    let calm = kernel.tick(Instant(600)).wake_at();
+    assert_eq!(calm, Some(Instant(600 + GRAY_REST_PAGE_MS)));
+    // A turn before then: the next page is black and white, its wait begins
+    // again, and no pass comes for the page before.
+    press(&mut kernel, 3_000, "down");
+    let whole = kernel.framebuffer.bounds();
+    kernel.invalidate(whole);
+    let effects = kernel.finish();
+    assert!(effects.refresh().is_some() && !effects.grays());
+    render(&mut kernel);
+    let effects = kernel.tick(Instant(600 + GRAY_REST_PAGE_MS));
+    assert!(effects.refresh().is_none() && !effects.grays());
+    assert_eq!(
+        effects.wake_at(),
+        Some(Instant(600 + 2 * GRAY_REST_PAGE_MS))
+    );
+    // The page stays: one pass in grays, and nothing after it.
+    let effects = kernel.tick(Instant(600 + 2 * GRAY_REST_PAGE_MS));
     assert!(effects.refresh().is_some() && effects.grays());
     render(&mut kernel);
-    // And no pass after it.
-    let effects = kernel.tick(Instant(9_000));
+    let effects = kernel.tick(Instant(600 + 2 * GRAY_REST_MS));
     assert!(effects.refresh().is_none() && effects.wake_at().is_none());
+    // A small change with no key (the clock) leaves the page in grays: the
+    // shell keeps it for the next page.
+    kernel.invalidate(Rect::new(0, 0, 8, 8));
+    let effects = kernel.finish();
+    assert!(effects.refresh().is_some() && effects.grays());
 }
 
 #[test]
@@ -599,9 +622,10 @@ fn page_draws(runs: bool) -> u32 {
 }
 
 #[test]
-fn a_page_whose_plugin_holds_no_picture_is_drawn_once_not_counted_first() {
-    // #267: the count of pictures is one more draw of the whole screen.
+fn a_book_page_is_drawn_once_not_counted_first() {
+    // #267: a count of pictures before the frame is one more draw of the
+    // whole screen; a book page counts them in its own frame (#511), whether
+    // its plugin holds a picture or it is no plugin's.
     assert_eq!(page_draws(true), 1);
-    // A screen that is no plugin's may draw pictures of its own: counted.
-    assert_eq!(page_draws(false), 2);
+    assert_eq!(page_draws(false), 1);
 }
