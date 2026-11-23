@@ -161,7 +161,7 @@ puts it (`focus`); moving it is a redraw.
 | pages: `a_theme_is_chosen_at_the_top_of_the_appearance_settings` | `scripted_pages::a_theme_is_chosen_at_the_top_of_the_appearance_settings`, `none_gives_the_appearance_back_its_defaults_but_keeps_the_text_size`, `a_theme_in_use_has_the_focus_and_choosing_one_applies_its_preset`; model `a_theme_is_in_use_when_its_values_are_set_and_the_rest_is_default` |
 | pages: `the_rows_of_a_choice_stand_in_the_readable_column_on_a_wide_screen` | `settings-wide-column` (ignored, drawing) |
 | groups: `groups_without_an_order_come_last_among_those_for_customising` | model `the_main_page_lists_groups_by_order_then_name` |
-| groups: `an_action_of_a_group_is_its_first_row_with_its_state` | `scripted_pages::a_group_action_is_its_first_row_and_the_settings_follow`; the state at the right: `settings-group-action-state` (**not shown yet**) |
+| groups: `an_action_of_a_group_is_its_first_row_with_its_state` | `scripted_pages::a_group_action_is_its_first_row_and_the_settings_follow`; the state at the right (the registry's badge): `settings-group-action-state` (drawing not qualified) |
 | search: `any_words_search_without_a_panic_and_case_does_not_matter` | model `any_words_search_without_a_panic_and_case_does_not_matter` (2,000 made-up queries), `a_blank_search_finds_nothing_to_open` |
 | secrets: `the_entry_shows_only_once_there_are_secrets` | `scripted_pages::the_secrets_are_asked_of_the_service_only_for_the_page_that_lists_them`; the row on screen: `settings-secrets` |
 | secrets: `a_secret_is_listed_by_its_label_never_its_value` | `native_secrets::tests::rows_name_the_secret_and_hide_the_value` |
@@ -181,9 +181,9 @@ puts it (`focus`); moving it is a redraw.
 | font_slider: `the_sizes_are_spread_evenly_along_the_track` | `settings-font-slider` (ignored: the native plugin has no slider) |
 | font_slider: `the_slider_runs_from_the_right_in_a_right_to_left_language` | `settings-font-slider` |
 
-**Differences found.** (1) A group action's row does not show the state of its item (a badge such as
-*New*) at the right: `Row::Action` takes none from the registry's menu row
-(`settings-group-action-state`). (2) The host sends no "covered" event, so the page on top of its
+**Differences found.** (1) A group action's row shows the state of its item (a badge such as *New*)
+at the right since #486 (the registry's menu row has it; `settings-group-action-state` waits for
+the kit's drawing qualification only). (2) The host sends no "covered" event, so the page on top of its
 token (the main page below a group's page included) is made anew for every setting changed, where
 interface 6 made a covered page anew once when it showed again; only a page below another of the
 same screen waits (`settings-covered-by-foreign-screen`).

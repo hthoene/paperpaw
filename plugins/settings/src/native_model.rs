@@ -164,6 +164,9 @@ pub struct PageRow {
     pub title: String,
     /// Its icon.
     pub icon: String,
+    /// The state its item shows at the right (a badge such as *New*); empty
+    /// for none.
+    pub badge: String,
 }
 
 /// Whether `id` is `of` or a part (at any depth) of it, by the groups' parents.
