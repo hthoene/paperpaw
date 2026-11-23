@@ -477,12 +477,18 @@ fn next_book(
             continue;
         }
         let (title, number) = (copy(entry.title())?, copy(entry.number())?);
-        let book = library.book(
+        // A next book the catalogue no longer has (or one it cannot tell now)
+        // leaves the row to the library: the screen still opens.
+        let book = match library.book(
             host,
             BookRef::catalog(next_key, generation)?,
             &mut input,
             &mut out,
-        )?;
+        ) {
+            Ok(book) => book,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => return Ok(None),
+        };
         let path = copy(book.path())?;
         let query = Query::new().series(series)?;
         let total = library
