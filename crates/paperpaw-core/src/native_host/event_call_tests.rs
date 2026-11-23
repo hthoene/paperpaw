@@ -620,6 +620,21 @@ fn a_run_may_announce_and_the_notice_shows_after_its_callback_but_may_not_notify
 }
 
 #[test]
+fn a_plain_notify_from_an_event_shows_also_when_no_screen_of_the_plugin_does() {
+    // An event's answer (the store's summary of a quiet setup, #489) reaches
+    // the reader over whatever is open, as interface 6 showed it; only a run
+    // stays quiet.
+    let mut w = world(true);
+    w.kernel.end_notice();
+    w.kernel.shared.stack.clear();
+    w.command.set(5);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), OK);
+    w.kernel.native_outbox_run();
+    assert!(w.kernel.notice.is_some());
+}
+
+#[test]
 fn a_run_may_only_stage_what_is_listed() {
     use paperpaw_native::host_glue::ERR_STATE;
     // A command not named for runs (here `close_screen`) is refused there by

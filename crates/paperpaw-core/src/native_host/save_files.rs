@@ -17,7 +17,16 @@
 //!
 //! Every allocation is fallible, and made when the claim is: a commit that
 //! fails never needs memory to keep the file.
-use super::{files_service::same_fold, paths_in_use::PathsInUse};
+//!
+//! A power cut leaves a staged file of several MB (a firmware download) that
+//! no plugin may remove (#489). So each writer keeps a **journal** on the
+//! card: the staged names of its claims, one a line, written and synced
+//! before a staged file is begun, rewritten when a claim goes and removed
+//! with the last one. At start, before any save of the run, [`sweep`]
+//! removes every staged file a journal still names. A file kept after a
+//! failed rename is lost that way when the power goes too; it is kept in
+//! memory only, so it could not come back after a restart anyway.
+use super::{files_service::same_fold, paths_in_use::PathsInUse, staged_name::is_staged};
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_IO, ERR_NO_MEMORY};
@@ -26,6 +35,15 @@ use paperpaw_platform::{Storage, StorageError};
 /// Kept staged files the table holds at most (a plugin whose renames keep
 /// failing is refused a further claim, not given more memory).
 const MAX_KEPT: usize = 8;
+/// The journal of `core.net`'s saves.
+pub(crate) const NET_JOURNAL: &str = ".paperpaw/staged-net.txt";
+/// The journal of `core.sockets`' reads to a file.
+pub(crate) const SOCK_JOURNAL: &str = ".paperpaw/staged-sockets.txt";
+/// The folder of the journals, there on a card the host set up.
+const JOURNAL_FOLDER: &str = ".paperpaw";
+/// The most of a journal read at start: its lines are the staged names of
+/// a few claims and at most `MAX_KEPT` kept files.
+const JOURNAL_MAX: usize = 8 * 1024;
 
 /// One claimed save.
 struct Entry {
@@ -42,6 +60,8 @@ struct Entry {
     /// The claim has ended but the staged file is kept: only the file
     /// remains, waiting for its rename.
     orphan: bool,
+    /// The journal names the staged file.
+    journaled: bool,
 }
 
 /// The device's staged files over its storage and its table of paths in use.
@@ -49,6 +69,8 @@ pub(crate) struct SaveFiles {
     storage: Rc<dyn Storage>,
     in_use: Rc<PathsInUse>,
     entries: RefCell<Vec<Entry>>,
+    /// This writer's journal ([`NET_JOURNAL`] or [`SOCK_JOURNAL`]).
+    journal: &'static str,
 }
 
 fn same_target(a: &str, b: &str, ignore_case: bool) -> bool {
@@ -65,12 +87,40 @@ fn copy(text: &str) -> Result<String, i32> {
 }
 
 impl SaveFiles {
-    pub(crate) fn new(storage: Rc<dyn Storage>, in_use: Rc<PathsInUse>) -> Self {
+    pub(crate) fn new(
+        storage: Rc<dyn Storage>,
+        in_use: Rc<PathsInUse>,
+        journal: &'static str,
+    ) -> Self {
         Self {
             storage,
             in_use,
             entries: RefCell::new(Vec::new()),
+            journal,
         }
+    }
+
+    /// Writes the journal anew with the staged names of `entries` (and syncs
+    /// it), or removes it when there are none; all are journaled after it.
+    fn write_journal(&self, entries: &mut [Entry]) -> Result<(), StorageError> {
+        if entries.is_empty() {
+            return match self.storage.remove(self.journal) {
+                Ok(()) | Err(StorageError::NotFound) => Ok(()),
+                Err(error) => Err(error),
+            };
+        }
+        // A failure here is the write's own.
+        let _ = self.storage.create_dir(JOURNAL_FOLDER);
+        self.storage.write(self.journal, &[])?;
+        for e in entries.iter() {
+            self.storage.append(self.journal, e.staged.as_bytes())?;
+            self.storage.append(self.journal, b"\n")?;
+        }
+        self.storage.sync()?;
+        for e in entries.iter_mut() {
+            e.journaled = true;
+        }
+        Ok(())
     }
 
     /// `owner` holds `target` and `staged` for a write. `exclusive`: nobody
@@ -119,6 +169,7 @@ impl SaveFiles {
             staged: copy(staged)?,
             kept: false,
             orphan: false,
+            journaled: false,
         };
         let mut entries = self.entries.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
@@ -160,6 +211,10 @@ impl SaveFiles {
         } else {
             let entry = entries.remove(at);
             self.storage.remove(&entry.staged).unwrap_or_default();
+            if entry.journaled {
+                // Best effort: a line left names a file that is gone.
+                self.write_journal(&mut entries).unwrap_or_default();
+            }
         }
         true
     }
@@ -190,6 +245,7 @@ impl SaveFiles {
             return;
         };
         let ignore_case = self.storage.ignores_case();
+        let mut journaled = false;
         let mut at = 0;
         while at < entries.len() {
             let e = &entries[at];
@@ -208,10 +264,13 @@ impl SaveFiles {
                 self.storage.rename(&e.staged, &e.target).is_ok()
             };
             if done {
-                entries.remove(at);
+                journaled |= entries.remove(at).journaled;
             } else {
                 at += 1;
             }
+        }
+        if journaled {
+            self.write_journal(&mut entries).unwrap_or_default();
         }
     }
 
@@ -236,6 +295,13 @@ impl SaveFiles {
     /// The storage's status.
     pub(crate) fn begin(&self, owner: u64, target: &str, staged: &str) -> Result<(), StorageError> {
         self.mark(owner, target, false);
+        // The journal names the staged file before it exists, so that a power
+        // cut from here on leaves nothing the next start does not remove.
+        if let Ok(mut entries) = self.entries.try_borrow_mut()
+            && entries.iter().any(|e| !e.journaled && e.staged == staged)
+        {
+            self.write_journal(&mut entries)?;
+        }
         match self.storage.remove(staged) {
             Ok(()) | Err(StorageError::NotFound) => {}
             Err(error) => return Err(error),
@@ -290,6 +356,45 @@ impl SaveFiles {
             .iter()
             .any(|e| e.owner == owner && e.target == target && e.kept)
     }
+}
+
+/// At start, before any save of the run: removes the staged files the
+/// journal `journal` names (a power cut left them) and the journal. Only
+/// names with the staged suffix are removed, and only whole lines, so a
+/// damaged journal removes nothing else. Where the card cannot be read the
+/// journal stays for the next start.
+pub(crate) fn sweep(storage: &dyn Storage, journal: &str) {
+    let Ok(size) = storage.size(journal) else {
+        return;
+    };
+    let len = usize::try_from(size).unwrap_or(usize::MAX).min(JOURNAL_MAX);
+    let mut text = Vec::new();
+    if text.try_reserve_exact(len).is_err() {
+        return;
+    }
+    text.resize(len, 0);
+    let mut read = 0;
+    while read < len {
+        match storage.read_at(journal, read as u64, &mut text[read..]) {
+            Ok(0) => break,
+            Ok(n) => read += n,
+            Err(_) => return,
+        }
+    }
+    let text = &text[..read];
+    // The piece after the last line break is not a whole line.
+    let whole = text
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(&[][..], |end| &text[..end]);
+    for line in whole.split(|&b| b == b'\n') {
+        if let Ok(path) = core::str::from_utf8(line)
+            && is_staged(path)
+        {
+            storage.remove(path).unwrap_or_default();
+        }
+    }
+    storage.remove(journal).unwrap_or_default();
 }
 
 #[cfg(test)]
