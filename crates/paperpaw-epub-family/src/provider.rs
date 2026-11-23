@@ -105,7 +105,8 @@ struct Slot {
     /// `Err(status)`: the open failed, the id stays until it is closed.
     /// `Err(ERR_BUSY)` while the book waits to be opened (`preparing`).
     document: Result<Box<dyn Document>, i32>,
-    preparing: Option<Preparation>,
+    /// Boxed: a slot not preparing (nearly all) stays small.
+    preparing: Option<Box<Preparation>>,
     /// The faces found unreadable, too large or over the book's cap: not
     /// inflated again on every `fonts` call.
     bad_faces: Vec<u32>,
@@ -413,7 +414,8 @@ impl FormatProvider {
                 Some(document) => (Self::checked(document)?, None),
                 None => {
                     let name = crate::fallible::string(call.text).map_err(|_| Error::NoMemory)?;
-                    let open = Preparation::Open { name, options };
+                    let open = crate::fallible::try_box(Preparation::Open { name, options })
+                        .map_err(|_| Error::NoMemory)?;
                     (Err(i32::from(Error::Busy)), Some(open))
                 }
             },
@@ -442,17 +444,18 @@ impl FormatProvider {
         &mut self,
         io: &dyn Storage,
         at: usize,
-        step: Preparation,
+        mut step: Box<Preparation>,
         conversion: u64,
     ) -> stage::FmtState<'static> {
         let id = self.slots[at].id;
-        match step {
+        match &*step {
             Preparation::Open { name, options } => {
                 let document =
-                    (self.opener)(io, &name, &options).map_err(|e| i32::from(document_error(&e)));
+                    (self.opener)(io, name, options).map_err(|e| i32::from(document_error(&e)));
                 let record = match &document {
                     Ok(_) => {
-                        self.slots[at].preparing = Some(Preparation::Convert);
+                        *step = Preparation::Convert;
+                        self.slots[at].preparing = Some(step);
                         self.preparing(id, OPENED_PPM, conversion)
                     }
                     Err(status) => self.state(id, conversion, Some(*status)),
