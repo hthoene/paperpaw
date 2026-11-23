@@ -261,7 +261,10 @@ impl Flash {
         relocator
             .check_entry(&super::ppn5::HOST, &mut piece)
             .map_err(|why| super::ppn5::entry_check_failed(path, why))?;
-        *touched = true;
+        // A failed erase of the index leaves no image touched: the layout
+        // forgets the plugin, so the next one written erases the index
+        // first. Its old entries never stay in flash over sectors written
+        // anew.
         if placement.erase_index && !*erased {
             let start = layout.region().start;
             flash
@@ -270,6 +273,7 @@ impl Flash {
                 .map_err(|e| written_not(path, e))?;
             *erased = true;
         }
+        *touched = true;
         let end = (placement.at + header.image_len)
             .next_multiple_of(PAGE)
             .min(layout.region().end);
