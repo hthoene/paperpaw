@@ -487,7 +487,13 @@ impl PanelView {
                 paint::push(body, Paint::Focus(rect, style.corner, Some(thickness), ink))?;
             }
             if focused {
-                paperpaw_ui_kit::focus::ring(body, style, rect.grow(2))?;
+                paperpaw_ui_kit::parts::button_ring(
+                    body,
+                    rect,
+                    style.corner,
+                    paperpaw_ui_kit::parts::button_border(style.line),
+                    style.roles.outline.unwrap_or(style.ink),
+                )?;
             }
             let color = if on && !faint { style.paper } else { ink };
             let room = f32::from(button_room(rect.width, style.margin)).max(1.0);

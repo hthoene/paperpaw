@@ -82,6 +82,8 @@ pub(crate) struct Hits {
     pub layout: Option<Layout>,
     pub margin: u16,
     pub gap: u16,
+    /// The style's line: how far a button's focus ring reaches out.
+    pub line: u16,
     pub header: Page,
     pub buttons: usize,
     /// Where the frame's region began on the screen.
@@ -100,12 +102,14 @@ impl Hits {
     }
 
     /// Where the focus of `browser` is drawn: its row on the page drawn, or
-    /// its button; none where the frame did not draw it.
+    /// its button with its focus ring; none where the frame did not draw it.
     pub(crate) fn focus_area(&self, browser: &Browser) -> Option<Rect> {
         let layout = self.layout?;
         if let Some(button) = browser.bar() {
-            return (button < self.buttons)
-                .then(|| layout.button(self.margin, self.gap, button, self.buttons));
+            return (button < self.buttons).then(|| {
+                let rect = layout.button(self.margin, self.gap, button, self.buttons);
+                paperpaw_ui_kit::parts::button_reach(rect, self.line)
+            });
         }
         let slot = browser.cursor().checked_sub(browser.first())?;
         (slot < layout.rows && slot < browser.page().len()).then(|| row_rect(&layout, slot))
@@ -285,6 +289,7 @@ fn draw_with(
         layout: Some(layout),
         margin: style.margin,
         gap: style.gap,
+        line: style.line,
         header: head,
         buttons: buttons.len(),
         origin: (frame.rect.x, frame.rect.y),

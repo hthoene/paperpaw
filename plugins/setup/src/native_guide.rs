@@ -47,8 +47,8 @@ impl Drawn {
         Self {
             origin,
             card: layout.card,
-            next: ring_around(layout.next, style),
-            other: ring_around(layout.other, style),
+            next: paperpaw_ui_kit::parts::button_reach(layout.next, style.line),
+            other: paperpaw_ui_kit::parts::button_reach(layout.other, style.line),
         }
     }
 
@@ -493,13 +493,20 @@ impl Guide {
         if let Some(card) = layout.card {
             self.card(ops, book, fonts, style, layout, card)?;
         }
-        let next = (layout.next, self.next_label(), self.focus == Target::Next);
+        // *Next* filled, the way on, as in Beta 3; the focus rings either.
+        let next = (
+            layout.next,
+            self.next_label(),
+            self.focus == Target::Next,
+            true,
+        );
         let other = (
             layout.other,
             self.other_label(layout.tight),
             self.focus == Target::Other,
+            false,
         );
-        for (rect, name, focused) in [next, other] {
+        for (rect, name, focused, main) in [next, other] {
             button(
                 ops,
                 fonts.ui,
@@ -507,7 +514,7 @@ impl Guide {
                 rect,
                 name,
                 focused && self.shown,
-                false,
+                main,
             )?;
         }
         Ok(())
@@ -784,7 +791,8 @@ fn opens(
     )
 }
 
-/// A button: the one every screen draws, highlighted where `chosen` or `focused`.
+/// A button: the one every screen draws, filled where `chosen`, ringed where
+/// `focused`.
 fn button(
     ops: &mut Vec<Paint>,
     font: &Font<'_>,
@@ -794,37 +802,7 @@ fn button(
     focused: bool,
     chosen: bool,
 ) -> Result<(), Error> {
-    paperpaw_ui_kit::parts::button(ops, font, style, rect, name, focused || chosen)?;
-    if focused {
-        // A ring round the filled button, as in Beta 3: where it has the focus
-        // (not where it is only chosen) a button is seen to be the one Select
-        // presses, with or without a fill.
-        let outer = ring_around(rect, style);
-        let radius = if style.pill {
-            u32::from(outer.height) / 2
-        } else {
-            style.corner.saturating_add(u32::from(ring_room(style)))
-        };
-        let line = u32::from(style.line).max(1);
-        paint::push(ops, Paint::Focus(outer, radius, Some(line), style.ink))?;
-    }
-    Ok(())
-}
-
-/// How far the focus ring of a button lies outside it.
-fn ring_room(style: &Style) -> u16 {
-    style.line.max(1).saturating_mul(2)
-}
-
-/// The focus ring round the button `rect`.
-fn ring_around(rect: Rect, style: &Style) -> Rect {
-    let grow = ring_room(style);
-    Rect::new(
-        rect.x.saturating_sub(grow),
-        rect.y.saturating_sub(grow),
-        rect.width.saturating_add(grow.saturating_mul(2)),
-        rect.height.saturating_add(grow.saturating_mul(2)),
-    )
+    paperpaw_ui_kit::parts::button_on(ops, font, style, rect, name, (chosen, focused))
 }
 
 /// The host's font as the layout measures it.
