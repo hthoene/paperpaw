@@ -1,7 +1,7 @@
 //! Delete, move and import (`library.md` 2.3).
 use super::{
     super::{
-        Caller, args,
+        BookFormats, Caller, args,
         wire::{self, Record},
     },
     need_storage, require, result_row,
@@ -55,6 +55,7 @@ fn each_path<'a>(
 pub(super) fn paths(
     host: &dyn super::super::LibHost,
     who: &Caller<'_>,
+    formats: &dyn BookFormats,
     delete: bool,
     input: &[u8],
     out: &mut [u8],
@@ -76,10 +77,16 @@ pub(super) fn paths(
     let paths = &paths[..count];
     let mut verdicts = [(OK, 0_u32); MAX_PATHS];
     if delete {
-        deleted(host, paths, list.flags & 1 != 0, &mut verdicts[..count]);
+        deleted(
+            host,
+            formats,
+            paths,
+            list.flags & 1 != 0,
+            &mut verdicts[..count],
+        );
     } else {
         for (path, verdict) in paths.iter().zip(verdicts.iter_mut()) {
-            *verdict = host.can_delete(path);
+            *verdict = host.can_delete(path, formats);
         }
     }
     let mut used = 0;
@@ -106,6 +113,7 @@ pub(super) fn paths(
 /// them, and nothing was removed.
 fn deleted(
     host: &dyn super::super::LibHost,
+    formats: &dyn BookFormats,
     paths: &[&str],
     with_notes: bool,
     verdicts: &mut [(i32, u32)],
@@ -125,7 +133,7 @@ fn deleted(
         verdicts[index] = match super::edit::book_busy(host, path) {
             Ok(true) => (ERR_BUSY, 0),
             Err(error) => (error, 0),
-            Ok(false) => match host.can_delete(path) {
+            Ok(false) => match host.can_delete(path, formats) {
                 (OK, facts) if facts & 1 != 0 && !with_notes => (ERR_STATE, facts),
                 (status @ (OK | ERR_NOT_FOUND), facts) => {
                     accepted[count] = path;
