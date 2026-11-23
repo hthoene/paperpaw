@@ -30,6 +30,7 @@ use paperpaw_ui_kit::{
         listing::etag_hash,
         secret::{self as keep, Secret},
     },
+    files::OnHost,
     geometry,
     mem::buffer,
     paint, read_event,
@@ -44,7 +45,7 @@ use crate::declarations::{
 use crate::native_home::{Row, View};
 use crate::native_names;
 use crate::native_pair::{self as pairs, Pair};
-use crate::native_run::{Data, HostLink, stamp};
+use crate::native_run::{HostLink, stamp};
 use crate::native_state::Last;
 use crate::native_sync::{Done, End, Finish, Job, Step, Sync, Totals};
 use crate::native_when::{Policy, Trigger, due};
@@ -275,7 +276,7 @@ impl NativeFileSync {
     // --- events -----------------------------------------------------------
 
     fn started(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        self.last = Last::read(&Data(host));
+        self.last = Last::read(&OnHost::data(host));
         self.powered = capture_snapshot(host).is_ok_and(|s| s.is_charging());
         Ok(())
     }
@@ -320,7 +321,7 @@ impl NativeFileSync {
         let count = self.pending(host)?;
         if count != self.last.pending {
             self.last.pending = count;
-            self.last.write(&Data(host)).ok();
+            self.last.write(&OnHost::data(host)).ok();
             self.widgets_changed(host);
             self.refresh_home(host).ok();
         }
@@ -333,7 +334,7 @@ impl NativeFileSync {
             host,
             net: &mut self.net,
             files: &mut self.files,
-            data: Data(host),
+            data: OnHost::data(host),
             auth: None,
         };
         for pair in pairs::ready(host)? {
@@ -362,7 +363,7 @@ impl NativeFileSync {
             _ => return Ok(()),
         };
         if self.last == Last::default() {
-            self.last = Last::read(&Data(host));
+            self.last = Last::read(&OnHost::data(host));
         }
         self.items.retain(|item| item.instance != instance);
         self.items.try_reserve(1).map_err(|_| Error::NoMemory)?;
@@ -466,7 +467,7 @@ impl NativeFileSync {
     /// What the last sync said, read where it is not known yet.
     fn known_last(&mut self, host: &Host<'_>) -> Last {
         if self.last.waits_from() == 0 {
-            self.last = Last::read(&Data(host));
+            self.last = Last::read(&OnHost::data(host));
         }
         self.last
     }
@@ -524,7 +525,7 @@ impl NativeFileSync {
                 host,
                 net: &mut self.net,
                 files: &mut self.files,
-                data: Data(host),
+                data: OnHost::data(host),
                 auth: self.account.as_ref(),
             };
             return self.sync.start(&mut link, job).map(Some);
@@ -589,7 +590,7 @@ impl NativeFileSync {
             host,
             net: &mut self.net,
             files: &mut self.files,
-            data: Data(host),
+            data: OnHost::data(host),
             auth: self.account.as_ref(),
         };
         match self.sync.done(&mut link, &done) {
@@ -646,7 +647,7 @@ impl NativeFileSync {
             host,
             net: &mut self.net,
             files: &mut self.files,
-            data: Data(host),
+            data: OnHost::data(host),
             auth: self.account.as_ref(),
         };
         self.sync.cancel(&mut link);
@@ -663,7 +664,7 @@ impl NativeFileSync {
         self.last = self
             .known_last(host)
             .ended(total, pending, now, self.all_synced);
-        self.last.write(&Data(host)).ok();
+        self.last.write(&OnHost::data(host)).ok();
         self.looked = Some(0);
         let mut say = Messages::new()?;
         let mut text = say.format(

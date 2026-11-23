@@ -39,7 +39,7 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{
     Footer, ItemList, ItemStep, Messages, Screens,
     dav::secret::{self, Secret},
-    files::Volume,
+    files::{OnHost, Volume},
     mem::{self, buffer, wipe},
     paint, read_event,
     text::copy,
@@ -145,33 +145,6 @@ impl Handles {
     }
 }
 
-/// The plugin's data folder.
-pub(crate) struct Data<'a, 'h>(pub &'a Host<'h>);
-
-impl Volume for Data<'_, '_> {
-    fn size(&self, name: &str) -> Result<u64, Error> {
-        storage::size(self.0, Root::Data, name)
-    }
-    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.0, Root::Data, name, at, out)
-    }
-    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.0, Root::Data, name, data)
-    }
-    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.0, Root::Data, name, data)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        storage::rename(self.0, Root::Data, from, to)
-    }
-    fn remove(&self, name: &str) -> Result<(), Error> {
-        storage::remove(self.0, Root::Data, name)
-    }
-    fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.0)
-    }
-}
-
 /// The user's files on the card: read only, for a calendar file.
 struct Card<'a, 'h>(&'a Host<'h>);
 
@@ -262,7 +235,7 @@ fn week_start(host: &Host<'_>, say: &mut Messages) -> Result<u8, Error> {
 struct HostWire<'a, 'h> {
     host: &'a Host<'h>,
     handles: &'a mut Handles,
-    data: Data<'a, 'h>,
+    data: OnHost<'a, 'h>,
     card: Card<'a, 'h>,
 }
 
@@ -271,7 +244,7 @@ impl<'a, 'h> HostWire<'a, 'h> {
         Self {
             host,
             handles,
-            data: Data(host),
+            data: OnHost::data(host),
             card: Card(host),
         }
     }
@@ -590,7 +563,7 @@ impl NativeCalendar {
         if self.kept != Kept::NotRead {
             return Ok(());
         }
-        match keep::load(&Data(host)) {
+        match keep::load(&OnHost::data(host)) {
             Ok(Loaded::Store(store)) => {
                 self.store = store;
                 self.kept = Kept::Read;
@@ -616,7 +589,7 @@ impl NativeCalendar {
     /// The sources were changed on the reader: written to the card and shown
     /// anew.
     pub(crate) fn changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        match keep::save(&Data(host), &self.store) {
+        match keep::save(&OnHost::data(host), &self.store) {
             Ok(()) => {}
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => notice(host, "calendar.not-saved"),
@@ -892,19 +865,8 @@ impl NativeCalendar {
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
-        // Select held, or the menu button, offers the views and the rest.
-        let menu = matches!(
-            input,
-            Input::Action {
-                action: "core.menu" | "core.long-confirm",
-                ..
-            }
-        );
-        let step = if menu {
-            ItemStep::Held(view.list.focus())
-        } else {
-            view.list.input(host, input)?
-        };
+        // Held, every row offers the views and the rest.
+        let step = view.list.input_holding(host, input, true)?;
         let (ItemStep::Chosen(at) | ItemStep::Held(at)) = step else {
             return Ok(ItemList::handled(step));
         };

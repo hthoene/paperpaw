@@ -19,12 +19,11 @@ use paperpaw_sdk::native::{
     reply::Reply,
     secrets::Secrets,
     settings::{self, SettingValue},
-    storage::{self, Root},
     ui::{Notify, Open, Question, RequestId as AskId, TextMode, TextWrite, Ui},
 };
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
-    files::Volume,
+    files::{OnHost, Volume},
     mem::{SERVICE_BUFFER, buffer, push, wipe},
     read_event,
     text::{concat, copy},
@@ -52,39 +51,12 @@ const DOTS: &str = "••••••";
 /// busy for a moment.
 const TIMEOUT_MS: u32 = 20_000;
 
-/// The storage calls on the plugin's data folder.
-struct Data<'a, 'h>(&'a Host<'h>);
-
-impl Volume for Data<'_, '_> {
-    fn size(&self, name: &str) -> Result<u64, Error> {
-        storage::size(self.0, Root::Data, name)
-    }
-    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.0, Root::Data, name, at, out)
-    }
-    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.0, Root::Data, name, data)
-    }
-    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.0, Root::Data, name, data)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        storage::rename(self.0, Root::Data, from, to)
-    }
-    fn remove(&self, name: &str) -> Result<(), Error> {
-        storage::remove(self.0, Root::Data, name)
-    }
-    fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.0)
-    }
-}
-
 /// The sync's world on the device: the data folder and the network service
 /// (opened by the first request).
 struct HostLink<'a, 'h> {
     host: &'a Host<'h>,
     net: &'a mut Option<Net>,
-    data: Data<'a, 'h>,
+    data: OnHost<'a, 'h>,
     url: String,
 }
 
@@ -282,7 +254,7 @@ impl Plugin for NativeAnki {
                 self.fetch_decks(host)
             }
             Event::ScreenOpened { instance, .. } if token == STUDY => {
-                let study = Study::open(&Data(host))?;
+                let study = Study::open(&OnHost::data(host))?;
                 self.study.open(instance, StudyScreen::of(study))
             }
             Event::ScreenShown {
@@ -363,7 +335,7 @@ impl Plugin for NativeAnki {
                 Ok(ItemList::handled(step))
             }
             STUDY => match self.study.top(token) {
-                Some(view) => view.input(host, &Data(host), &input),
+                Some(view) => view.input(host, &OnHost::data(host), &input),
                 None => Ok(Handled::No),
             },
             _ => Ok(Handled::No),
@@ -459,7 +431,7 @@ impl NativeAnki {
     /// The rows and the note below them, as things are now.
     fn build_home(&self, host: &Host<'_>, view: &mut Home) -> Result<(), Error> {
         let mut say = Messages::new()?;
-        let volume = Data(host);
+        let volume = OnHost::data(host);
         let mut items = Vec::new();
         for row in SHOWN {
             let value = match row {
@@ -746,7 +718,7 @@ impl NativeAnki {
         let mut link = HostLink {
             host,
             net: &mut self.net,
-            data: Data(host),
+            data: OnHost::data(host),
             url,
         };
         let step = self.sync.start(&mut link, account, mode)?;
@@ -769,7 +741,7 @@ impl NativeAnki {
         let mut link = HostLink {
             host,
             net: &mut self.net,
-            data: Data(host),
+            data: OnHost::data(host),
             url,
         };
         let step = self.sync.done(&mut link, &done)?;
@@ -791,7 +763,7 @@ impl NativeAnki {
         let mut link = HostLink {
             host,
             net: &mut self.net,
-            data: Data(host),
+            data: OnHost::data(host),
             url: String::new(),
         };
         self.sync.cancel(&mut link);

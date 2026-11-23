@@ -29,10 +29,9 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens, key_bar,
     mem::{SERVICE_BUFFER, buffer, push},
+    status_line,
     text::{concat, copy},
 };
-
-mod status_icon;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/bluetooth_declarations.rs"));
@@ -175,7 +174,7 @@ impl Plugin for NativeBluetooth {
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         // The status item is drawn by its owner into the place the line gives it.
         if token == STATUS_TOKEN {
-            return status_icon::draw(host, &mut frame);
+            return status_line::icon::draw(host, &mut frame, "bluetooth", "bluetooth.status.item");
         }
         let mut messages = Messages::new()?;
         match self.screens.top(token).ok_or(Error::State)? {
@@ -197,13 +196,11 @@ impl Plugin for NativeBluetooth {
             return Ok(Handled::No);
         };
         let step = match view {
-            // Select held, or the menu button, forgets the device that has the
-            // focus, as a long press does on a touch screen (with the buttons
-            // alone nothing else can); elsewhere they are the host's.
-            View::Page(view) if forgets(&input) && view.device_at(view.list.focus()) => {
-                ItemStep::Held(view.list.focus())
+            // Held, a device is forgotten.
+            View::Page(view) => {
+                let device = view.device_at(view.list.focus());
+                view.list.input_holding(host, &input, device)?
             }
-            View::Page(view) => view.list.input(host, &input)?,
             View::Search(view) => view.list.input(host, &input)?,
         };
         match step {
@@ -214,17 +211,6 @@ impl Plugin for NativeBluetooth {
         self.page_hint(host);
         Ok(ItemList::handled(step))
     }
-}
-
-/// Select held or the menu button: what forgets a device.
-fn forgets(input: &Input<'_>) -> bool {
-    matches!(
-        input,
-        Input::Action {
-            action: "core.long-confirm" | "core.menu",
-            ..
-        }
-    )
 }
 
 /// The key bar names *Forget* for the menu button while the focus is on a
@@ -240,7 +226,7 @@ fn forget_hint(host: &Host<'_>, page: &mut Page) {
     );
 }
 
-/// The answer for the status item: drawn (the sign, `status_icon`) while a
+/// The answer for the status item: drawn (the sign, `status_line::icon`) while a
 /// device is connected; no text hides the item.
 fn status_answer(item: &str, connected: bool) -> Result<StatusAnswer<'_>, Error> {
     if connected {
@@ -743,7 +729,7 @@ impl NativeBluetooth {
     }
 
     /// The status item: drawn by the plugin (the Bluetooth sign,
-    /// `status_icon`) while a device is connected, as in Beta 3, nothing
+    /// `status_line::icon`) while a device is connected, as in Beta 3, nothing
     /// else. A call that is not the host's `core.status` is not ours.
     fn status(
         &mut self,
@@ -834,15 +820,6 @@ mod tests {
     #![allow(clippy::unwrap_used, reason = "test assertions")]
     use super::*;
     use alloc::format;
-
-    #[test]
-    fn select_held_and_the_menu_button_forget_and_other_keys_do_not() {
-        let action = |action| Input::Action { now_ms: 0, action };
-        assert!(forgets(&action("core.long-confirm")));
-        assert!(forgets(&action("core.menu")));
-        assert!(!forgets(&action("core.confirm")));
-        assert!(!forgets(&action("core.back")));
-    }
 
     #[test]
     fn only_a_device_row_is_forgotten() {

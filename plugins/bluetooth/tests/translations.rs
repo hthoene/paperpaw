@@ -18,7 +18,6 @@ fn translations_are_complete() {
 fn every_key_the_plugin_asks_for_is_in_both_languages() {
     let sources = [
         include_str!("../src/native_plugin.rs"),
-        include_str!("../src/native_plugin/status_icon.rs"),
         include_str!("../src/native_model.rs"),
         include_str!("../declarations.rs"),
     ];

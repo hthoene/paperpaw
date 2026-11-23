@@ -9,7 +9,7 @@ use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::{
     Error, Host,
     callbacks::{DrawFrame, FrameRect, Input},
-    commands::{CommandSender, RedrawMode},
+    commands::CommandSender,
     fonts::{Font, FontRole},
     formatting::Arg,
     image::{ImageReady, ImageStatus, ImageStyle, PrepareImage, PrepareRoot},
@@ -68,19 +68,6 @@ impl BrowseView {
             .draw_with(host, &mut frame, &title, true, footer)?;
         self.region = Some(frame.rect);
         self.draw_covers(host, &mut frame)
-    }
-
-    /// The room below the rows in the last frame, where the line below is,
-    /// in the region's pixels; `None` before a frame.
-    fn below_rows(&self) -> Option<FrameRect> {
-        let region = self.region?;
-        let bottom = (0..self.rows.len())
-            .filter_map(|i| self.list.rect_of(i))
-            .map(|rect| i32::from(rect.y) + i32::from(rect.height))
-            .max()?;
-        let top = bottom.saturating_sub(region.y);
-        let height = u32::try_from(i64::from(region.height) - i64::from(top)).ok()?;
-        Some(FrameRect::new(0, top, region.width, height))
     }
 
     /// The entries whose rows were drawn in the last frame (the first few
@@ -766,13 +753,7 @@ impl Opds {
         if !view.renote(host, touch)? {
             return Ok(());
         }
-        match view.below_rows() {
-            Some(area) => {
-                let mut scratch = [0; 64];
-                CommandSender::new(host, &mut scratch).queue_redraw_area(RedrawMode::Fast, area)
-            }
-            None => Self::redraw(host),
-        }
+        view.list.redraw_below_rows(host, view.region)
     }
 
     /// A cover is decoded.

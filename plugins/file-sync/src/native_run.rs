@@ -10,14 +10,14 @@ use paperpaw_sdk::native::{
     Error, Host,
     files::{Files, INPUT_BYTES, OUTPUT_BYTES, PAGE_MAX_ROWS},
     net::{FileRoot, Header, Net, REPLY, REQUEST_INPUT, Request},
-    storage::{self, Root},
+    storage::Root,
 };
 use paperpaw_ui_kit::{
     dav::{
         listing::{LISTING, PROPFIND},
         secret::Secret,
     },
-    files::Volume,
+    files::{OnHost, Volume},
     mem::{buffer, wipe},
 };
 
@@ -30,39 +30,12 @@ const LIST_TIMEOUT_MS: u32 = 60_000;
 /// The longest a request may be silent: a large file moves for much longer.
 const FILE_TIMEOUT_MS: u32 = 120_000;
 
-/// The storage calls on the plugin's data folder.
-pub struct Data<'a, 'h>(pub &'a Host<'h>);
-
-impl Volume for Data<'_, '_> {
-    fn size(&self, name: &str) -> Result<u64, Error> {
-        storage::size(self.0, Root::Data, name)
-    }
-    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.0, Root::Data, name, at, out)
-    }
-    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.0, Root::Data, name, data)
-    }
-    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.0, Root::Data, name, data)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        storage::rename(self.0, Root::Data, from, to)
-    }
-    fn remove(&self, name: &str) -> Result<(), Error> {
-        storage::remove(self.0, Root::Data, name)
-    }
-    fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.0)
-    }
-}
-
 /// The card, the data folder and the network, with the account's header.
 pub struct HostLink<'a, 'h> {
     pub host: &'a Host<'h>,
     pub net: &'a mut Option<Net>,
     pub files: &'a mut Option<Files>,
-    pub data: Data<'a, 'h>,
+    pub data: OnHost<'a, 'h>,
     /// `Basic ...` where the server wants an account.
     pub auth: Option<&'a Secret>,
 }

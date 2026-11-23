@@ -108,19 +108,6 @@ pub(crate) fn is_address(typed: &str) -> bool {
     (typed.starts_with("http://") || typed.starts_with("https://")) && typed.len() >= 10
 }
 
-/// Whether `input` is Select held or the menu button: they offer what can
-/// be done with the row in focus, as a long press on it does (the list takes
-/// neither).
-fn holds_focus(input: &Input<'_>) -> bool {
-    matches!(
-        input,
-        Input::Action {
-            action: "core.menu" | "core.long-confirm",
-            ..
-        }
-    )
-}
-
 fn redraw(host: &Host<'_>) -> Result<(), Error> {
     let mut scratch = [0; 64];
     CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
@@ -232,11 +219,9 @@ impl News {
         let Some(view) = self.screens.top(SCREEN) else {
             return Ok(Handled::No);
         };
-        let step = if holds_focus(input) {
-            ItemStep::Held(view.list.focus())
-        } else {
-            view.list.input(host, input)?
-        };
+        // Held, a feed offers what can be done with it.
+        let feed = matches!(view.targets.get(view.list.focus()), Some(Target::Feed(_)));
+        let step = view.list.input_holding(host, input, feed)?;
         match step {
             ItemStep::Chosen(row) => {
                 let target = view.targets.get(row).copied();
@@ -474,15 +459,6 @@ mod tests {
             .collect();
         // A feed with no name yet shows its host without `www.`.
         assert_eq!(titles, ["Fetch the news", "A", "b.example", "Add a feed"]);
-    }
-
-    #[test]
-    fn select_held_and_the_menu_button_hold_the_row_in_focus() {
-        let action = |action| Input::Action { now_ms: 0, action };
-        assert!(holds_focus(&action("core.long-confirm")));
-        assert!(holds_focus(&action("core.menu")));
-        assert!(!holds_focus(&action("core.confirm")));
-        assert!(!holds_focus(&action("core.right")));
     }
 
     #[test]
