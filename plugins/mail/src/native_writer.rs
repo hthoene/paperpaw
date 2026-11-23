@@ -187,8 +187,7 @@ impl NativeMail {
         let storage = DataStorage::new(host);
         let letter = match reply {
             Some((folder, uid)) => {
-                let file = store::text_file(account.number, folder, uid).map_err(fail_error)?;
-                store::read_letter(&storage, &file).map_err(fail_error)?
+                store::kept_letter(&storage, account.number, folder, uid).map_err(fail_error)?
             }
             None => None,
         };

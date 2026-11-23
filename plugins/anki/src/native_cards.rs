@@ -8,6 +8,9 @@
 //!   last sync: the queue that goes to Anki with the next sync, offline or not.
 //!   A card with an answer is done.
 //! - `cards.new`: the cards of a sync under way, until they replace `cards.txt`.
+//! - `answers.sending`: the answers of the `answerCards` request in flight,
+//!   lines as in `answers.txt`. Where it ends without a word of whether Anki
+//!   took them, they are let go ([`let_go_unconfirmed`]), never sent twice.
 use alloc::vec::Vec;
 use core::ops::ControlFlow;
 
@@ -20,6 +23,7 @@ use crate::native_anki::Card;
 pub const CARDS: &str = "cards.txt";
 pub const NEW: &str = "cards.new";
 pub const ANSWERS: &str = "answers.txt";
+pub const SENDING: &str = "answers.sending";
 /// The answers waiting are at most this many bytes (about 1,500 answers): a
 /// reader that was never synced says so, rather than grow without end.
 pub const ANSWERS_MAX: u64 = 32 * 1024;
@@ -121,6 +125,66 @@ pub fn answer_of(line: &str) -> Option<(u64, u8)> {
         .ok()
         .filter(|e| (1..=4).contains(e))?;
     Some((id.parse().ok()?, ease))
+}
+
+/// Keeps `answers` as the ones in flight, before they are sent.
+///
+/// # Errors
+/// `NoMemory`; what the card says.
+pub fn mark_sending(volume: &dyn Volume, answers: &[(u64, u8)]) -> Result<(), Error> {
+    let mut text = Vec::new();
+    text.try_reserve_exact(answers.len() * 24)
+        .map_err(|_| Error::NoMemory)?;
+    let mut digits = [0u8; 20];
+    for (id, ease) in answers {
+        text.extend_from_slice(paperpaw_ui_kit::text::decimal_u64(*id, &mut digits).as_bytes());
+        text.extend_from_slice(&[b'\t', b'0' + ease, b'\n']);
+    }
+    volume.write(SENDING, &text)?;
+    volume.sync()
+}
+
+/// Lets go of the answers that were sent with no word whether Anki took them
+/// (the reply did not come, or the reader stopped): an answer Anki gets twice
+/// counts twice, while one it did not get leaves its card due, to come with
+/// the next cards. The cards are stale then (their answers are gone from the
+/// queue). Answers the queue no longer begins with were let go before.
+///
+/// # Errors
+/// `NoMemory`; what the card says.
+pub fn let_go_unconfirmed(volume: &dyn Volume) -> Result<(), Error> {
+    let mut sent: Vec<(u64, u8)> = Vec::new();
+    match for_each_line_on(volume, SENDING, &mut |line| {
+        if let Some(answer) = answer_of(line) {
+            push(&mut sent, answer)?;
+        }
+        Ok(ControlFlow::Continue(()))
+    }) {
+        Ok(()) => {}
+        Err(Error::NotFound) => return Ok(()),
+        Err(error) => return Err(error),
+    }
+    let mut first = sent.iter();
+    let mut same = 0;
+    let read = for_each_line_on(volume, ANSWERS, &mut |line| {
+        let Some(answer) = answer_of(line) else {
+            return Ok(ControlFlow::Continue(()));
+        };
+        if first.next() != Some(&answer) {
+            return Ok(ControlFlow::Break(()));
+        }
+        same += 1;
+        Ok(ControlFlow::Continue(()))
+    });
+    match read {
+        Ok(()) | Err(Error::NotFound) => {}
+        Err(error) => return Err(error),
+    }
+    if same == sent.len() && same > 0 {
+        drop_first(volume, same)?;
+        remove(volume, CARDS)?;
+    }
+    remove(volume, SENDING)
 }
 
 /// How many answers wait.

@@ -410,6 +410,9 @@ impl<'a> Collect<'a> {
             known: false,
             uid: hash(&event.uid),
             cal: self.cal,
+            // The rule counts in the event's own days: the day it is written
+            // with (a time in UTC is UTC's day).
+            shift: i8::try_from(day - start.at.day).unwrap_or(0),
             over,
             rule,
             skip,
@@ -444,6 +447,7 @@ impl<'a> Collect<'a> {
                 known: year != 0,
                 uid: hash(&card.uid),
                 cal: self.cal,
+                shift: 0,
                 over: None,
                 rule: String::new(),
                 skip: Vec::new(),
