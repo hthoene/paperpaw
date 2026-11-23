@@ -4,8 +4,11 @@
 //! to open its book from the storage of a callback ([`NativeIo`](crate::NativeIo)).
 //!
 //! Gaps (marked `GAP`): pictures are numbered by their block's start. A
-//! document is converted when it is opened (`prepare` has nothing to do): the
-//! first chapter of an EPUB takes a while on the first open, as in interface 6.
+//! document is converted when it is opened. A format that tells a book whose
+//! first open converts it ([`FormatProvider::with_first_open`], EPUB) answers
+//! such an open "preparing" and converts in the host's `prepare` calls, so the
+//! reader shows "Opening the book for the first time" before the wait, as in
+//! Beta 3 (#510).
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -77,10 +80,33 @@ pub type Claims = fn(&dyn Storage, &str) -> bool;
 
 pub type Opener = fn(&dyn Storage, &str, &OpenOptions) -> Result<Box<dyn Document>, DocumentError>;
 
+/// How a format opens a book at once where it is converted already: the
+/// book opened as [`Opener`] does, `None` where its first open converts it
+/// and takes a while.
+pub type OpenIfPrepared =
+    fn(&dyn Storage, &str, &OpenOptions) -> Option<Result<Box<dyn Document>, DocumentError>>;
+
+/// What is left of a first open answered "preparing", a step for each of the
+/// host's `prepare` calls: one call between two frames, so the reader's note
+/// is drawn before the conversion, which takes the time.
+enum Preparation {
+    /// The book is opened: its package is read.
+    Open { name: String, options: OpenOptions },
+    /// What the book has for showing is found out: its first chapter is
+    /// converted (and the pictures it starts with decoded).
+    Convert,
+}
+
+/// The progress the `prepare` call that opened the book answers.
+const OPENED_PPM: u32 = 500_000;
+
 struct Slot {
     id: u32,
     /// `Err(status)`: the open failed, the id stays until it is closed.
+    /// `Err(ERR_BUSY)` while the book waits to be opened (`preparing`).
     document: Result<Box<dyn Document>, i32>,
+    /// Boxed: a slot not preparing (nearly all) stays small.
+    preparing: Option<Box<Preparation>>,
     /// The faces found unreadable, too large or over the book's cap: not
     /// inflated again on every `fonts` call.
     bad_faces: Vec<u32>,
@@ -89,6 +115,8 @@ struct Slot {
 /// The documents of one format.
 pub struct FormatProvider {
     opener: Opener,
+    /// Tells a book whose first open converts it ([`FormatProvider::with_first_open`]).
+    first_open: Option<OpenIfPrepared>,
     /// The format's id, as the state rows name it.
     format: &'static str,
     /// The folder the parsers keep their conversions in (routed to root 6).
@@ -167,6 +195,7 @@ impl FormatProvider {
     ) -> Self {
         Self {
             opener,
+            first_open: None,
             format,
             cache,
             sniffs,
@@ -184,6 +213,15 @@ impl FormatProvider {
     #[must_use]
     pub const fn with_claims(mut self, claims: Claims) -> Self {
         self.claims = Some(claims);
+        self
+    }
+
+    /// A book that is not converted yet is opened "preparing" by a reader's
+    /// open (not a background one) and converted in the host's `prepare`
+    /// call, between inputs (`document.md` 2.1): the reader says so first.
+    #[must_use]
+    pub const fn with_first_open(mut self, first_open: OpenIfPrepared) -> Self {
+        self.first_open = Some(first_open);
         self
     }
 
@@ -280,6 +318,12 @@ impl FormatProvider {
             }
             op::PREPARE => {
                 let id = call.document;
+                if let Some(at) = self.slots.iter().position(|s| s.id == id)
+                    && let Some(step) = self.slots[at].preparing.take()
+                {
+                    let record = self.prepare(io, at, step, call.conversion);
+                    return one(Record::FmtState(record), out);
+                }
                 match &self.slot(id)?.document {
                     Ok(_) => one(Record::FmtState(self.state(id, call.conversion, None)), out),
                     Err(status) => one(
@@ -364,13 +408,110 @@ impl FormatProvider {
             } else {
                 paperpaw_sdk::image::Fit::side(call.cover_side)
             });
-        let document =
-            (self.opener)(io, call.text, &options).map_err(|e| i32::from(document_error(&e)));
-        // Short memory is for the host to try again, not a failed book.
+        let shows = call.flags & OPEN_BACKGROUND == 0;
+        let (document, preparing) = match self.first_open {
+            Some(first_open) if shows => match first_open(io, call.text, &options) {
+                Some(document) => (Self::checked(document)?, None),
+                None => {
+                    let name = crate::fallible::string(call.text).map_err(|_| Error::NoMemory)?;
+                    let open = crate::fallible::try_box(Preparation::Open { name, options })
+                        .map_err(|_| Error::NoMemory)?;
+                    (Err(i32::from(Error::Busy)), Some(open))
+                }
+            },
+            _ => (self.open_document(io, call.text, &options)?, None),
+        };
+        let record = if preparing.is_some() {
+            self.preparing(call.document, 0, call.conversion)
+        } else {
+            self.opened(io, call.document, call.conversion, &document, shows)
+        };
+        let written = one(Record::FmtState(record), out)?;
+        self.slots.push(Slot {
+            id: call.document,
+            document,
+            preparing,
+            bad_faces: Vec::new(),
+        });
+        Ok(written)
+    }
+
+    /// The `prepare` call's `step` of the first open of the document in slot
+    /// `at`: the book opened, or its first chapter converted. No room to open
+    /// it fails the document with `ERR_NO_MEMORY` (the reader says so), not
+    /// the call: a step the host tries again would leave the book preparing.
+    fn prepare(
+        &mut self,
+        io: &dyn Storage,
+        at: usize,
+        mut step: Box<Preparation>,
+        conversion: u64,
+    ) -> stage::FmtState<'static> {
+        let id = self.slots[at].id;
+        match &*step {
+            Preparation::Open { name, options } => {
+                let document =
+                    (self.opener)(io, name, options).map_err(|e| i32::from(document_error(&e)));
+                let record = match &document {
+                    Ok(_) => {
+                        *step = Preparation::Convert;
+                        self.slots[at].preparing = Some(step);
+                        self.preparing(id, OPENED_PPM, conversion)
+                    }
+                    Err(status) => self.state(id, conversion, Some(*status)),
+                };
+                self.slots[at].document = document;
+                record
+            }
+            Preparation::Convert => self.opened(io, id, conversion, &self.slots[at].document, true),
+        }
+    }
+
+    /// The `fmt.state` of document `id` still preparing, `progress` of
+    /// 1,000,000 done.
+    const fn preparing(&self, id: u32, progress: u32, conversion: u64) -> stage::FmtState<'static> {
+        stage::FmtState::new(id, 1, progress, 0, 0, conversion, self.format)
+    }
+
+    /// Opens a book with the format's opener.
+    ///
+    /// # Errors
+    /// `NoMemory`: short memory is for the host to try again, not a failed book.
+    fn open_document(
+        &self,
+        io: &dyn Storage,
+        name: &str,
+        options: &OpenOptions,
+    ) -> Result<Result<Box<dyn Document>, i32>, Error> {
+        Self::checked((self.opener)(io, name, options))
+    }
+
+    /// An open's outcome as a slot keeps it: a failure as its status.
+    ///
+    /// # Errors
+    /// `NoMemory`: short memory is for the host to try again, not a failed book.
+    fn checked(
+        document: Result<Box<dyn Document>, DocumentError>,
+    ) -> Result<Result<Box<dyn Document>, i32>, Error> {
+        let document = document.map_err(|e| i32::from(document_error(&e)));
         if matches!(document, Err(status) if status == i32::from(Error::NoMemory)) {
             return Err(Error::NoMemory);
         }
-        let record = match &document {
+        Ok(document)
+    }
+
+    /// The `fmt.state` of an opened document `id`: ready with the flags of
+    /// what the book has (those for showing it only where it `shows`), or
+    /// failed with its status.
+    fn opened(
+        &self,
+        io: &dyn Storage,
+        id: u32,
+        conversion: u64,
+        document: &Result<Box<dyn Document>, i32>,
+        shows: bool,
+    ) -> stage::FmtState<'static> {
+        match document {
             Ok(d) => {
                 let mut flags = 0;
                 if d.whole_pages() {
@@ -381,7 +522,7 @@ impl FormatProvider {
                 // and page labels cost the package and the first chapter
                 // converted, and nobody reads these flags then. A normal open
                 // finds them out, whatever an earlier background one left.
-                if call.flags & OPEN_BACKGROUND == 0 {
+                if shows {
                     if d.toc_len(io) > 0 {
                         flags |= FLAG_TOC;
                     }
@@ -395,17 +536,10 @@ impl FormatProvider {
                 if matches!(d.metadata().direction, PageProgression::RightToLeft) {
                     flags |= FLAG_RTL;
                 }
-                stage::FmtState::new(call.document, 0, 0, 0, flags, call.conversion, self.format)
+                stage::FmtState::new(id, 0, 0, 0, flags, conversion, self.format)
             }
-            Err(status) => self.state(call.document, call.conversion, Some(*status)),
-        };
-        let written = one(Record::FmtState(record), out)?;
-        self.slots.push(Slot {
-            id: call.document,
-            document,
-            bad_faces: Vec::new(),
-        });
-        Ok(written)
+            Err(status) => self.state(id, conversion, Some(*status)),
+        }
     }
 
     /// A page of the section list.

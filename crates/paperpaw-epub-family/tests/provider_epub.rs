@@ -119,6 +119,25 @@ fn run(
     Ok(out)
 }
 
+/// An open as the host makes it (`document.md` 2.1): op 2, then op 3
+/// `prepare` while the document answers preparing (a book whose first
+/// chapter is not converted yet, #510). The last answer.
+fn open(
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
+    io: &dyn Storage,
+    input: &[u8],
+) -> Result<Vec<u8>, Error> {
+    let mut reply = run(p, io, input)?;
+    let Some(Ok(stage::Record::FmtCall(asked))) = stage::input_decode(input).unwrap().next() else {
+        panic!("an open")
+    };
+    let document = asked.document;
+    while matches!(rows(&reply).first(), Some(stage::Record::FmtState(s)) if s.state == 1) {
+        reply = run(p, io, &call(3, |c| c.document = document))?;
+    }
+    Ok(reply)
+}
+
 fn rows(reply: &[u8]) -> Vec<stage::Record<'_>> {
     stage::reply_decode(reply)
         .unwrap()
@@ -226,7 +245,7 @@ fn header(
 fn an_epub_book_reads_like_interface_6_block_by_block() {
     let io = Roots::new("notes.epub", &book_bytes());
     let mut p = epub_provider();
-    let reply = run(&mut p, &io, &call(2, |c| c.text = "notes.epub")).unwrap();
+    let reply = open(&mut p, &io, &call(2, |c| c.text = "notes.epub")).unwrap();
     let stage::Record::FmtState(s) = rows(&reply)[0] else {
         panic!("state")
     };
@@ -327,9 +346,9 @@ fn bad_calls_get_their_refusals() {
     assert!(matches!(run(&mut p, &io, &[7]), Err(Error::Invalid)));
     let reply = run(&mut p, &io, &call(1, |c| c.document = 0)).unwrap();
     assert_eq!(rows(&reply).len(), 0, "no data is no epub");
-    run(&mut p, &io, &call(2, |c| c.text = "n.epub")).unwrap();
+    open(&mut p, &io, &call(2, |c| c.text = "n.epub")).unwrap();
     assert!(matches!(
-        run(&mut p, &io, &call(2, |c| c.text = "n.epub")),
+        open(&mut p, &io, &call(2, |c| c.text = "n.epub")),
         Err(Error::Invalid)
     ));
     for op in [13, 15] {
@@ -343,7 +362,7 @@ fn bad_calls_get_their_refusals() {
         Err(Error::Unsupported)
     ));
     // A name that is no file fails the document, not the provider.
-    let reply = run(
+    let reply = open(
         &mut p,
         &io,
         &call(2, |c| {
@@ -447,7 +466,7 @@ fn font_book_full(identifier: &str, fonts: &[(&str, Vec<u8>)], encryption: &str)
 fn an_embedded_font_is_written_to_the_cache_and_listed() {
     let io = Roots::new("f.epub", &font_book());
     let mut p = epub_provider();
-    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    open(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
     let reply = run(&mut p, &io, &call(16, |_| {})).unwrap();
     let faces: Vec<_> = rows(&reply)
         .into_iter()
@@ -474,7 +493,7 @@ fn an_embedded_font_is_written_to_the_cache_and_listed() {
 fn a_run_in_another_language_names_it_by_its_index() {
     let io = Roots::new("f.epub", &font_book());
     let mut p = epub_provider();
-    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    open(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
     let reply = run(&mut p, &io, &call(8, |_| {})).unwrap();
     let mut block_lang = String::new();
     let mut langs = Vec::new();
@@ -546,7 +565,7 @@ fn a_zip_that_is_not_quite_an_epub_is_not_sniffed() {
 fn face_file(book: Vec<u8>) -> (Vec<u8>, u32) {
     let io = Roots::new("f.epub", &book);
     let mut p = epub_provider();
-    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    open(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
     let reply = run(&mut p, &io, &call(16, |_| {})).unwrap();
     let bytes = rows(&reply)
         .into_iter()
@@ -656,7 +675,7 @@ fn a_font_over_the_size_limit_is_its_own_fault_and_the_others_are_listed() {
     let book = font_book_full("urn:test", &[("big.ttf", big), ("a.ttf", TTF.to_vec())], "");
     let io = Roots::new("f.epub", &book);
     let mut p = epub_provider();
-    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    open(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
     let faces = faces_of(&mut p, &io);
     assert_eq!(faces.len(), 2, "{faces:?}");
     assert_eq!(faces[0], (0, 0), "the large one: no bytes, no error");
@@ -676,7 +695,7 @@ fn the_copied_faces_of_a_book_stop_at_the_total_cap() {
         .collect();
     let io = Roots::new("f.epub", &font_book_full("urn:test", &fonts, ""));
     let mut p = epub_provider();
-    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    open(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
     let faces = faces_of(&mut p, &io);
     let size = 12 * 1024 * 1024;
     assert_eq!(faces, [(0, size), (1, size), (2, 0)]);
@@ -738,7 +757,7 @@ fn a_face_that_fails_to_copy_leaves_no_temporary_file_and_is_not_tried_again() {
         fail_appends: std::cell::Cell::new(false),
     };
     let mut p = epub_provider();
-    run(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
+    open(&mut p, &io, &call(2, |c| c.text = "f.epub")).unwrap();
     // The book is converted; now the card refuses appends (full, failing).
     io.fail_appends.set(true);
     assert_eq!(faces_of(&mut p, &io), [(0, 0)], "listed with no bytes");
@@ -775,7 +794,7 @@ fn an_adobe_obfuscated_font_is_revealed_as_it_is_copied() {
 fn every_paged_list_ends_with_the_last_page_bit_and_a_generation_that_is_never_0() {
     let io = Roots::new("notes.epub", &book_bytes());
     let mut p = epub_provider();
-    run(&mut p, &io, &call(2, |c| c.text = "notes.epub")).unwrap();
+    open(&mut p, &io, &call(2, |c| c.text = "notes.epub")).unwrap();
     // Sections (7), contents (9), links (14) and fonts (16): `document.md` section 3,
     // paged replies: bit 0 the last page and no other flag, `generation` the format's own.
     for op in [7, 9, 14, 16] {
@@ -830,7 +849,7 @@ fn open_flags(
     io: &Roots,
     flags: u32,
 ) -> u32 {
-    let reply = run(
+    let reply = open(
         p,
         io,
         &call(2, |c| {
@@ -935,7 +954,7 @@ fn ask_picture(
 
 fn open_picture_book(io: &Roots) -> paperpaw_epub_family::provider::FormatProvider {
     let mut p = epub_provider();
-    let reply = run(&mut p, io, &call(2, |c| c.text = "pictures.epub")).unwrap();
+    let reply = open(&mut p, io, &call(2, |c| c.text = "pictures.epub")).unwrap();
     let stage::Record::FmtState(s) = rows(&reply)[0] else {
         panic!("state")
     };

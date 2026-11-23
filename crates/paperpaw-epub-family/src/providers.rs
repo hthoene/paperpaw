@@ -1,6 +1,7 @@
 //! The `core.format` providers of the crate's formats, one constructor each.
 use alloc::boxed::Box;
 
+use crate::document::PreparedCss;
 use crate::{
     CbzDocument, EpubDocument, Fb2Document, HtmlDocument, MarkdownDocument, PLUGIN, is_epub,
     provider,
@@ -9,7 +10,9 @@ use paperpaw_sdk::document::{Document, DocumentError};
 
 /// The `core.format` provider of EPUB books (`epub`): sniffed by its
 /// `mimetype` entry, the opened file named by the call's `text`; the plugins'
-/// stylesheets apply after the book's own.
+/// stylesheets apply after the book's own. A book whose first chapter is not
+/// converted yet opens "preparing" (Beta 3's "Opening the book for the first
+/// time", #510).
 #[must_use]
 pub fn epub_provider() -> provider::FormatProvider {
     let dir = paperpaw_sdk::data::plugin_dir(PLUGIN.as_str());
@@ -23,6 +26,14 @@ pub fn epub_provider() -> provider::FormatProvider {
         is_epub,
     )
     .with_plugin_css()
+    .with_first_open(|storage, name, options| {
+        // One's own stylesheets the check read serve the open.
+        let kept = PreparedCss::default();
+        EpubDocument::prepared_keeping(storage, name, options, &kept).then(|| {
+            EpubDocument::open_prepared(storage, name, options, &kept)
+                .map(|d| Box::new(d) as Box<dyn Document>)
+        })
+    })
 }
 
 /// The `core.format` provider of fixed-layout EPUB books of pictures (a page
