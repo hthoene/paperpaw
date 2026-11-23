@@ -76,6 +76,14 @@ impl Dashboard {
                 paperpaw_ui_kit::mem::push(&mut areas, focus_area(rect, 0, self.origin))?;
             }
         }
+        // The footer's status items, where they show (not while editing).
+        if !self.editing
+            && laid.footer_status.ticked(host, ui)
+            && let Some(look) = laid.look.borrow().first()
+        {
+            let area = laid.footer_status_area(&look.style);
+            paperpaw_ui_kit::mem::push(&mut areas, focus_area(area, 0, self.origin))?;
+        }
         Ok(areas)
     }
 
