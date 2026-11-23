@@ -5081,6 +5081,8 @@ change the plugin SDK.
 
 - **The own network's password is wiped** (#486). The Wi-Fi transfer's own network kept its password in the join code and in the text below it after the screen closed; both are wiped now.
 
+- **Passwords are only sent to the configured server** (#488). Tasks, Calendar, File sync and Picture frame follow an address a server names only on the server set for the account; Tasks says so when a server points elsewhere. Passwords the reader handles are cleared from memory more thoroughly once used.
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
