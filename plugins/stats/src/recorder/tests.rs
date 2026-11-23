@@ -132,9 +132,9 @@ fn a_book_read_is_recorded_page_by_page() {
         ("A book", BOOK, 300)
     );
     assert_eq!(books[0].authors, "N/A");
-    // Today's seconds are told when they changed, and only then.
-    assert_eq!(told.today, Some(((WALL / 86_400) as i32, 30)));
-    assert_eq!(recorder.tell(&cx).today, None);
+    // Today's seconds, as the stage and the sleep screen ask for them.
+    assert!(!told.not_saved);
+    assert_eq!(recorder.read_today(&cx), Some(((WALL / 86_400) as i32, 30)));
     assert!(recorder.current_book().is_none());
 }
 
@@ -184,9 +184,10 @@ fn reading_before_the_time_is_known_waits_for_it() {
     // they were read (the wall clock minus how long ago).
     cx.wall.set(Some(WALL - 30));
     let told = recorder.clock_changed(&cx);
+    assert!(!told.not_saved);
     assert_eq!(cx.seconds_read(), 30);
     assert_eq!(store::books(&cx.data).len(), 1);
-    assert_eq!(told.today.map(|(_, seconds)| seconds), Some(30));
+    assert_eq!(recorder.read_today(&cx).map(|(_, seconds)| seconds), Some(30));
 }
 
 #[test]
@@ -354,4 +355,24 @@ fn a_moment_on_the_monotonic_clock_is_dated_from_a_snapshot() {
     // A moment after it (a stay's end is the snapshot's own moment or later).
     assert_eq!(unix_at(1_000_000, 50_000, 61_000), Some(1_000_011));
     assert_eq!(unix_at(i64::MAX, 0, 5_000), None);
+}
+
+#[test]
+fn a_book_the_full_card_could_not_take_is_told_and_its_reading_kept() {
+    let cx = Fake::new();
+    let mut recorder = Recorder::default();
+    // The card is full before the book is opened: `books.ini` takes no new
+    // book. It is said once, and the book is not forgotten.
+    cx.data.fill_after(0);
+    let told = recorder.book_opened(&cx, &reading(BOOK, 1));
+    assert!(told.not_saved);
+    cx.after(20);
+    let told = recorder.page_turned(&cx, &reading(BOOK, 2));
+    assert!(!told.not_saved, "said once");
+    // Room again: the book is added and what was read is recorded.
+    cx.data.fill_after(u32::MAX);
+    cx.after(10);
+    recorder.book_closed(&cx, BOOK);
+    assert_eq!(store::books(&cx.data).len(), 1);
+    assert_eq!(cx.seconds_read(), 30);
 }
