@@ -35,6 +35,7 @@ const ROOT_PLUGIN_CSS: u32 = 7;
 
 mod op {
     pub const OPEN: u32 = 2;
+    pub const PREPARE: u32 = 3;
     pub const SECTIONS: u32 = 7;
     pub const BLOCK: u32 = 8;
     pub const FONTS: u32 = 16;
@@ -386,6 +387,17 @@ fn fmt_call(op: u32, f: impl FnOnce(&mut stage::FmtCall<'static>)) -> Vec<u8> {
     buf
 }
 
+/// The book opened as the host opens it (`document.md` 2.1): op 2, then op 3
+/// `prepare` while the document answers preparing (a book whose first
+/// chapter is not converted yet, #510). The last answer.
+fn open_book(native: &mut Native) -> Vec<u8> {
+    let mut reply = native.call(&fmt_call(op::OPEN, |c| c.text = ""));
+    while matches!(rows(&reply).first(), Some(stage::Record::FmtState(s)) if s.state == 1) {
+        reply = native.call(&fmt_call(op::PREPARE, |_| {}));
+    }
+    reply
+}
+
 fn rows(reply: &[u8]) -> Vec<stage::Record<'_>> {
     stage::reply_decode(reply)
         .unwrap()
@@ -438,7 +450,7 @@ fn book(body: &str, css: &str, font: Option<&[u8]>) -> Vec<u8> {
 fn an_embedded_font_is_copied_into_the_document_cache() {
     let mut native = Native::new(book_with_font(TTF));
     // The book is the file itself: root 3, the empty path.
-    let opened = native.call(&fmt_call(op::OPEN, |c| c.text = ""));
+    let opened = open_book(&mut native);
     let stage::Record::FmtState(state) = rows(&opened)[0] else {
         panic!("open answers a state row");
     };
@@ -480,7 +492,7 @@ fn an_embedded_font_is_copied_into_the_document_cache() {
 #[test]
 fn the_sections_of_a_book_are_listed_after_its_first_native_open() {
     let mut native = Native::new(book_with_font(TTF));
-    let opened = native.call(&fmt_call(op::OPEN, |c| c.text = ""));
+    let opened = open_book(&mut native);
     let stage::Record::FmtState(state) = rows(&opened)[0] else {
         panic!("open answers a state row");
     };
@@ -495,7 +507,7 @@ fn the_sections_of_a_book_are_listed_after_its_first_native_open() {
 
 /// The first block of the book's only chapter, as op 8 answers it.
 fn first_block_align(native: &mut Native) -> u32 {
-    let opened = native.call(&fmt_call(op::OPEN, |c| c.text = ""));
+    let opened = open_book(native);
     let stage::Record::FmtState(state) = rows(&opened)[0] else {
         panic!("open answers a state row");
     };
