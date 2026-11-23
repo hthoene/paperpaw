@@ -2,7 +2,6 @@
 //! (root 1, read only) and the indexes made from them (the plugin's data
 //! folder, root 0), as one `Storage` whose paths say where they are.
 use alloc::string::String;
-use core::cmp::min;
 use paperpaw_sdk::{
     DirEntry, Storage, StorageError,
     native::{
@@ -10,25 +9,11 @@ use paperpaw_sdk::{
         storage::{self, Root},
     },
 };
+use paperpaw_ui_kit::storage::{error as storage_error, read_full};
 
-/// The code a refused allocation travels as through `StorageError`.
-pub const NO_MEMORY: u16 = 0x6e6d;
 /// A path that starts here is in the data folder; its characters cannot be in
 /// a path of the card, so no dictionary is ever mistaken for an index.
 pub const CACHE: &str = "\u{1}c/";
-
-/// The error a host call gave, as the StarDict reader takes it.
-#[must_use]
-pub fn storage_error(error: Error) -> StorageError {
-    match error {
-        Error::NotFound => StorageError::NotFound,
-        Error::Full | Error::NoSpace => StorageError::Full,
-        Error::Unsupported | Error::Denied => StorageError::Unsupported,
-        Error::Invalid => StorageError::InvalidPath,
-        Error::NoMemory => StorageError::Other(NO_MEMORY),
-        _ => StorageError::Io,
-    }
-}
 
 /// The error of a failed read, as the model takes it: a refused allocation
 /// keeps its name.
@@ -36,7 +21,7 @@ pub fn storage_error(error: Error) -> StorageError {
 pub fn model_error(error: &paperpaw_stardict::Error) -> Error {
     match error {
         paperpaw_stardict::Error::OutOfMemory
-        | paperpaw_stardict::Error::Storage(StorageError::Other(NO_MEMORY)) => Error::NoMemory,
+        | paperpaw_stardict::Error::Storage(StorageError::OutOfMemory) => Error::NoMemory,
         paperpaw_stardict::Error::Storage(StorageError::NotFound) => Error::NotFound,
         _ => Error::Invalid,
     }
@@ -76,21 +61,7 @@ impl core::fmt::Debug for HostRoot<'_, '_> {
 
 impl Storage for HostRoot<'_, '_> {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        let mut done = 0;
-        while done < buf.len() {
-            let end = min(buf.len(), done + storage::MAX_DATA);
-            let Some(part) = buf.get_mut(done..end) else {
-                break;
-            };
-            let at = offset.saturating_add(done as u64);
-            let n =
-                storage::read_at(self.host, self.root, path, at, part).map_err(storage_error)?;
-            done += n;
-            if n < part.len() {
-                break;
-            }
-        }
-        Ok(done)
+        read_full(self.host, self.root, path, offset, buf).map_err(storage_error)
     }
 
     fn size(&self, path: &str) -> Result<u64, StorageError> {

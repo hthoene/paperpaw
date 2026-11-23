@@ -16,6 +16,7 @@ use paperpaw_sdk::native::files::{self, Files};
 use paperpaw_sdk::native::storage::{self, MAX_DATA, Root};
 use paperpaw_sdk::native::{Error, Host};
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
+use paperpaw_ui_kit::storage::error as storage_error;
 
 /// What the card says of one file or folder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,20 +47,6 @@ pub(crate) trait Card {
     fn move_entry(&self, from: &str, to: &str, replace: bool) -> Result<(), Error>;
     fn sync(&self) -> Result<(), Error>;
     fn ignores_case(&self) -> bool;
-}
-
-/// A host error as the storage's.
-pub(crate) fn storage_error(error: Error) -> StorageError {
-    match error {
-        Error::NotFound => StorageError::NotFound,
-        Error::Full => StorageError::Full,
-        // A path or a name over the cap.
-        Error::NoSpace => StorageError::TooLarge,
-        Error::Unsupported | Error::Denied => StorageError::Unsupported,
-        Error::Invalid | Error::Utf8 => StorageError::InvalidPath,
-        // Not the card's fault, and not a missing card either.
-        _ => StorageError::Io,
-    }
 }
 
 /// [`Storage`] over a [`Card`], for the file manager's model.

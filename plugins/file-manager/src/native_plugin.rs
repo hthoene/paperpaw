@@ -24,7 +24,7 @@ use paperpaw_ui_kit::text::{concat, copy};
 use paperpaw_ui_kit::{Messages, Screens, readers, uitext};
 
 use crate::browser::{Browser, Button, is_own_data};
-use crate::card::{with_card, with_card_noted};
+use crate::card::with_card;
 use crate::model::Disk;
 use crate::model::folder::Entry;
 use crate::native_draw::{self, Hits};
@@ -227,12 +227,8 @@ impl NativeFileManager {
         let Some(view) = self.screens.top(BROWSER) else {
             return Ok(None);
         };
-        let (done, ran_out) = with_card_noted(host, |card| Ok(work(&mut view.browser, card)))?;
-        if ran_out {
-            // The browser kept it as a storage error ("that did not work").
-            view.browser.lacked_memory();
-        }
-        if ran_out || changed(&done) {
+        let done = with_card(host, |card| Ok(work(&mut view.browser, card)))?;
+        if changed(&done) {
             redraw(host)?;
         }
         Ok(Some(done))
