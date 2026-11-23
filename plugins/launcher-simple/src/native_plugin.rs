@@ -124,6 +124,9 @@ pub struct NativeLauncher {
     books: Option<Vec<Book>>,
     /// The minute the home screen last showed (hour * 60 + minute).
     minute: Option<u16>,
+    /// The token of this plugin's screen shown last: the one on top of its
+    /// screens, which its redraws reach (the host's `queue_redraw*`).
+    on_top: Option<u32>,
 }
 
 impl Plugin for NativeLauncher {
@@ -174,6 +177,7 @@ impl Plugin for NativeLauncher {
                 ..
             } if kind_of(token).is_some() => {
                 self.screens.shown(token, instance)?;
+                self.on_top = Some(token);
                 // Shown again (what covered it closed): the books may have moved.
                 if matches!(kind_of(token), Some(Kind::Home | Kind::Library)) {
                     self.recent = None;
@@ -442,7 +446,10 @@ impl NativeLauncher {
         let Some(time) = local_time_now(host)? else {
             return Ok(());
         };
-        if self.minute == Some(minute_of(time)) {
+        let minute = minute_of(time);
+        // The redraw reaches this plugin's screen on top: only the home
+        // screen's clock is drawn, never that place of the library or panel.
+        if self.minute == Some(minute) || self.on_top != Some(HOME) {
             return Ok(());
         }
         let Some(view) = self.screens.top(HOME) else {
@@ -453,8 +460,14 @@ impl NativeLauncher {
         };
         let area = area_of(view.origin, clock, 0);
         let mut scratch = [0; 256];
-        // A refusal: the home screen is not the one on top, and the next frame shows the time.
-        let _ = CommandSender::new(host, &mut scratch).queue_redraw_area(RedrawMode::Partial, area);
+        // A refusal: another plugin's screen is on top, and the next frame
+        // that shows the home screen shows the time.
+        if CommandSender::new(host, &mut scratch)
+            .queue_redraw_area(RedrawMode::Partial, area)
+            .is_ok()
+        {
+            self.minute = Some(minute);
+        }
         Ok(())
     }
 
@@ -481,7 +494,7 @@ impl NativeLauncher {
             Kind::Library => LIBRARY,
             Kind::Customise => CUSTOMISE,
         };
-        if self.screens.top(token).is_none() {
+        if self.screens.top(token).is_none() || self.on_top != Some(token) {
             return Ok(());
         }
         let mut scratch = [0; 64];
@@ -609,10 +622,11 @@ impl NativeLauncher {
         if bar.number.value == value {
             return Ok(());
         }
-        bar.number.value = value;
         let mut scratch = [0; 256];
         let mut commands = CommandSender::new(host, &mut scratch);
+        // Shown once the host took it: a refusal leaves the value kept.
         commands.set_setting(&bar.row.item, SettingValue::Int(value))?;
+        bar.number.value = value;
         let area = view
             .zones
             .iter()
