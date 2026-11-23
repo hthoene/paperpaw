@@ -170,8 +170,8 @@ impl Flow {
         let dot = layout.dot_at(at);
         match phase {
             PointerPhase::Down => self.finger_down(id, at, dot, fx),
-            PointerPhase::Move => self.finger_moved(id, at, dot, fx).map(|()| true),
-            PointerPhase::Up => self.finger_up(lock, ctx, fx).map(|()| true),
+            PointerPhase::Move => self.finger_moved(id, at, dot, fx),
+            PointerPhase::Up => self.finger_up(id, lock, ctx, fx),
             _ => {
                 self.finger_cancelled(fx);
                 Ok(true)

@@ -71,8 +71,12 @@ pub fn phase_time(half: i64) -> i64 {
 pub struct Moon {
     /// How far round its lunation it is, in degrees: 0 new, 180 full.
     pub degrees: i32,
-    /// When it is full next (or was, today), in milliseconds since 1970.
+    /// When it is full next (or was, in the last day), in milliseconds since
+    /// 1970.
     pub next_full: i64,
+    /// The full moon after [`Moon::next_full`]: the next one where that was
+    /// on a day already gone here.
+    pub then_full: i64,
     /// Days since it was new.
     pub age: i64,
 }
@@ -91,14 +95,15 @@ pub fn moon(unix_ms: i64) -> Moon {
     // The full moon of this lunation, or the next one once it passed
     // (but for the rest of its day).
     let full = phase_time(2 * k + 1);
-    let next_full = if full + 86_400_000 > unix_ms {
-        full
+    let (next_full, then_full) = if full + 86_400_000 > unix_ms {
+        (full, phase_time(2 * k + 3))
     } else {
-        phase_time(2 * k + 3)
+        (phase_time(2 * k + 3), phase_time(2 * k + 5))
     };
     Moon {
         degrees,
         next_full,
+        then_full,
         age: (unix_ms - new) / 86_400_000,
     }
 }
@@ -193,11 +198,19 @@ fn lines(cx: &mut Cx<'_>, moon: &Moon, today: &LocalTime) -> Result<Vec<String>,
         lines.push(cx.tr(key.as_str())?);
     }
     if cx.settings.shows("full")? {
-        let unix = moon.next_full.div_euclid(1000);
-        let local = unix + i64::from(cx.zone_offset(unix)?);
-        let day = LocalTime::from_seconds(local);
-        let days = days_from_civil(day.year, day.month, day.day)
-            - days_from_civil(today.year, today.month, today.day);
+        // The full moon of today or later here: one of yesterday's night
+        // (still within a day of it) gives way to the next.
+        let (mut day, mut days) = (*today, 0);
+        for full in [moon.next_full, moon.then_full] {
+            let unix = full.div_euclid(1000);
+            let local = unix + i64::from(cx.zone_offset(unix)?);
+            day = LocalTime::from_seconds(local);
+            days = days_from_civil(day.year, day.month, day.day)
+                - days_from_civil(today.year, today.month, today.day);
+            if days >= 0 {
+                break;
+            }
+        }
         let text = match days {
             0 => cx.tr("widgets.moon.full-today")?,
             1 => cx.tr("widgets.moon.full-tomorrow")?,
@@ -297,7 +310,7 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
     let align = cx.settings.align()?;
     let gap = cx.style().gap;
     // Beside the text where the place is wide, else above it.
-    let wide = area.width >= area.height * 3 / 2;
+    let wide = u32::from(area.width) >= u32::from(area.height) * 3 / 2;
     // Beside it where the place is wide, the moon a little smaller where that
     // gives a long word room.
     let mut beside = wide && !lines.is_empty();
@@ -508,6 +521,9 @@ mod tests {
         assert_eq!(phase(m.degrees), 4);
         assert!(lit(m.degrees) >= 99);
         assert_eq!(LocalTime::from_seconds(m.next_full / 1000).day, 3);
+        // The one after it, for a day here that has gone past it: 2 April.
+        let then = LocalTime::from_seconds(m.then_full / 1000);
+        assert_eq!((then.month, then.day), (4, 2));
         // A week after: waning gibbous, then last quarter.
         assert_eq!(phase(moon(utc(2026, 3, 7, 12, 0)).degrees), 5);
         assert_eq!(phase(moon(utc(2026, 3, 11, 12, 0)).degrees), 6);

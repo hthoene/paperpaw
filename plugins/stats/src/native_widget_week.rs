@@ -16,7 +16,7 @@ use paperpaw_ui_kit::{Paint, geometry, paint, text};
 /// A day shown: its weekday, seconds read, and whether it is still to come
 /// (later this week).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Shown {
+pub(crate) struct Shown {
     weekday: u8,
     seconds: u32,
     to_come: bool,
@@ -133,13 +133,22 @@ pub fn draw(
     cx: &mut Cx<'_>,
     out: &mut Vec<Paint>,
     area: Rect,
-    _slot: &crate::native_widgets::Slot,
+    slot: &crate::native_widgets::Slot,
 ) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
-    let days = shown(cx)?;
-    if days.is_empty() {
+    let key = (
+        crate::native_widgets::stamp(cx.host)?,
+        period(cx)?,
+        cx.week_start()?,
+    );
+    let held = slot.week.refresh(key, || {
+        let days = shown(cx)?;
+        Ok((!days.is_empty()).then_some(days))
+    })?;
+    let days = slot.week.value().filter(|_| held);
+    let Some(days) = days else {
         return crate::native_widgets::message(cx, out, &look, "stats.no-clock");
-    }
+    };
     bars(cx, out, &look, &days)
 }
 

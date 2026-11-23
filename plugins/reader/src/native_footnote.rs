@@ -114,6 +114,13 @@ impl Footnote {
                 "core.back" | "core.menu" => Some(None),
                 "core.confirm" => Some(Some(self.focus.unwrap_or(0))),
                 _ => {
+                    // Up and the page keys step as the chips' own keys do, as
+                    // in Beta 3.
+                    let action = match action {
+                        "core.up" | "core.prev-page" => "core.previous",
+                        "core.down" | "core.next-page" => "core.next",
+                        other => other,
+                    };
                     let Some(to) = layout.chips.step(self.focus.unwrap_or(0), action) else {
                         return Ok((Handled::No, Pressed::None));
                     };

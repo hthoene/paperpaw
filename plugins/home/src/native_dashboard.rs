@@ -109,6 +109,8 @@ struct Laid {
     handle: u16,
     /// The status line above the grid (`home.status-bar`), made and placed.
     status: Option<(Made, Rect)>,
+    /// The footer's status items (`footer_status.rs`).
+    footer_status: footer_status::FooterStatus,
     /// How far the focus ring reaches outside a target: what a focus step
     /// draws again around it, kept here so that a step reads no style.
     ring_room: i32,
@@ -151,6 +153,7 @@ enum Next {
 
 mod area;
 mod arrange;
+mod footer_status;
 mod kept;
 mod look;
 mod names;
@@ -201,6 +204,9 @@ pub struct Dashboard {
     /// What the card and the shelf of the page share of the library: the books
     /// listed and what the host said of their files (#267).
     listing: Listing,
+    /// The page to go to at the next layout, by its setting's slot (opened to
+    /// edit one page's setting, as Beta 3).
+    wanted: Option<usize>,
 }
 
 impl Dashboard {
@@ -223,15 +229,21 @@ impl Dashboard {
     /// Opened again by the host while it is open: its view is kept (the page
     /// it is on, the widgets it made, the focus), editing starts where asked.
     /// A new dashboard would drop the widgets it made without letting them go.
-    pub fn reopened(&mut self, edit: bool) {
+    pub fn reopened(&mut self, edit: bool, page: Option<usize>) {
         if edit && !self.editing {
             self.set_editing(true);
         }
+        if page.is_some() {
+            self.wanted = page;
+            self.mark_stale();
+        }
     }
 
-    /// Starts editing (opened to edit with `mode` = `edit`).
-    pub fn start_editing(&mut self) {
+    /// Starts editing (opened to edit with `mode` = `edit`, or for the page of
+    /// setting slot `page`), on that page where one is named.
+    pub fn start_editing(&mut self, page: Option<usize>) {
         self.editing = true;
+        self.wanted = page;
     }
 
     /// What shows is read and laid out again before the next draw or input.
@@ -371,12 +383,7 @@ impl Dashboard {
             ..
         } = Shown::read_with(host, display, font, self.listing.inputs())?;
         let turned = self.page_after_turn(&src, &pages, wide)?;
-        let nav = self.nav.get_or_insert(Nav::new(pages.len()));
-        nav.resize(pages.len());
-        if let Some(at) = turned {
-            nav.page = at;
-        }
-        let (page, count) = (nav.page, nav.pages);
+        let (page, count) = turn::page_to_show((&mut self.nav, &mut self.wanted), &pages, turned);
         let slot = pages.get(page).map_or(0, |p| p.slot);
         let items = pages.get(page).map_or_else(
             || Ok(Vec::new()),
@@ -457,6 +464,7 @@ impl Dashboard {
             kept: Kept::of(host, &self.listing, display, &shown),
             handle: metrics.row.max(44),
             status,
+            footer_status: footer_status::FooterStatus::read(host),
             ring_room: look.first().map_or(0, |look| ring_room(&look.style)),
             look: RefCell::new(look),
         })
@@ -968,8 +976,10 @@ impl Dashboard {
             paperpaw_ui_kit::parts::bar_button(&mut below, font, style, rect, "+", false)?;
         }
         if let Some(nav) = self.nav {
-            for dot in dash::dots(laid.footer_area(), style.gap, laid.pages, nav.page) {
-                if laid.dots {
+            // Editing, the dots show which page is being arranged, whatever
+            // the setting says (Beta 3).
+            if laid.dots || self.editing {
+                for dot in dash::dots(laid.footer_area(), style.gap, laid.pages, nav.page) {
                     self::dot(&mut below, &dot, style)?;
                 }
             }
@@ -981,6 +991,7 @@ impl Dashboard {
             ring(&mut above, target.rect, style)?;
         }
         paint::replay_icons(frame, font, fonts.icons, below.iter())?;
+        self.draw_footer_status(host, ui, frame, (font, style, laid))?;
         Self::compose_widgets(host, ui, &self.listing, frame, laid)?;
         paint::replay(frame, font, above.iter())
     }

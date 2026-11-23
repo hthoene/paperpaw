@@ -53,9 +53,10 @@ pub(crate) struct SyncShell {
     offered: bool,
 }
 
-/// The user's files (wire root 1), read only.
-struct Card<'h, 'cb> {
-    host: &'h Host<'cb>,
+/// The user's files (wire root 1), read only: the books, and what is
+/// imported from them.
+pub(crate) struct Card<'h, 'cb> {
+    pub(crate) host: &'h Host<'cb>,
 }
 
 impl Storage for Card<'_, '_> {

@@ -92,10 +92,11 @@ impl Open {
                 kind: InputGestureKind::Tap,
                 ..
             } => (Some(position), None),
+            // The bottom line, or the top one where there is none below.
             Input::Action {
                 action: "reader.next-status-line",
                 ..
-            } => (None, Some(false)),
+            } => (None, None),
             Input::Action {
                 action: "reader.next-top-status-line",
                 ..

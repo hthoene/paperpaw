@@ -517,16 +517,18 @@ impl crate::Kernel {
         self.native_setting_waits()
     }
 
-    /// Whether an event waits for a plugin that can be told it: a parked
-    /// plugin waiting to be made asks for no pass of its own (its start's
-    /// time wakes the kernel, `parked_start_at`). What the pump returns and
-    /// what [`Self::service_due`] asks, so that one that cannot be made now
-    /// keeps no device awake (#483). No allocation; a table in use says no.
+    /// Whether an event waits for a plugin that can be told it, or made to
+    /// be told it: a parked plugin already asked to start asks for no pass of
+    /// its own (its start's time wakes the kernel, `parked_start_at`), one
+    /// nothing tried to make yet does (an event raised after the pump ran).
+    /// What the pump returns and what [`Self::service_due`] asks, so that one
+    /// that cannot be made now keeps no device awake (#483). No allocation; a
+    /// table in use says no.
     pub(crate) fn native_setting_waits(&self) -> bool {
         let events = &self.shared.native_instances.setting_events;
         (0..events.waiting_count())
             .filter_map(|n| events.waiting_nth(n))
-            .any(|owner| !self.native_parked(owner))
+            .any(|owner| !self.native_start_waits(owner))
     }
 
     /// Tells `owner` its oldest event; `false` when it had none. A queue left

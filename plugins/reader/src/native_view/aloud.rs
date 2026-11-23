@@ -65,7 +65,9 @@ pub(super) struct Stage<'a, 'h> {
 impl Pages for Stage<'_, '_> {
     fn with_page<R>(&mut self, start: Place, f: impl FnOnce(&Page) -> R) -> Result<R, Error> {
         if self.setup.is_none() {
-            self.setup = Some(Setup::read(self.host)?);
+            // The settings kept for the book (`Kept`), not read anew for every
+            // sentence read aloud.
+            self.setup = Some(self.open.settings.setup(self.host)?);
         }
         let setup = self.setup.as_ref().ok_or(Error::State)?;
         if start == self.open.at {
