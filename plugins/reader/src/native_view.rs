@@ -1421,6 +1421,8 @@ pub(crate) use preparing::failed_message;
 mod ribbon;
 mod script_hint;
 mod setup;
+mod skim;
+pub use skim::Place as SkimPlace;
 pub(crate) use handover::{Handover, read_handover};
 use helpers::{book_language, document_error_kind, redraw, say};
 use preparing::{Preparing, open_request, publisher_styles};

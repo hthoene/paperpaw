@@ -10,6 +10,7 @@ use crate::{
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use paperpaw_sdk::{
+    decorations::Decoration,
     layout::{BookStyles, Style},
     native::{
         Error, Host,
@@ -60,6 +61,10 @@ struct State {
     tables: Option<Tables>,
     /// Where the words met may be broken (`Breaks`).
     breaks: Option<Breaks>,
+    /// The looks of a highlight and of a search hit (`native_marks::read_looks`):
+    /// some fourteen settings, not read again for every draw of a page with
+    /// marks (and every step of a selection).
+    marks: Option<(Decoration, Decoration)>,
 }
 
 impl Kept {
@@ -176,6 +181,22 @@ impl Kept {
     /// A setting changed: the next read asks the host.
     pub(super) fn forget(&self) {
         *self.0.borrow_mut() = State::default();
+    }
+
+    /// The looks of a highlight and of a search hit: kept, or read (and kept
+    /// where both were read).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub(super) fn mark_looks(&self, host: &Host<'_>) -> Result<(Decoration, Decoration), Error> {
+        if let Some(looks) = self.0.borrow().marks {
+            return Ok(looks);
+        }
+        let (looks, whole) = crate::native_marks::read_looks(host)?;
+        if whole {
+            self.0.borrow_mut().marks = Some(looks);
+        }
+        Ok(looks)
     }
 }
 
