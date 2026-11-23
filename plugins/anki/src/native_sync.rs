@@ -5,7 +5,9 @@
 //! 1. the answers waiting (`answers.txt`) go to Anki with `answerCards`, at
 //!    most [`ANSWERS_PER_REQUEST`] at a time; those Anki took leave the queue
 //!    at once, and the cards of the last sync (their schedule has changed in
-//!    Anki) are dropped;
+//!    Anki) are dropped. Those of a request that ended with no word whether
+//!    Anki took them are let go at the next sync, not sent twice
+//!    ([`store::let_go_unconfirmed`]);
 //! 2. the cards due, then new ones up to the setting, are looked up
 //!    (`findCards`, the first [`MAX_CARDS`]) and fetched in small batches
 //!    (`cardsInfo`) into `cards.new`, which replaces `cards.txt` when all
@@ -30,7 +32,7 @@ use crate::native_anki::{
     ANSWERS_PER_REQUEST, Answered, Body, Cards, Fault, INFO_BATCH, Ids, MAX_CARDS, Names, Reply,
     Which, query,
 };
-use crate::native_cards::{self as store, ANSWERS, CARDS, NEW};
+use crate::native_cards::{self as store, ANSWERS, CARDS, NEW, SENDING};
 use crate::native_keep::Secret;
 
 /// The plugin's own number of its one request, in its `http_done` event.
@@ -198,7 +200,11 @@ impl Sync {
                 let body = Body::deck_names(key(&run))?;
                 Self::post(link, &mut run, &body)
             }
-            Mode::Sync => Self::send_answers(link, &mut run),
+            Mode::Sync => match store::let_go_unconfirmed(link.volume()) {
+                Ok(()) => Self::send_answers(link, &mut run),
+                Err(Error::NoMemory) => Err(Error::NoMemory),
+                Err(_) => Ok(Some(Finish::said("anki.unreadable"))),
+            },
         };
         self.settle(link, run, step)
     }
@@ -288,6 +294,9 @@ impl Sync {
 
     fn advance(link: &mut dyn Link, run: &mut Run, done: &Done) -> Result<Option<Finish>, Error> {
         if let Some(key) = ended_badly(done) {
+            if run.phase == Phase::Send && !may_have_reached(done) {
+                store::discard(link.volume(), SENDING);
+            }
             return Ok(Some(Self::over(link, run, key)));
         }
         match run.phase {
@@ -322,7 +331,17 @@ impl Sync {
         run.phase = Phase::Send;
         run.batch = answers.len();
         let body = Body::answer_cards(key(run), &answers)?;
-        Self::post(link, run, &body)
+        match store::mark_sending(link.volume(), &answers) {
+            Ok(()) => {}
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => return Ok(Some(Self::over(link, run, "anki.unreadable"))),
+        }
+        let step = Self::post(link, run, &body);
+        if run.pending.is_none() {
+            // Not sent.
+            store::discard(link.volume(), SENDING);
+        }
+        step
     }
 
     fn sent(link: &mut dyn Link, run: &mut Run, done: &Done) -> Result<Option<Finish>, Error> {
@@ -331,11 +350,18 @@ impl Sync {
             .or_else(forgive)?;
         match reading.finish()? {
             Reply::Ok(_) => {}
-            Reply::Fault(fault) => return Ok(Some(Self::fault(link, run, fault))),
+            Reply::Fault(fault) => {
+                store::discard(link.volume(), SENDING);
+                return Ok(Some(Self::fault(link, run, fault)));
+            }
             Reply::Unknown => return Ok(Some(Self::over(link, run, "anki.bad-reply"))),
         }
         // Anki took them (a card it no longer has is not taken, and not kept).
-        match store::drop_first(link.volume(), run.batch) {
+        // The mark goes after them: were it left, the queue no longer begins
+        // with what it names.
+        match store::drop_first(link.volume(), run.batch)
+            .and_then(|()| store::remove(link.volume(), SENDING))
+        {
             Ok(()) => {}
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => return Ok(Some(Self::over(link, run, "anki.unreadable"))),
@@ -488,6 +514,23 @@ fn forgive(error: Error) -> Result<(), Error> {
         Error::NoMemory => Err(Error::NoMemory),
         _ => Ok(()),
     }
+}
+
+/// Whether a request that ended without an answer read may have reached Anki
+/// all the same: anything but one that found no way there, or was answered
+/// with an error status.
+fn may_have_reached(done: &Done) -> bool {
+    !matches!(
+        done.reason,
+        Reason::Ok
+            | Reason::NoNetwork
+            | Reason::Dns
+            | Reason::Tls
+            | Reason::Refused
+            | Reason::Offline
+            | Reason::Saving
+            | Reason::NetworkOff
+    )
 }
 
 /// The text for a request that did not end in an answer of AnkiConnect.

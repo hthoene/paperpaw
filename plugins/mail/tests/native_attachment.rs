@@ -158,7 +158,7 @@ fn the_saves_are_kept_beside_the_letter_and_read_back() {
         )
     );
     storage.write("m1.eml", message.as_bytes()).unwrap();
-    let letter = store::make_letter(&storage, "m1.eml", "m1.txt").unwrap();
+    let letter = store::make_letter(&storage, "m1.eml", "m1.txt", 0).unwrap();
     assert_eq!(letter.attachments.len(), 1);
     let saves = store::read_saves(&storage, "m1.txt").unwrap();
     assert_eq!(saves, [Save::of("2", "Tiny Book.epub")]);
@@ -169,7 +169,7 @@ fn the_saves_are_kept_beside_the_letter_and_read_back() {
             format!("{}hello\r\n", head("text/plain")).as_bytes(),
         )
         .unwrap();
-    store::make_letter(&storage, "m1.eml", "m1.txt").unwrap();
+    store::make_letter(&storage, "m1.eml", "m1.txt", 0).unwrap();
     assert!(store::read_saves(&storage, "m1.txt").unwrap().is_empty());
     assert!(storage.size("m1.att").is_err());
     // A file that is not as it was written reads as none.
