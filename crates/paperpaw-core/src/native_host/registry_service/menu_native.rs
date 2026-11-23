@@ -169,7 +169,7 @@ impl<'a> Native<'a> {
         if failed {
             return None;
         }
-        out.sort_unstable();
+        paperpaw_sort::sort_unstable(&mut out);
         out.dedup();
         Some(out)
     }
@@ -413,7 +413,7 @@ impl<'a> Native<'a> {
         if failed {
             return None;
         }
-        out.sort_unstable();
+        paperpaw_sort::sort_unstable(&mut out);
         out.dedup();
         Some(out)
     }
