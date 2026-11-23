@@ -351,6 +351,27 @@ fn work_due_waits_while_a_press_is_still_to_be_told() {
 }
 
 #[test]
+fn work_due_is_not_held_by_a_thumb_resting_at_a_side() {
+    use crate::input::Edge;
+    use paperpaw_platform::{Point, PointerEvent, PointerPhase, PointerTool};
+    let mut w = world();
+    w.declare(0, &spec("step", 5));
+    // A thumb holding the device at its side: never a long press, so it
+    // holds no work however long it rests there.
+    let down = PointerEvent::new(
+        0,
+        PointerPhase::Down,
+        Point::new(0, 400),
+        PointerTool::Finger,
+        1000,
+    );
+    let recognizer = &mut w.kernel.input.recognizer;
+    recognizer.follow_edge(&down, Instant(1_000), Edge::Side);
+    w.pump();
+    assert_eq!(w.told(0), [due(5, why::TIME, "step", true)]);
+}
+
+#[test]
 fn work_due_in_an_inputs_call_runs_in_the_next_pass_after_its_frame() {
     use paperpaw_platform::{ButtonState, InputEvent};
     let mut w = world();
