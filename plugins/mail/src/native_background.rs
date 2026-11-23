@@ -123,8 +123,9 @@ impl NativeMail {
     }
 
     /// The connection of the round moved on: once it ended, the next account
-    /// (one that failed or whose server is not trusted holds up no other; a
-    /// pinned key is asked about only on the screens).
+    /// (one that failed of its own or whose server is not trusted holds up no
+    /// other; a pinned key is asked about only on the screens), or none where
+    /// the device failed ([`Round::checked`]).
     pub(crate) fn background_progressed(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let Some(round) = &mut self.background else {
             return Ok(());

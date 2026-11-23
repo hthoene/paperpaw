@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use paperpaw_core::sdk::{MemoryStorage, Storage};
+use paperpaw_core::sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 use paperpaw_core::{Effects, HttpCall, HttpResponse};
 use paperpaw_emulator::device::Device;
 use paperpaw_emulator::headless::run_script;
@@ -185,20 +185,27 @@ impl Shop {
 
     /// As [`on`](Self::on), the answer for the address `held` coming late.
     fn holding(card: MemoryStorage, plugins: &[Offered], held: Option<String>) -> Self {
-        let card = Rc::new(
-            card.with(".paperpaw/plugins/setup/done", "")
-                .with("paperpaw.ini", SETTINGS),
-        );
-        let library = Library::default();
-        serve(&library, plugins);
-        set_route(Some(Box::new(Recorded {
-            library: library.clone(),
-            held,
-            waiting: None,
-        })));
-        paperpaw_emulator::budget::override_limit(None);
-        let profile = profiles::find("xteink-x4").expect("the X4 profile");
-        let mut device = Device::in_memory(profile, None, card.clone(), true, None).unwrap();
+        let card = set_up(card);
+        let library = answering(plugins, held);
+        let device = Device::in_memory(x4(), None, card.clone(), true, None).unwrap();
+        Self::started(device, card, library)
+    }
+
+    /// As [`on`](Self::on), on a card that refuses every change once the test
+    /// says it is full ([`FullCard::full`]).
+    fn on_full_card(card: MemoryStorage, plugins: &[Offered]) -> (Self, Rc<FullCard>) {
+        let files = set_up(card);
+        let full = Rc::new(FullCard {
+            files: files.clone(),
+            full: Cell::new(false),
+            refused: RefCell::default(),
+        });
+        let library = answering(plugins, None);
+        let device = Device::on_storage(x4(), full.clone(), true).unwrap();
+        (Self::started(device, files, library), full)
+    }
+
+    fn started(mut device: Device, card: Rc<MemoryStorage>, library: Library) -> Self {
         device.start();
         let mut shop = Self {
             device,
@@ -269,6 +276,105 @@ impl Shop {
             self.keys("run:core.down");
         }
         panic!("{label} is not on the screen: {}", self.shown());
+    }
+}
+
+/// `card` with [`SETTINGS`] and the setup done.
+fn set_up(card: MemoryStorage) -> Rc<MemoryStorage> {
+    Rc::new(
+        card.with(".paperpaw/plugins/setup/done", "")
+            .with("paperpaw.ini", SETTINGS),
+    )
+}
+
+/// The library serving `plugins`, the answer for the address `held` coming
+/// late.
+fn answering(plugins: &[Offered], held: Option<String>) -> Library {
+    let library = Library::default();
+    serve(&library, plugins);
+    set_route(Some(Box::new(Recorded {
+        library: library.clone(),
+        held,
+        waiting: None,
+    })));
+    paperpaw_emulator::budget::override_limit(None);
+    library
+}
+
+fn x4() -> &'static profiles::Profile {
+    profiles::find("xteink-x4").expect("the X4 profile")
+}
+
+/// A card that refuses every change while it is `full`; the paths refused, in
+/// order.
+struct FullCard {
+    files: Rc<MemoryStorage>,
+    full: Cell<bool>,
+    refused: RefCell<Vec<String>>,
+}
+
+impl FullCard {
+    fn change(&self, path: &str) -> Result<(), StorageError> {
+        if self.full.get() {
+            self.refused.borrow_mut().push(path.to_string());
+            Err(StorageError::Full)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Storage for FullCard {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.files.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.files.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.change(path)?;
+        self.files.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.change(path)?;
+        self.files.append(path, data)
+    }
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        self.change(path)?;
+        self.files.write_at(path, offset, data)
+    }
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        self.change(path)?;
+        self.files.truncate(path, len)
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.files.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.change(path)?;
+        self.files.remove(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.change(from)?;
+        self.files.rename(from, to)
+    }
+    fn create_dir(&self, path: &str) -> Result<(), StorageError> {
+        self.change(path)?;
+        self.files.create_dir(path)
+    }
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.change(path)?;
+        self.files.remove_dir_all(path)
+    }
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.files.entry_identity(path)
+    }
+    fn free_space(&self) -> Option<u64> {
+        if self.full.get() {
+            Some(0)
+        } else {
+            self.files.free_space()
+        }
     }
 }
 
@@ -362,4 +468,49 @@ fn update_all_says_nothing_of_a_plugin_whose_page_did_not_come() {
     assert!(!shown.contains("could not be downloaded"), "{shown}");
     assert!(!shop.card.exists(&format!("{STORE}queue.txt")));
     assert!(shop.card.exists("plugins/pack-a/plugin.ini"));
+}
+
+/// #495: a card that refuses the queue (full) gives no plugin its turn. The
+/// turn it did not keep was given again by the queue read next: the store
+/// asked for the same page for ever, inside one call where the request failed
+/// at once (the device hung), else at each answer (here: each poll, the page
+/// refused by the card each time).
+#[test]
+fn a_full_card_gives_no_turn_and_the_store_still_opens() {
+    let (done, ended) = std::sync::mpsc::channel();
+    // The store's own thread: a loop that never ends is told by the clock.
+    std::thread::spawn(move || {
+        let newer = Offered::data("pack-a", "Pack A", "1.1.0");
+        let (mut shop, card) = Shop::on_full_card(card_with_pack_a("1.0.0"), &[newer]);
+        // The library was listed once, while the card had room.
+        shop.keys("run:store.open");
+        shop.settle(2000);
+        for _ in 0..3 {
+            shop.keys("run:core.back");
+        }
+        assert!(!shop.screen().starts_with("store."), "{}", shop.shown());
+        shop.card
+            .write(&format!("{STORE}queue.txt"), b"pack-a\n")
+            .unwrap();
+        card.full.set(true);
+        shop.keys("run:store.open");
+        shop.settle(3000);
+        let pages = card
+            .refused
+            .borrow()
+            .iter()
+            .filter(|path| path.contains("queue-pack-a"))
+            .count();
+        let _ = done.send((pages, shop.screen()));
+    });
+    let (pages, screen) = match ended.recv_timeout(Duration::from_secs(120)) {
+        Ok(seen) => seen,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("the store hung"),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("the run failed"),
+    };
+    assert_eq!(
+        pages, 0,
+        "the page was asked for though the queue is not kept"
+    );
+    assert_eq!(screen, "store.list");
 }

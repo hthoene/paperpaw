@@ -4,7 +4,9 @@
 //! connection are `native_background.rs`.
 use super::job::Run;
 use super::mem::{Error, push};
+use super::session::Failure;
 use alloc::vec::Vec;
+use paperpaw_sdk::native::sockets::Reason;
 
 /// The choices of the setting *How often*, as the translation keys the
 /// setting keeps them by, with the minutes each means.
@@ -38,6 +40,24 @@ pub fn minutes(choice: &str) -> u32 {
 #[must_use]
 pub fn every_ms(choice: &str) -> u32 {
     minutes(choice) * 60_000
+}
+
+/// Whether `failure` is the device's, not the account's.
+fn the_devices(failure: &Failure) -> bool {
+    matches!(
+        failure,
+        Failure::Network(
+            Reason::NoNetwork
+                | Reason::Offline
+                | Reason::Saving
+                | Reason::NetworkOff
+                | Reason::WorkEnded
+        ) | Failure::NoTls
+            | Failure::ClockNotSet
+            | Failure::Busy
+            | Failure::NoMemory
+            | Failure::Storage
+    )
 }
 
 /// One round of the background check: the accounts still to check, the one
@@ -77,12 +97,16 @@ impl Round {
     }
 
     /// The check of the account at the front ended as `run` says, or still
-    /// goes on (false). Whatever the end, the round goes on with the next
-    /// account: a password that is refused or a key that changed is that
-    /// account's alone.
+    /// goes on (false). The round goes on with the next account where the end
+    /// is that account's alone (a password that is refused, a key that
+    /// changed, its server not found); a failure of the device's (no network,
+    /// no clock, no memory) ends the round: each account after it would only
+    /// fail the same way, the radio on for each.
     pub fn checked(&mut self, run: &Run) -> bool {
         let ended = matches!(run, Run::Done | Run::Failed(_) | Run::Untrusted { .. });
-        if ended {
+        if matches!(run, Run::Failed(failure) if the_devices(failure)) {
+            self.queue.clear();
+        } else if ended {
             self.pass();
         }
         ended

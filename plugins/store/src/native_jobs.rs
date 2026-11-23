@@ -821,7 +821,13 @@ impl NativeStore {
             }
             let storage = DataStorage::new(host);
             let mut queue = Queue::read(&storage)?;
-            let Turn::FetchPage(id) = queue_next(&mut queue, &storage)? else {
+            let turn = match queue_next(&mut queue, &storage) {
+                // A card that refuses the queue (full) would give the same turn
+                // at every read: the queue waits for room, what asked is told.
+                Err(Error::Io) => return self.requests_failed(host),
+                turn => turn?,
+            };
+            let Turn::FetchPage(id) = turn else {
                 self.queue_ended(host, &queue)?;
                 return redraw(host);
             };
