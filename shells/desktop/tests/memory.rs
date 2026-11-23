@@ -440,9 +440,8 @@ fn starting_in_a_large_language_from_the_card_peaks_little_above_english() {
 /// 217.8 KiB, 230.3 KiB before. This build has more than the X4's
 /// (diagnostics, the store's plugins): in the X4's (the heap reference
 /// set, #248) the same case peaks at 193.6 KiB, 206.1 before, 63.9 KB
-/// below its 256 KiB. 222.9 KiB since #493 and #489 (221.9 before them, 222.8
-/// with #493's `Screens` of two lists, bisected over the landings of #4954).
-const INDIC_PEAK_KIB: f64 = 222.9;
+/// below its 256 KiB.
+const INDIC_PEAK_KIB: f64 = 222.0;
 
 /// The packs of Bengali and Devanagari letters (#157) as the store's are
 /// made (`tools/script-pack.py`): a regular and a bold pack of each, at the
@@ -685,9 +684,7 @@ const INSTALL_GROWTH_KIB: f64 = 13.8;
 // the store's queue goes on when the store opens, so the reader's request for a
 // plugin the library lacks (`hyphenation-de`) is answered before the install,
 // not during it, and the page step before it ends 0.2 KiB lower.
-// 3.2 KiB since #493 (3.1: `Screens` keeps its instances in a list of their own)
-// and #489 (3.2), bisected over the landings of #4954.
-const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 3.2), ("install2", 0.9)];
+const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 3.0), ("install2", 0.9)];
 
 /// The run prints tenths of a KiB, and the difference of two of them is not
 /// exact as a float (137.3 - 123.7 is 13.600000000000009): half a tenth is
