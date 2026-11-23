@@ -378,6 +378,18 @@ pub fn replay_icons<'a>(
     icons: Option<&Font<'_>>,
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
+    replay_from(frame, font, icons, &mut ops.into_iter())
+}
+
+/// What [`replay_icons`] does, for every kind of list of operations: one
+/// function, not one per kind a caller has (a slice, two chained, #501).
+#[inline(never)]
+fn replay_from(
+    frame: &mut DrawFrame<'_>,
+    font: &Font<'_>,
+    icons: Option<&Font<'_>>,
+    ops: &mut dyn Iterator<Item = &Paint>,
+) -> Result<(), Error> {
     let (clip_top, clip_bottom) = band_rows(
         frame.purpose == DrawPurpose::Widget,
         frame.rect.y,
