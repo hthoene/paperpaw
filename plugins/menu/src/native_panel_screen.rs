@@ -995,31 +995,42 @@ impl PanelView {
 
     /// The setting's list, editor or page.
     fn open_setting(&self, part: &Part) -> Result<Outcome, Error> {
-        let Some(info) = &part.info else {
-            return Ok(Outcome::Handled(Handled::Yes));
-        };
-        Ok(match model::act(info, false, true)? {
-            model::Act::Screen(screen) => Outcome::Screen {
-                screen,
-                key: copy(&info.key)?,
-            },
-            model::Act::Slot(slot) => Outcome::SettingSlot {
-                slot,
-                key: copy(&info.key)?,
-            },
-            model::Act::Values => Outcome::Slot {
-                slot: "core.choose-value",
-                param: "id",
-                value: copy(&info.key)?,
-            },
-            model::Act::Page => Outcome::Slot {
-                slot: "core.settings",
-                param: "focus",
-                value: copy(&info.key)?,
-            },
-            _ => Outcome::Handled(Handled::Yes),
-        })
+        match &part.info {
+            Some(info) => opens(info),
+            None => Ok(Outcome::Handled(Handled::Yes)),
+        }
     }
+}
+
+/// What a tap or Select on the row of `info` opens: its row shows a `›`, so
+/// it opens something. A choice of two, which lists and bars change in
+/// place, opens its list here too (the reading font with only the book's
+/// font and one other did nothing, #522), where more fonts are offered.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+fn opens(info: &SettingInfo) -> Result<Outcome, Error> {
+    Ok(match model::act(info, false, true)? {
+        model::Act::Screen(screen) => Outcome::Screen {
+            screen,
+            key: copy(&info.key)?,
+        },
+        model::Act::Slot(slot) => Outcome::SettingSlot {
+            slot,
+            key: copy(&info.key)?,
+        },
+        model::Act::Values | model::Act::Step => Outcome::Slot {
+            slot: "core.choose-value",
+            param: "id",
+            value: copy(&info.key)?,
+        },
+        model::Act::Page => Outcome::Slot {
+            slot: "core.settings",
+            param: "focus",
+            value: copy(&info.key)?,
+        },
+        model::Act::Nothing | model::Act::StartNumber => Outcome::Handled(Handled::Yes),
+    })
 }
 
 /// The room for a button's label: its width less the margin on each side
@@ -1107,6 +1118,31 @@ mod tests {
         // A refusal of the measure is passed on.
         let mut refused = |_: f32| Err(Error::NoMemory);
         assert_eq!(label_size(17.0, 20.0, &mut refused), Err(Error::NoMemory));
+    }
+
+    #[test]
+    fn a_choice_of_two_behind_an_arrow_opens_its_list() {
+        // The reading font with the book's font and one other (#522).
+        let font = SettingInfo {
+            key: copy("core.reading-font").unwrap(),
+            kind: SettingKind::Choice,
+            flags: 0,
+            value: None,
+            min: 0,
+            max: 0,
+            step: 1,
+            unit: String::new(),
+            editor_kind: 0,
+            editor: String::new(),
+            choices: 2,
+        };
+        let list = Outcome::Slot {
+            slot: "core.choose-value",
+            param: "id",
+            value: copy("core.reading-font").unwrap(),
+        };
+        assert_eq!(opens(&font).unwrap(), list);
+        assert_eq!(opens(&SettingInfo { choices: 5, ..font }).unwrap(), list);
     }
 
     #[test]
