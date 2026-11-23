@@ -329,6 +329,26 @@ fn an_account_that_fails_holds_up_none_of_the_others() {
     assert!(round.is_over());
 }
 
+/// #495: no network (or no clock, no memory) is the device's: the accounts
+/// after it are not tried, each waiting for the network with the radio on.
+#[test]
+fn a_failure_of_the_devices_ends_the_round() {
+    let _one = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+    for failure in [
+        Failure::Network(Reason::NoNetwork),
+        Failure::ClockNotSet,
+        Failure::NoMemory,
+    ] {
+        let mut round = Round::new(&[1, 2, 3]).unwrap();
+        assert!(round.checked(&Run::Failed(failure.clone())));
+        assert!(round.is_over(), "{failure:?}");
+    }
+    // A server that is not found is the account's own.
+    let mut round = Round::new(&[1, 2]).unwrap();
+    assert!(round.checked(&Run::Failed(Failure::Network(Reason::Dns))));
+    assert_eq!(round.front(), Some(2));
+}
+
 #[test]
 fn a_round_checks_one_account_after_the_other_and_leaves_what_the_widgets_read() {
     let _one = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);

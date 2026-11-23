@@ -319,20 +319,15 @@ impl Storage for ReadOnly {
     }
 }
 
+/// A turn the card does not keep is given again by the queue read next: none
+/// is given, or the store asks for the same plugin for ever (#495).
 #[test]
-fn the_turn_is_given_though_the_card_refuses_the_queue() {
+fn no_turn_is_given_where_the_card_refuses_the_queue() {
     use crate::native_queue::Mark;
     let storage = ReadOnly(MemoryStorage::new());
     let mut queue = Queue::default();
     queue.add(["alpha", "beta"], Mark::Quiet).unwrap();
-    assert_eq!(
-        next(&mut queue, &storage).unwrap(),
-        Next::FetchPage("alpha".into())
-    );
-    assert_eq!(
-        next(&mut queue, &storage).unwrap(),
-        Next::FetchPage("beta".into())
-    );
+    assert_eq!(next(&mut queue, &storage), Err(Error::Io));
 }
 
 #[test]

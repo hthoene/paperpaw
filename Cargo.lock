@@ -2488,7 +2488,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-mail"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2823,7 +2823,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.18"
+version = "1.0.19"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
