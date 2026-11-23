@@ -92,7 +92,9 @@ impl<V> Screens<V> {
     /// Forgets a closed instance.
     pub fn close(&mut self, instance: Instance) {
         if let Some(at) = forget(&mut self.ids, &mut self.tops, instance) {
-            self.views.remove(at);
+            // Dropped where it is: `Vec::remove` returns the state, a copy of
+            // it (up to a kilobyte) in the frame of each plugin's `event`.
+            self.views.drain(at..=at);
         }
     }
 
