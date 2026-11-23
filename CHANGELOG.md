@@ -3691,6 +3691,8 @@ change the plugin SDK.
   function, and the store sorts its installed plugins with the shared
   sorter. Nothing changes in what is shown or how fast.
 
+- Pictures in books on the X4: a page with pictures shows at once with its pictures in dots, and once the page has stayed for 5 seconds the screen is drawn again in four grays, once (#511). A page turn before then starts the wait anew for the next page; pages without pictures never wait. Follows the setting *Pictures in grays*. A small change with no key over a page in grays (the clock) shows with the next page.
+
 ### Fixed
 
 - `paperpaw-sqlite` never copies over a database: a storage that cannot move files is refused
@@ -5375,6 +5377,14 @@ change the plugin SDK.
   look as the key chosen with the buttons, so nobody could tell when it was
   selected. It now has a bold line and turns black only while selected, like
   every other key.
+
+- X4 and X3: the start log no longer warns of an "unknown setting" for settings of the plugins built into the firmware (such as `sleep.*` and `wifi.while-charging`): the warnings are logged once these plugins have declared their settings, so only settings nobody knows are reported (#509). The values were always applied.
+
+- **Books after the first are counted at the device's speed again** (#515).
+  On the X4 Pro and X4 Classic every book opened after the first one counted
+  its pages at the small X4's pace, a page a second for many minutes, and a
+  page turn often waited for one of these steps. Background work of any
+  plugin no longer runs between pressing a button and the action it makes.
 
 ## [0.6.0-beta.3] - 2026-11-05
 
