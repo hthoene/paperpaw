@@ -250,8 +250,6 @@ impl Network {
         // A connection kept for the next request goes before the heap is
         // looked at for a session that is wanted.
         self.calls.settle_idle(self.radio.net(), now.0);
-        #[cfg(feature = "ppn5")]
-        let mut scanned = false;
         let events = self.radio.poll();
         // The kernel's plugins answer these events at once: the bridge knows
         // the network they announce before (the setup with a phone serves
@@ -263,17 +261,15 @@ impl Network {
         for event in events {
             #[cfg(feature = "remote")]
             self.answer_asked(kernel, &event);
+            // The networks a scan found are op 9's before the kernel hears
+            // of the scan: the Wi-Fi plugin hears it inside that call and
+            // reads them there (a known network in reach is joined).
             #[cfg(feature = "ppn5")]
+            if let (paperpaw_core::WifiEvent::Scanned(found), Some(device)) = (&event, &self.device)
             {
-                scanned |= matches!(event, paperpaw_core::WifiEvent::Scanned(_));
+                crate::device_host::tell_scan(device, found);
             }
             effects.push(kernel.wifi_event(now, event));
-        }
-        // The networks the scan found, as the kernel keeps them (sorted, each
-        // name once), before its effects are carried out.
-        #[cfg(feature = "ppn5")]
-        if let (true, Some(device)) = (scanned, &self.device) {
-            crate::device_host::sync_networks(device, kernel);
         }
         #[cfg(feature = "bluetooth")]
         self.bluetooth

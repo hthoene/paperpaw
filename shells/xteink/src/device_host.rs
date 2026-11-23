@@ -180,27 +180,25 @@ pub fn tell_native(device: &X4Device, safe_mode: Option<&SafeMode>) {
 /// kernel answers `core.device` ops 8, 10, 11 and 12 from its own models
 /// (`Place::wifi`, `Place::bluetooth`, `Place::power`), also in the middle of a
 /// delivery pass, so no second copy is kept in step. Op 9 (the networks) is
-/// this shell's: [`sync_networks`].
+/// this shell's: [`tell_scan`].
 #[inline(never)]
 pub fn present(device: &X4Device, kernel: &paperpaw_core::Kernel) {
     let bluetooth = cfg!(feature = "bluetooth") && kernel.bluetooth_model().is_some();
     device.set_radios(kernel.wifi_model().is_some(), bluetooth);
 }
 
-/// Tells the device the networks the last scan found (the kernel's list: the
-/// strongest first, each name once). The rows are borrowed from the kernel;
-/// the list that is made for them is small and fallible.
+/// Tells the device the networks a scan found (`set_networks` keeps the
+/// strongest first, each name once, as the kernel does), before the kernel
+/// hears the scan: its plugins hear it inside that call and read op 9 there.
+/// The list that is made for the rows is small and fallible.
 #[inline(never)]
-pub fn sync_networks(device: &X4Device, kernel: &paperpaw_core::Kernel) {
-    let Some(wifi) = kernel.wifi_model() else {
-        return;
-    };
+pub fn tell_scan(device: &X4Device, found: &[paperpaw_core::WifiNetwork]) {
     let mut rows: alloc::vec::Vec<(&str, i32, bool)> = alloc::vec::Vec::new();
-    if rows.try_reserve_exact(wifi.networks.len()).is_err() {
+    if rows.try_reserve_exact(found.len()).is_err() {
         log::warn!("device: the networks found could not be kept");
         return;
     }
-    rows.extend(wifi.networks.iter().map(|network| {
+    rows.extend(found.iter().map(|network| {
         (
             network.ssid.as_str(),
             i32::from(network.signal),
