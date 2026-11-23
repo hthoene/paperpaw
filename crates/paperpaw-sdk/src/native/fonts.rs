@@ -134,7 +134,12 @@ impl<'cb> Font<'cb> {
     /// # Errors
     /// Returns Invalid for a key over 128 UTF-8 bytes, or the host refusal.
     pub fn acquire(host: &'cb Host<'cb>, key: impl AsRef<str>) -> Result<Self, Error> {
-        let key = key.as_ref();
+        Self::acquire_str(host, key.as_ref())
+    }
+
+    /// [`Self::acquire`] for `&str` only: one copy of the host call in the
+    /// image, however many key types and crates acquire.
+    fn acquire_str(host: &'cb Host<'cb>, key: &str) -> Result<Self, Error> {
         if key.len() > FONT_ACQUIRE_MAX_BYTES {
             return Err(Error::Invalid);
         }
@@ -172,7 +177,7 @@ impl<'cb> Font<'cb> {
         rest.copy_from_slice(path.as_bytes());
         // The prefix and the path are UTF-8, so is the whole.
         let key = core::str::from_utf8(slot).map_err(|_| Error::Invalid)?;
-        Self::acquire(host, key)
+        Self::acquire_str(host, key)
     }
 
     /// Acquire a font that follows the reader's selected role on each call.
@@ -180,7 +185,7 @@ impl<'cb> Font<'cb> {
     /// # Errors
     /// Returns the host refusal, including Full and NotFound.
     pub fn acquire_role(host: &'cb Host<'cb>, role: FontRole) -> Result<Self, Error> {
-        Self::acquire(host, role.font_role_key())
+        Self::acquire_str(host, role.font_role_key())
     }
 
     /// Measure text advance in pixels at a finite, positive font size.
@@ -221,7 +226,19 @@ impl<'cb> Font<'cb> {
         color: Color,
         text: impl AsRef<str>,
     ) -> Result<f32, Error> {
-        let text = text.as_ref();
+        self.render_str(canvas, size, origin, color, text.as_ref())
+    }
+
+    /// [`Self::render_text`] for `&str` only: one copy of the host call in
+    /// the image, however many text types and crates draw.
+    fn render_str(
+        &self,
+        canvas: &Canvas<'_>,
+        size: f32,
+        origin: TextOrigin,
+        color: Color,
+        text: &str,
+    ) -> Result<f32, Error> {
         let handle = self.drawable(canvas, size, origin, text)?;
         let target = canvas.host();
         let mut advance = 0.0;

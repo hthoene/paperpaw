@@ -137,13 +137,18 @@ impl SyncView {
         }
     }
 
+    /// The rows, and the help or the last message whole and centred below
+    /// them, as in Beta 3 (#481): a note at the bottom ends after four lines.
     pub(crate) fn draw(&mut self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
         self.list.draw_with(
             host,
             frame,
             "stats.sync.title",
             true,
-            Footer::Note(&self.message),
+            Footer::Empty {
+                title: "",
+                text: &self.message,
+            },
         )
     }
 

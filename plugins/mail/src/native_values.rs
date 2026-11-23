@@ -12,11 +12,41 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_ui_kit::mem::buffer;
 
-/// The longest text setting (a host name is at most 253 bytes).
+/// The longest text setting read on the stack (a host name is at most 253
+/// bytes).
 const TEXT: usize = 320;
+/// The longest value the host gives a setting, its header included: a text
+/// of up to 4,084 bytes (the settings wire's limit).
+const LONG_VALUE: usize = 4096;
 /// The input and the reply of a secrets call.
 const INPUT: usize = 1280;
 const REPLY: usize = 4096;
+
+/// Whether the switch `id` of this plugin is on; `default` (the declared one)
+/// where it holds no switch.
+///
+/// # Errors
+/// What the host says.
+pub(crate) fn switch(host: &Host<'_>, id: &str, default: bool) -> Result<bool, Error> {
+    let mut bytes = [0u8; 64];
+    Ok(match settings::read_setting(host, id, &mut bytes)? {
+        SettingValue::Bool(on) => on,
+        _ => default,
+    })
+}
+
+/// The text setting `id` of this plugin however long the reader made it (a
+/// signature), read on the heap; empty where it is unset.
+///
+/// # Errors
+/// [`Error::NoMemory`] and what the host says.
+pub(crate) fn long_text(host: &Host<'_>, id: &str) -> Result<String, Error> {
+    let mut bytes = buffer(LONG_VALUE)?;
+    match settings::read_setting(host, id, &mut bytes)? {
+        SettingValue::Text(text) => copy(text),
+        _ => Ok(String::new()),
+    }
+}
 
 /// The settings and the secrets of this plugin, for one reading.
 pub(crate) struct HostValues<'h> {

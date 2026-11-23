@@ -13,12 +13,13 @@ mod common;
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
-use common::{blocks, book};
+use common::{blocks, book, container, opf, xhtml, zip};
 use paperpaw_epub_family::EpubDocument;
-use paperpaw_sdk::document::{Block, Document, Locator};
+use paperpaw_sdk::document::{Block, BlockKind, Document, Locator};
 use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 
 const PATH: &str = "book.epub";
+const PNG: &[u8] = include_bytes!("../../../crates/paperpaw-image/tests/data/gray.png");
 
 /// A card as a format's cache is: no tree of it can be removed (the call
 /// is taken and does nothing, as the native cache root's). It notes the
@@ -29,6 +30,14 @@ struct Card {
     /// Path and length of each whole write.
     writes: RefCell<Vec<(String, usize)>>,
     appends: Cell<usize>,
+    /// Appends since the last flush (`sync`): a FAT card may keep them back.
+    unsynced: Cell<usize>,
+    /// The marks of a complete conversion (a chapter's `end`, the book's
+    /// `package.ini`) written, and those written over appends kept back.
+    marks: Cell<usize>,
+    early_marks: RefCell<Vec<String>>,
+    /// Appends to files whose path ends so are refused (a full card).
+    refused: Cell<Option<&'static str>>,
     left: Cell<Option<usize>>,
 }
 
@@ -38,6 +47,10 @@ impl Card {
             inner: MemoryStorage::new().with(PATH, book),
             writes: RefCell::new(Vec::new()),
             appends: Cell::new(0),
+            unsynced: Cell::new(0),
+            marks: Cell::new(0),
+            early_marks: RefCell::new(Vec::new()),
+            refused: Cell::new(None),
             left: Cell::new(None),
         }
     }
@@ -90,12 +103,26 @@ impl Storage for Card {
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         self.change()?;
         self.writes.borrow_mut().push((path.into(), data.len()));
+        if path.ends_with("/end") || path.ends_with("/package.ini") {
+            self.marks.set(self.marks.get() + 1);
+            if self.unsynced.get() > 0 {
+                self.early_marks.borrow_mut().push(path.into());
+            }
+        }
         self.inner.write(path, data)
     }
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         self.change()?;
+        if self.refused.get().is_some_and(|end| path.ends_with(end)) {
+            return Err(StorageError::Full);
+        }
         self.appends.set(self.appends.get() + 1);
+        self.unsynced.set(self.unsynced.get() + 1);
         self.inner.append(path, data)
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        self.unsynced.set(0);
+        Ok(())
     }
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         self.inner.list(dir, visit)
@@ -236,4 +263,71 @@ fn a_conversion_cut_off_anywhere_is_never_read_as_complete() {
             break;
         }
     }
+}
+
+/// A chapter's end mark and the book's `package.ini` are whole writes that
+/// call what was appended before them complete. A FAT card keeps appended
+/// bytes back until a flush, so each mark comes after one: a power cut
+/// never leaves a mark over files cut short.
+#[test]
+fn what_a_mark_calls_complete_reaches_the_card_before_it() {
+    let card = Card::with(book(&chapters(), &[]));
+    read(&card).unwrap();
+    // Three chapters and the package.
+    assert_eq!(card.marks.get(), 4);
+    assert_eq!(*card.early_marks.borrow(), Vec::<String>::new());
+}
+
+/// A picture whose note (`images.txt`, its size for the pages to be laid
+/// out) the card refuses leaves its chapter not complete: kept so, the
+/// picture would be its alternative text for good.
+#[test]
+fn a_chapter_whose_pictures_cannot_be_noted_is_not_complete() {
+    let body = String::from("<p>Before</p><img src=\"good.png\" alt=\"Good\"/>");
+    let card = Card::with(book(&[body], &[("OEBPS/good.png", PNG.to_vec())]));
+    card.refused.set(Some("/images.txt"));
+    assert_eq!(read(&card), None);
+    // With room again, the chapter is converted again, its picture noted.
+    card.refused.set(None);
+    let read = read(&card).unwrap();
+    let good = read.iter().find(|(_, block)| block.text == "Good").unwrap();
+    assert_eq!(good.1.kind, BlockKind::Image);
+}
+
+/// The printed pages the card refuses to list (`pages.txt`) fail the
+/// book's package: kept, the book would have no page labels for good.
+#[test]
+fn a_book_whose_printed_pages_cannot_be_listed_is_not_kept_without_them() {
+    let items = [
+        ("nav", "nav.xhtml", "application/xhtml+xml", "nav"),
+        ("c0", "c0.xhtml", "application/xhtml+xml", ""),
+    ];
+    let nav = "<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">\
+        <body><nav epub:type=\"page-list\"><ol><li><a href=\"c0.xhtml#p1\">1</a></li></ol></nav>\
+        </body></html>";
+    let epub = zip(
+        &[
+            (
+                "META-INF/container.xml",
+                container("OEBPS/content.opf").into_bytes(),
+            ),
+            (
+                "OEBPS/content.opf",
+                opf("<dc:title>Pages</dc:title>", &items, &["c0"]).into_bytes(),
+            ),
+            ("OEBPS/nav.xhtml", nav.as_bytes().to_vec()),
+            ("OEBPS/c0.xhtml", xhtml("<p id=\"p1\">One</p>").into_bytes()),
+        ],
+        false,
+    );
+    let card = Card::with(epub);
+    card.refused.set(Some("/pages.txt"));
+    assert_eq!(read(&card), None);
+    card.refused.set(None);
+    let doc = EpubDocument::open(&card, PATH).unwrap();
+    let [(_, block)] = &blocks(&doc, &card)[..] else {
+        panic!("one block");
+    };
+    let label = doc.page_label(&card, Locator::new(0, block.start));
+    assert_eq!(label.as_deref(), Some("1"));
 }

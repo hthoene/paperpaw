@@ -13,7 +13,7 @@
 )]
 mod fakes;
 use fakes::services::*;
-use paperpaw_native::host_glue::ERR_NO_MEMORY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_plugin_opds::native_browse::{Browser, Row};
 use paperpaw_plugin_opds::native_catalogs::Catalog;
 use paperpaw_plugin_opds::native_keep::Secret;
@@ -527,6 +527,10 @@ fn what_goes_wrong_is_said() {
         (0, 4, "FailedHost(\"www.gutenberg.org\")"),
         (0, 2, "FailedHost(\"www.gutenberg.org\")"),
         (0, 3, "CertificateUnknown"),
+        // Too large, the card failing or full: no word of the Wi-Fi.
+        (0, 6, "TooLarge"),
+        (0, 9, "CardFull"),
+        (0, 10, "CardFull"),
         (0, 1, "NoNetwork"),
         (0, 11, "NoNetwork"),
         (0, 12, "NoNetwork"),
@@ -822,6 +826,48 @@ fn searches_by_description_first_ask_where_to_search() {
         .event(DONE, &done(2, web::DESCRIPTION, 200, 0))
         .unwrap();
     assert!(seen().last().unwrap().starts_with("NoSearch"));
+    drop(plugin);
+}
+
+#[test]
+fn back_lets_go_of_a_search_description_still_asked_for() {
+    let host = ScriptedHost::new();
+    setup(&host, START_URL);
+    let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
+    opened(&plugin, ROOT);
+    activate(&plugin, 0);
+    log();
+    seen();
+    plugin.event(BACK, &nothing()).unwrap();
+    assert_eq!(log(), ["cancel #2"]);
+    let shown = seen();
+    assert!(shown.iter().any(|l| l == "back Nothing"), "{shown:?}");
+    assert!(shown.last().unwrap().starts_with("Empty"), "{shown:?}");
+    // Its answer, should it come all the same, asks for no words.
+    put(
+        "description.tmp",
+        br#"<OpenSearchDescription><Url type="application/atom+xml" template="/s?q={searchTerms}"/></OpenSearchDescription>"#,
+    );
+    plugin
+        .event(DONE, &done(2, web::DESCRIPTION, 200, 0))
+        .unwrap();
+    assert!(!seen().iter().any(|l| l == "asks for words"));
+    drop(plugin);
+}
+
+#[test]
+fn a_busy_network_says_so_and_not_to_check_the_wi_fi() {
+    let host = ScriptedHost::new();
+    setup(&host, START_URL);
+    let plugin = host.load(PROBE_ENTRY.entry()).unwrap();
+    opened(&plugin, ROOT);
+    log();
+    seen();
+    host.reset_counts();
+    host.refuse_from(Slot::ServiceCall, 1, ERR_BUSY);
+    activate(&plugin, 1);
+    let shown = seen();
+    assert!(shown.last().unwrap().starts_with("Busy"), "{shown:?}");
     drop(plugin);
 }
 

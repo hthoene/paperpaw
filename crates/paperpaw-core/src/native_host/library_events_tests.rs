@@ -214,3 +214,21 @@ fn the_catalog_the_kernel_made_is_told_as_books_and_walk() {
     assert_eq!(told[0].0, BOOKS | WALK);
     assert_eq!(told[0].2, "");
 }
+
+/// The kernel noted the status of a book closed or finished beside the
+/// catalog, which gives it a new generation: the native views hear status
+/// changed, or a list read before the note keeps stale handles and finds no
+/// covers (#480).
+#[test]
+fn a_book_closed_or_finished_is_told_as_status() {
+    use paperpaw_sdk::builtin::events::{BOOK_CLOSED, BOOK_FINISHED};
+    for event in [BOOK_CLOSED.id(), BOOK_FINISHED.id()] {
+        let mut w = world();
+        w.kernel
+            .emit_from(event, &paperpaw_sdk::Params::default(), None, false);
+        pump(&mut w);
+        let told = w.heard.borrow().clone();
+        assert_eq!(told.len(), 1, "{event:?}");
+        assert_eq!(told[0].0, STATUS, "{event:?}");
+    }
+}

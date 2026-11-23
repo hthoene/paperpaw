@@ -132,16 +132,58 @@ impl ImageSink for AlphaWriter<'_> {
     }
 
     fn row(&mut self, gray: &[u8]) -> Result<(), ImageError> {
-        self.room(gray.len() * 2)?;
-        for &g in gray {
-            self.buffer.extend_from_slice(&[g, 255]);
+        // A piece at a time that fits the room taken at the start: a row
+        // longer than that is not grown into.
+        for piece in gray.chunks((self.buffer.capacity() / 2).max(1)) {
+            self.room(piece.len() * 2)?;
+            for &g in piece {
+                self.buffer.extend_from_slice(&[g, 255]);
+            }
         }
         Ok(())
     }
 
     fn row_alpha(&mut self, gray_alpha: &[u8]) -> Result<(), ImageError> {
         self.room(gray_alpha.len())?;
+        if gray_alpha.len() > self.buffer.capacity() {
+            // Longer than the room taken at `start`: written as it is
+            // rather than grown into.
+            return self
+                .storage
+                .append(self.path, gray_alpha)
+                .map_err(|_| ImageError::Io);
+        }
         self.buffer.extend_from_slice(gray_alpha);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::color::tests::OneFile;
+
+    /// Rows with and without transparency longer than the room taken at
+    /// the start are written without growing it, and read back whole.
+    #[test]
+    fn longer_rows_are_written_without_growing() {
+        let storage = OneFile::default();
+        let mut alpha = AlphaWriter::new(&storage, "a.ppga");
+        alpha.start(1, 4).unwrap();
+        let room = alpha.buffer.capacity();
+        let long = room / 2 + 1;
+        let mut wide = alloc::vec![0u8; 2 * long];
+        wide.iter_mut().enumerate().for_each(|(i, b)| *b = i as u8);
+        let gray: Vec<u8> = (0..long).map(|i| i as u8).collect();
+        alpha.row_alpha(&[1, 2]).unwrap();
+        alpha.row_alpha(&wide).unwrap();
+        alpha.row(&gray).unwrap();
+        alpha.row(&[4]).unwrap();
+        assert_eq!(alpha.buffer.capacity(), room);
+        alpha.finish().unwrap();
+        let data = storage.0.borrow();
+        let opaque: Vec<u8> = gray.iter().flat_map(|&g| [g, 255]).collect();
+        let rows = [&[1, 2][..], &wide, &opaque, &[4, 255]].concat();
+        assert_eq!(&data[12..], &rows[..]);
     }
 }

@@ -1,5 +1,5 @@
 //! Named icons: the character an icon name stands for in the bound icon font.
-use crate::native::{Error, Host, declare::records_wire as wire};
+use crate::native::{Error, Host, declare::records_wire as wire, ui::navigation::is_id_byte};
 use paperpaw_native::host_glue::{PpBuffer, PpBytes};
 
 /// The longest UTF-8 encoding of one character.
@@ -26,12 +26,15 @@ impl IconGlyph {
     /// (show text instead, as menus do), and Unsupported on a host that has not
     /// wired the slot.
     pub fn named(host: &Host<'_>, name: impl AsRef<str>) -> Result<Self, Error> {
-        let name = name.as_ref();
+        Self::named_str(host, name.as_ref())
+    }
+
+    /// [`Self::named`] for `&str` only: one copy of the host call in the
+    /// image, however many name types and crates ask.
+    fn named_str(host: &Host<'_>, name: &str) -> Result<Self, Error> {
         if name.is_empty()
             || name.len() > wire::ICON_SPEC_ICON_MAX_BYTES
-            || !name
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            || !name.bytes().all(is_id_byte)
         {
             return Err(Error::Invalid);
         }

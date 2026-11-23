@@ -262,10 +262,12 @@ impl<'w> TextAnswer<'w> {
         self.push(&text::Record::TextInsert(row))
     }
 
-    /// The bytes the answer took, for `Reply::write_with`.
+    /// The bytes the answer took, for `Reply::write_with`; an answer of no
+    /// records is one too (the plugin has nothing to add).
     ///
     /// # Errors
-    /// `Invalid` where the writer is broken.
+    /// None in practice: `Invalid` would be rows past the cap, which each
+    /// record call refuses first.
     pub fn finish(self) -> Result<usize, Error> {
         self.writer.finish().map_err(status)
     }
@@ -663,10 +665,12 @@ impl<'w> LayerAnswer<'w> {
         self.push(&layer::Record::LayerText(row))
     }
 
-    /// The bytes the answer took, for `Reply::write_with`.
+    /// The bytes the answer took, for `Reply::write_with`; an answer of no
+    /// records is one too (the plugin has nothing to add).
     ///
     /// # Errors
-    /// `Invalid` where the writer is broken.
+    /// None in practice: `Invalid` would be rows past the cap, which each
+    /// record call refuses first.
     pub fn finish(self) -> Result<usize, Error> {
         self.writer.finish().map_err(status)
     }

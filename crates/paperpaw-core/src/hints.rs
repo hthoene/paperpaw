@@ -27,6 +27,9 @@ pub(crate) struct HintRow {
     pub pressed: Option<usize>,
     /// What the row shows, as it was last drawn.
     pub shown: Vec<Hint>,
+    /// Where it was last drawn: drawn over again once the row is gone, by its
+    /// time or not (an overlay that hides the row, a screen closed, #483).
+    pub drawn: Option<Rect>,
     /// Until when the row shows over a screen that has it only on a press.
     pub until: Option<Instant>,
 }
@@ -38,6 +41,7 @@ impl HintRow {
             height: 0,
             pressed: None,
             shown: Vec::new(),
+            drawn: None,
             until: None,
         }
     }
@@ -87,7 +91,14 @@ impl Kernel {
         if self.hint.height == 0 || self.base_hints() != HintVisibility::OnPress {
             return;
         }
+        let showing = self.hint_row().is_some();
         self.hint.until = Some(self.shared.now.add_millis(HINTS_MS));
+        // A row that shows already shows longer, drawn as it is: what it says
+        // is compared once the press is handled (`finish_frame`), with no
+        // refresh of its own at each press (#483).
+        if showing {
+            return;
+        }
         self.hint.shown.clear();
         self.redraw_hint_place();
         // The row lies over the page's text, which a quicker waveform
@@ -106,6 +117,10 @@ impl Kernel {
             return;
         }
         self.hint.until = None;
+        // A screen on top that keeps the row (a menu) keeps it as it is.
+        if self.hint_row().is_some() {
+            return;
+        }
         self.redraw_hint_place();
         // The page's text is drawn there again: not quickly, or it ghosts.
         self.output.request_refresh(RefreshMode::Partial);

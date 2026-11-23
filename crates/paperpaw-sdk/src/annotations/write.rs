@@ -14,7 +14,9 @@
 //! - **Version 1 and 2** files are converted on their first write: every
 //!   row gets the 1-based place it had among the rows as its id,
 //!   `# next-id` is the row count plus 1, and the generation is 2 before
-//!   the change, 3 after it ([`next_generation`]).
+//!   the change, 3 after it ([`next_generation`]). A row kept before
+//!   conversions were (every row of version 1, one marked `?` in version 2)
+//!   stays one whose conversion is not known (`?`), never one added since.
 //! - A row is one line: tabs and line breaks of a text become spaces
 //!   ([`one_line`]), a note is cut as [`stored_note`] says, and a line over
 //!   [`LINE_MAX`] bytes is refused ([`StorageError::TooLarge`]): the reader
@@ -227,8 +229,17 @@ pub fn generation_after(info: &Info) -> u32 {
 /// # Errors
 /// [`Error::OutOfMemory`]; [`StorageError::TooLarge`] for a line over
 /// [`LINE_MAX`] bytes, or a client key over [`KEY_MAX`], and
-/// [`Error::Unreadable`] for a kind that has no letter.
+/// [`Error::Unreadable`] for a kind that has no letter or an end XPointer
+/// without a start (the reader takes such a row for damage, so it would
+/// never be seen).
 pub fn format_row(spec: &Spec<'_>, line: &mut Vec<u8>) -> Result<(), Error> {
+    row_line(spec, false, line)
+}
+
+/// [`format_row`], the conversion written `?` where it is `unknown`: a row
+/// kept before conversions were, which must not read as one added since
+/// (in the conversion of whoever reads it, see [`super::relocate`]).
+fn row_line(spec: &Spec<'_>, unknown: bool, line: &mut Vec<u8>) -> Result<(), Error> {
     let kind = letter(spec.kind).ok_or(Error::Unreadable)?;
     if spec.key.len() > KEY_MAX || spec.key.contains(['\t', '\n', '\r']) || spec.id == 0 {
         return Err(Error::Unreadable);
@@ -236,6 +247,9 @@ pub fn format_row(spec: &Spec<'_>, line: &mut Vec<u8>) -> Result<(), Error> {
     let text = one_line(spec.text);
     let note = stored_note(spec.note);
     let (start, end) = (one_line(spec.start_xpointer), one_line(spec.end_xpointer));
+    if start.is_empty() && !end.is_empty() {
+        return Err(Error::Unreadable);
+    }
     let numbers = [
         spec.start.section,
         spec.start.offset,
@@ -250,8 +264,12 @@ pub fn format_row(spec: &Spec<'_>, line: &mut Vec<u8>) -> Result<(), Error> {
         "{kind}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t",
         numbers[0], numbers[1], numbers[2], numbers[3], spec.percent, spec.created, spec.updated
     );
-    if let Some(conversion) = spec.conversion {
-        let _ = write!(head, "{conversion:016x}");
+    match spec.conversion {
+        Some(conversion) => {
+            let _ = write!(head, "{conversion:016x}");
+        }
+        None if unknown => head.push('?'),
+        None => {}
     }
     let mut tail = String::new();
     tail.try_reserve(24).map_err(|_| Error::OutOfMemory)?;
@@ -305,15 +323,18 @@ fn each_line(storage: &dyn Storage, file: &str, visit: &mut LineVisit<'_>) -> Re
     lines(storage, file, visit, &mut sink)
 }
 
-/// Calls `visit` with each line of `file` (without its newline), at most
-/// [`LINE_MAX`] bytes of it; a longer line gives `visit` nothing but is
-/// passed to `long` (its bytes, in pieces, then `None` at its end).
+/// Calls `visit` with each line of `file` (without its line break, `\n` or
+/// `\r\n`, and the first without a UTF-8 byte order mark, as the reader
+/// takes them), at most [`LINE_MAX`] bytes of it; a longer line gives
+/// `visit` nothing but is passed to `long` (its bytes, in pieces, then
+/// `None` at its end).
 fn lines(
     storage: &dyn Storage,
     file: &str,
     visit: &mut LineVisit<'_>,
     long: &mut LongSink<'_>,
 ) -> Result<(), Error> {
+    // A row and the `\r` of a `\r\n` break.
     let mut line = Vec::new();
     line.try_reserve_exact(LINE_MAX + 1)
         .map_err(|_| Error::OutOfMemory)?;
@@ -328,8 +349,13 @@ fn lines(
         if n == 0 {
             break;
         }
+        let text = if at == 0 {
+            crate::files::without_bom(&chunk[..n])
+        } else {
+            &chunk[..n]
+        };
         at += n as u64;
-        for piece in chunk[..n].split_inclusive(|b| *b == b'\n') {
+        for piece in text.split_inclusive(|b| *b == b'\n') {
             let ended = piece.last() == Some(&b'\n');
             let body = if ended {
                 &piece[..piece.len() - 1]
@@ -344,7 +370,7 @@ fn lines(
                 }
                 continue;
             }
-            if line.len() + body.len() > LINE_MAX {
+            if line.len() + body.len() > LINE_MAX + 1 {
                 over = true;
                 long(Some(&line))?;
                 long(Some(body))?;
@@ -357,7 +383,7 @@ fn lines(
             }
             line.extend_from_slice(body);
             if ended {
-                if visit(&line)?.is_break() {
+                if line_end(&line, visit, long)?.is_break() {
                     return Ok(());
                 }
                 line.clear();
@@ -368,9 +394,26 @@ fn lines(
         long(None)?;
     } else if !line.is_empty() {
         // The last line has no newline.
-        let _ = visit(&line)?;
+        let _ = line_end(&line, visit, long)?;
     }
     Ok(())
+}
+
+/// A line of [`lines`] at its end (`line`, without its `\n`): given to
+/// `visit` without a `\r` that ends it (its break, `\r\n`), or to `long`
+/// where it is longer than [`LINE_MAX`] even so.
+fn line_end(
+    line: &[u8],
+    visit: &mut LineVisit<'_>,
+    long: &mut LongSink<'_>,
+) -> Result<ControlFlow<()>, Error> {
+    let body = line.strip_suffix(b"\r").unwrap_or(line);
+    if body.len() > LINE_MAX {
+        long(Some(line))?;
+        long(None)?;
+        return Ok(ControlFlow::Continue(()));
+    }
+    visit(body)
 }
 
 /// The output file, written in chunks of at most 4 KiB.
@@ -514,7 +557,8 @@ fn merge(
         if convert {
             buffer.clear();
             let spec = converted(id, &row, &scratch);
-            format_row(&spec, &mut buffer)?;
+            let unknown = spec.conversion.is_none() && conversion_unknown(line, info.version);
+            row_line(&spec, unknown, &mut buffer)?;
             out.borrow_mut().line(&buffer)?;
         } else {
             out.borrow_mut().line(line)?;
@@ -531,6 +575,21 @@ fn merge(
     while edits.next_new(None, &mut |s| write_new(s))? {}
     out.borrow_mut().flush()?;
     Ok(generation)
+}
+
+/// Whether the row `line` of a file of `version` (1 or 2) without a
+/// conversion was kept before conversions were, its conversion not known:
+/// every row of version 1 and one of version 2 without the conversion's
+/// field or with another mark there than none (`?`). With none (an empty
+/// field) it is one added since.
+fn conversion_unknown(line: &[u8], version: u32) -> bool {
+    let tabs = line.iter().filter(|b| **b == b'\t').count();
+    version < 2
+        || tabs < 12
+        || line
+            .split(|b| *b == b'\t')
+            .nth(8)
+            .is_some_and(|conversion| !conversion.is_empty())
 }
 
 /// The row of an old file as version 3 says it.

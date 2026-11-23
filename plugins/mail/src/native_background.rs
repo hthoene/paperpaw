@@ -21,12 +21,10 @@ use crate::native_model::{
 };
 use crate::native_plugin::NativeMail;
 use crate::native_screens::fail_error;
-use crate::native_values::SettingsValues;
+use crate::native_values::{SettingsValues, switch};
 use alloc::vec::Vec;
 use paperpaw_sdk::native::{
-    Error, Host,
-    settings::{self, SettingValue},
-    snapshot,
+    Error, Host, snapshot,
     work::{Work, WorkSpec},
 };
 use paperpaw_ui_kit::mem::{buffer, push};
@@ -39,11 +37,7 @@ const EVERY: &str = "mail.background-every";
 impl NativeMail {
     /// Whether the reader turned the background check on.
     fn background_on(host: &Host<'_>) -> Result<bool, Error> {
-        let mut bytes = [0u8; 64];
-        Ok(matches!(
-            settings::read_setting(host, ON, &mut bytes)?,
-            SettingValue::Bool(true)
-        ))
+        switch(host, ON, false)
     }
 
     /// Declares the work as the settings say (work lives for one start, so
@@ -94,60 +88,52 @@ impl NativeMail {
         self.background_next(host)
     }
 
-    /// Starts the check of the account at the front of the round; accounts
-    /// that are not set up (any more) are passed by. Whatever else keeps a
-    /// connection from starting ends the round, quietly: the next time is the
-    /// work's.
+    /// Starts the check of the account at the front of the round. Whatever
+    /// keeps it from starting ends the round (quietly, unless memory ran out):
+    /// the next time is the work's.
     fn background_next(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        loop {
-            let Some(number) = self.background.as_ref().and_then(Round::front) else {
-                self.background = None;
-                return Ok(());
-            };
+        let started = self.start_front(host);
+        if !matches!(started, Ok(true)) {
+            self.background = None;
+        }
+        started.map(|_| ())
+    }
+
+    /// Whether the check of an account of the round started; accounts that
+    /// are not set up (any more) are passed by.
+    fn start_front(&mut self, host: &Host<'_>) -> Result<bool, Error> {
+        while let Some(number) = self.background.as_ref().and_then(Round::front) {
             let fetch = self.fetch_count(host)?;
             let now = snapshot::capture_snapshot(host)?
                 .unix_seconds()
                 .unwrap_or(0);
             let tasks = browser::tasks(&Mode::Boxes, number, fetch, now).map_err(fail_error)?;
             match self.start_imap(host, number, tasks) {
-                Ok(()) => return Ok(()),
+                Ok(()) => return Ok(true),
                 Err(Error::NotFound) => {
                     if let Some(round) = &mut self.background {
                         round.pass();
                     }
                 }
-                Err(Error::NoMemory) => {
-                    self.background = None;
-                    return Err(Error::NoMemory);
-                }
-                Err(_) => {
-                    self.background = None;
-                    return Ok(());
-                }
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => return Ok(false),
             }
         }
+        Ok(false)
     }
 
-    /// The connection of the round moved on: the next account when one was
-    /// checked; the end of the round when one failed or its server is not
-    /// trusted (a pinned key is asked about only on the screens).
+    /// The connection of the round moved on: once it ended, the next account
+    /// (one that failed or whose server is not trusted holds up no other; a
+    /// pinned key is asked about only on the screens).
     pub(crate) fn background_progressed(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let Some(round) = &mut self.background else {
             return Ok(());
         };
-        match self.job.run {
-            Run::Done => {
-                round.pass();
-                self.job.run = Run::Idle;
-                self.background_next(host)
-            }
-            Run::Failed(_) | Run::Untrusted { .. } => {
-                self.background = None;
-                self.job.run = Run::Idle;
-                Ok(())
-            }
-            _ => Ok(()),
+        if !round.checked(&self.job.run) {
+            return Ok(());
         }
+        self.job.run = Run::Idle;
+        self.background_next(host)
     }
 
     /// A screen of Mail opens: the reader is served first, the check is let go

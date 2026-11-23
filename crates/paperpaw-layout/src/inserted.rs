@@ -77,7 +77,7 @@ pub(crate) fn lines(
                 inserted: true,
                 annotations: Vec::new(),
                 bidi,
-                hyphen: false,
+                hyphen: line.hyphen,
             });
             y += line_height;
         }

@@ -292,6 +292,16 @@ impl Slot {
         })
     }
 
+    /// Whether a start was asked and the plugin is not made yet: what waits
+    /// for it is made at its start's time ([`Self::start_at`]), or at the
+    /// next pass anything brings once that wait reached its longest.
+    pub(crate) fn start_asked(&self) -> bool {
+        self.parked
+            .borrow()
+            .as_ref()
+            .is_some_and(|parked| parked.start.get())
+    }
+
     /// When a start asked for may be made (ms; now for a refused batch to
     /// withdraw): a wake deadline, so what waits for it is not left to the
     /// next key press (#248). `None` where none was asked, and once the wait

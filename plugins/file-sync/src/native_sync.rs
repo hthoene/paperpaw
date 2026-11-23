@@ -25,7 +25,8 @@ use crate::native_names as names;
 use crate::native_plan::{Action, Kept, Mode, Side, decide};
 use crate::native_state::{self as state, MOST};
 
-/// The most folders of a pair and how deep they go.
+/// The most folders of a pair still to go through (those in a folder and
+/// those left beside the folders above it) and how deep they go.
 pub const MOST_DIRS: usize = 64;
 pub const MAX_DEPTH: usize = 6;
 /// The largest file fetched (the host's limit for a saved answer).
@@ -117,6 +118,10 @@ pub struct Finish {
     /// The network went, the card is full or the sync was cancelled: nothing
     /// more is tried.
     pub stopped: bool,
+    /// The pair was synced: its top folder was compared on both sides and
+    /// the sync was not stopped (a folder or a file left out is said; the
+    /// pair is synced still).
+    pub synced: bool,
     pub totals: Totals,
 }
 
@@ -188,6 +193,8 @@ pub struct Sync {
     trashed: usize,
     /// The card's top folder is gone though it was synced before.
     lost: bool,
+    /// The top folder was compared on both sides.
+    compared: bool,
     problem: &'static str,
 }
 
@@ -202,6 +209,7 @@ impl Default for Sync {
             totals: Totals::default(),
             trashed: 0,
             lost: false,
+            compared: false,
             problem: "",
         }
     }
@@ -302,6 +310,7 @@ impl Sync {
         Some(Finish {
             problem,
             stopped: true,
+            synced: false,
             totals: self.totals,
         })
     }
@@ -321,6 +330,7 @@ impl Sync {
         Finish {
             problem: self.problem,
             stopped: false,
+            synced: self.compared,
             totals: self.totals,
         }
     }
@@ -442,7 +452,8 @@ impl Sync {
     fn listed(&mut self, link: &mut dyn Link, done: &Done) -> Result<Step, Error> {
         let two = self.job()?.mode == Mode::TwoWay;
         match (done.end, done.status) {
-            (End::Answered, 200..=299) => {}
+            // A listing the host did not save whole is none.
+            (End::Answered, 200..=299) if done.saved => {}
             (End::Answered, 404 | 410) => {
                 // The top folder gone that was synced before is no folder to
                 // empty the card by: only a pair never synced makes it. And
@@ -517,18 +528,15 @@ impl Sync {
             concat(&[&root, "/", &self.dir.rel])?
         };
         let mut gone = false;
-        match link.list(&folder, &mut local, MOST + 1) {
-            Ok(()) => {}
+        match link.list(&folder, &mut local, MOST) {
+            Ok(false) => {}
+            Ok(true) => return Ok(self.too_many()),
             Err(Error::NotFound) => gone = true,
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => {
                 self.skip_dir("file-sync.failed");
                 return Ok(false);
             }
-        }
-        local.retain(|e| !names::left_out(&e.name));
-        if local.len() > MOST {
-            return Ok(self.too_many());
         }
         self.dir.made = !local.is_empty();
         self.dir.kept = state::read(link.data(), self.of, &self.dir.rel)?;
@@ -540,6 +548,7 @@ impl Sync {
             self.lost = gone && !self.dir.kept.is_empty();
         }
         self.dir.hold = (self.lost && gone) || self.holds()?;
+        self.compared = true;
         Ok(true)
     }
 
@@ -621,7 +630,7 @@ impl Sync {
         let child = names::child(&self.dir.rel, name)?;
         let depth = child.split('/').count();
         if depth > MAX_DEPTH || self.dirs.len() >= MOST_DIRS {
-            self.fail("file-sync.too-many");
+            self.fail("file-sync.too-many-folders");
             return Ok(());
         }
         self.dirs.push((child, listed));
@@ -917,10 +926,14 @@ impl Sync {
         push(&mut held, target)?;
         self.trashed += 1;
         // What this sync put there stays, however many: a server that lost
-        // its files must not take the card's last copies with it.
+        // its files must not take the card's last copies with it. A file that
+        // cannot be removed now stays listed, to go at the next one.
         while held.len() > TRASH_MAX.max(self.trashed) {
-            let oldest = held.remove(0);
-            link.data().remove(&oldest).ok();
+            let oldest = held.first().ok_or(Error::State)?;
+            match link.data().remove(oldest) {
+                Ok(()) | Err(Error::NotFound) => drop(held.remove(0)),
+                Err(_) => break,
+            }
         }
         state::write_trash(link.data(), &held)
     }

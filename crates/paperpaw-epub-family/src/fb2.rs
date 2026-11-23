@@ -89,11 +89,13 @@ fn detect(head: &[u8]) -> Encoding {
     }
 }
 
-/// Feeds the file at `path` to `tokenizer` as UTF-8.
+/// Feeds the file at `path` to `tokenizer` as UTF-8, until `full` says the
+/// reader wants no more (a chapter's budget is spent).
 pub(crate) fn feed(
     storage: &dyn Storage,
     path: &str,
     encoding: Encoding,
+    full: &core::cell::Cell<bool>,
     tokenizer: &mut Tokenizer,
     emit: &mut dyn FnMut(Token<'_>),
 ) -> Result<(), DocumentError> {
@@ -104,7 +106,7 @@ pub(crate) fn feed(
             .map_err(|_| DocumentError::OutOfMemory)?;
     }
     let mut at = 0u64;
-    loop {
+    while !full.get() {
         let n = storage.read_at(path, at, &mut chunk)?;
         if n == 0 {
             break;
@@ -425,7 +427,9 @@ fn scan(
         refused = done.err();
     };
     let mut tokenizer = Tokenizer::new();
-    feed(storage, path, encoding, &mut tokenizer, &mut handle)?;
+    // Read to the end.
+    let full = core::cell::Cell::new(false);
+    feed(storage, path, encoding, &full, &mut tokenizer, &mut handle)?;
     if let Some(e) = refused {
         return Err(e);
     }
@@ -544,7 +548,9 @@ pub(crate) fn decode_binaries(
         _ => {}
     };
     let mut tokenizer = Tokenizer::new();
-    feed(storage, path, encoding, &mut tokenizer, &mut handle)?;
+    // Read to the end.
+    let full = core::cell::Cell::new(false);
+    feed(storage, path, encoding, &full, &mut tokenizer, &mut handle)?;
     let _ = storage.remove(&temp);
     if let Some(e) = refused {
         return Err(e);
@@ -643,6 +649,10 @@ impl Fb2Document {
                 let _ = storage.remove(&paths.end);
                 let _ = storage.create_dir(&cache);
                 let found = scan(storage, &file, encoding, &cache)?;
+                // What was appended (the unpacked copy, the contents) reaches
+                // the card before the stamp that marks it whole (see
+                // `CachePaths::complete`).
+                storage.sync()?;
                 storage.write(&info_path, save_info(&found)?.as_bytes())?;
                 storage.write(&stamp_path, stamp.as_bytes())?;
                 found

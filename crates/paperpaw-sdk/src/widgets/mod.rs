@@ -53,11 +53,7 @@
 //! not offered among the widgets for other screens.
 
 mod colours;
-mod elsewhere;
 pub mod grid;
-pub(crate) mod look;
-mod shape;
-mod stack;
 
 pub use colours::{ColourSpec, PAPER_LIGHT_GRAY, PAPER_NONE, PAPER_NORMAL, colour_spec};
 

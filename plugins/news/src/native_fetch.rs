@@ -16,6 +16,7 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_ui_kit::{
     files::{Volume, read_all_on, replace_on},
+    mem::push,
     text,
 };
 
@@ -157,6 +158,9 @@ struct Running {
 #[derive(Debug, Default)]
 pub struct Fetcher {
     running: Option<Running>,
+    /// The addresses of the feeds asked for while it was under way that it
+    /// would not come to: fetched after it, in this order.
+    asked: Vec<String>,
 }
 
 /// The feeds; `NoSpace` for a file over its cap and `Utf8` for one that is
@@ -183,7 +187,10 @@ impl Fetcher {
     /// A new one, with nothing under way.
     #[must_use]
     pub const fn new() -> Self {
-        Self { running: None }
+        Self {
+            running: None,
+            asked: Vec::new(),
+        }
     }
 
     /// Whether a fetch is under way.
@@ -192,7 +199,8 @@ impl Fetcher {
         self.running.is_some()
     }
 
-    /// Starts fetching the feed at `from`, and with `all` those after it.
+    /// Starts fetching the feed at `from`, and with `all` those after it. A
+    /// fetch under way goes on, and fetches what is asked for after it.
     ///
     /// # Errors
     /// `NoMemory`; what the services say, other than that there is no network.
@@ -205,13 +213,34 @@ impl Fetcher {
         let Some(feed) = list.get(from) else {
             return Ok(Started::None);
         };
-        // A fetch under way is replaced: its request ends, its end is ignored.
-        self.cancel(wire);
+        if self.busy() {
+            self.follow(&list, from, all)?;
+            return Ok(Started::Fetching);
+        }
         match self.send(wire, feed, (from, all), (0, 0)) {
             Ok(()) => Ok(Started::Fetching),
             Err(Error::Unsupported | Error::Denied) => Ok(Started::NoNetwork),
             Err(error) => Err(error),
         }
+    }
+
+    /// Adds what is asked for while a fetch is under way to it: the feed at
+    /// `from`, with `all` every feed. Those it comes to anyway are left out
+    /// (the feed it fetches now, those after it in a fetch of all); with `all`
+    /// it goes on to the end of the list, then fetches the ones before.
+    fn follow(&mut self, list: &[Feed], from: usize, all: bool) -> Result<(), Error> {
+        let Some(run) = &mut self.running else {
+            return Ok(());
+        };
+        run.all |= all;
+        for (index, feed) in list.iter().enumerate() {
+            let wanted = all || index == from;
+            let comes = feed.url == run.url || (run.all && index > run.index);
+            if wanted && !comes && !self.asked.contains(&feed.url) {
+                push(&mut self.asked, text::copy(&feed.url)?)?;
+            }
+        }
+        Ok(())
     }
 
     /// Asks for `feed`, at `index` in the list, with the counts so far.
@@ -235,8 +264,10 @@ impl Fetcher {
         Ok(())
     }
 
-    /// Cancels the fetch under way; its end is told apart and ignored.
+    /// Cancels the fetch under way, with what was to follow it; its end is
+    /// told apart and ignored.
     pub fn cancel(&mut self, wire: &mut dyn Wire) {
+        self.asked.clear();
         if self.running.take().is_some() {
             wire.cancel();
         }
@@ -250,6 +281,23 @@ impl Fetcher {
     /// `NoMemory` while the file name is made; a refused next request is an
     /// [`Ended`], not an error.
     pub fn ended(
+        &mut self,
+        wire: &mut dyn Wire,
+        shelf: &mut dyn Shelf,
+        done: &Done,
+        settings: (usize, usize),
+        date_text: DateText<'_>,
+    ) -> Result<Ended, Error> {
+        let ended = self.step(wire, shelf, done, settings, date_text);
+        if !self.busy() {
+            // Over, however it ended: nothing follows it.
+            self.asked.clear();
+        }
+        ended
+    }
+
+    /// [`Self::ended`], but for what follows a fetch that is over.
+    fn step(
         &mut self,
         wire: &mut dyn Wire,
         shelf: &mut dyn Shelf,
@@ -291,10 +339,14 @@ impl Fetcher {
             Err(Failure::Memory) => return Ok(Ended::Memory),
             Err(Failure::Failed) => return Ok(Ended::Unreadable),
         };
-        if run.all
-            && let Some(feed) = next
-        {
-            return match self.send(wire, &feed, (run.index, true), (run.done, run.failed)) {
+        let follows = match next.filter(|_| run.all) {
+            Some(feed) => Some((run.index, true, feed)),
+            None => self
+                .next_asked(wire.volume())?
+                .map(|(index, feed)| (index, false, feed)),
+        };
+        if let Some((index, all, feed)) = follows {
+            return match self.send(wire, &feed, (index, all), (run.done, run.failed)) {
                 Ok(()) => Ok(Ended::Next),
                 Err(Error::NoMemory) => Ok(Ended::Memory),
                 // Counts are not lost to a refused request.
@@ -312,6 +364,36 @@ impl Fetcher {
             done: run.done,
             failed: run.failed,
         })
+    }
+}
+
+impl Fetcher {
+    /// The first feed asked for meanwhile that the list still holds, and its
+    /// place; the ones it no longer holds are left out.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    fn next_asked(&mut self, volume: &dyn Volume) -> Result<Option<(usize, Feed)>, Error> {
+        if self.asked.is_empty() {
+            return Ok(None);
+        }
+        let list = match load(volume) {
+            Ok(list) => list,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => return Ok(None),
+        };
+        while !self.asked.is_empty() {
+            let url = self.asked.remove(0);
+            if let Some(index) = list.iter().position(|feed| feed.url == url) {
+                let feed = list.get(index).ok_or(Error::State)?;
+                let feed = Feed {
+                    url,
+                    name: text::copy(&feed.name)?,
+                };
+                return Ok(Some((index, feed)));
+            }
+        }
+        Ok(None)
     }
 }
 

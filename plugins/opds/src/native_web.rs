@@ -42,6 +42,9 @@ pub const BOOK_FILE: &str = "book.tmp";
 pub const COVER_FILE: &str = "cover.tmp";
 pub const SYNC_FEED_FILE: &str = "sync-feed.tmp";
 pub const SYNC_BOOK_FILE: &str = "sync-book.tmp";
+/// The files of the browse screen's answers: removed when it closes (those of
+/// a sync going on stay).
+pub const BROWSE_FILES: [&str; 4] = [FEED_FILE, DESCRIPTION_FILE, BOOK_FILE, COVER_FILE];
 /// Every file an answer may be in: removed when the plugin starts and stops.
 pub const FILES: [&str; 6] = [
     FEED_FILE,
@@ -251,8 +254,12 @@ pub enum Ended {
     /// It ended for a request of the same kind replacing it, or was
     /// cancelled: it is not told.
     Stopped,
-    /// The host could not be reached, or the answer was too large.
+    /// The host could not be reached.
     Unreached,
+    /// The answer was larger than asked for, or than the memory holds.
+    TooLarge,
+    /// The answer could not be saved: the card is full or went away.
+    NotSaved,
     /// The secure connection failed: the certificate is not known.
     Untrusted,
 }
@@ -271,6 +278,8 @@ pub fn ended(done: &HttpDone) -> Ended {
         Reason::NoNetwork | Reason::Saving | Reason::NetworkOff => Ended::NoNetwork,
         Reason::Replaced | Reason::Cancelled => Ended::Stopped,
         Reason::Tls => Ended::Untrusted,
+        Reason::TooLarge => Ended::TooLarge,
+        Reason::Full | Reason::Io => Ended::NotSaved,
         _ => Ended::Unreached,
     }
 }
@@ -334,5 +343,13 @@ mod tests {
         ] {
             assert!(!same_origin(catalog, other), "{other}");
         }
+    }
+
+    #[test]
+    fn leaving_a_browse_screen_leaves_a_sync_its_files() {
+        for name in [SYNC_FEED_FILE, SYNC_BOOK_FILE] {
+            assert!(!BROWSE_FILES.contains(&name), "{name}");
+        }
+        assert!(BROWSE_FILES.iter().all(|name| FILES.contains(name)));
     }
 }

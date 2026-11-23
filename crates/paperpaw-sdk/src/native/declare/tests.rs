@@ -741,13 +741,21 @@ fn a_screen_declared_with_its_hints_has_flag_bits_13_and_14() {
         d.screen(ScreenDecl::new(name, "demo.page.title", 1).hints(hints))
             .unwrap();
     }
-    // The last said wins.
-    d.screen(
+    // The last said wins, also over `hints_hidden` (bit 8) and the other
+    // way round: bit 8 beside a row that shows is refused by the host.
+    for screen in [
         ScreenDecl::new("shelf", "demo.page.title", 1)
             .hints(HintRow::Hidden)
             .hints(HintRow::OnPress),
-    )
-    .unwrap();
+        ScreenDecl::new("book", "demo.page.title", 1)
+            .hints_hidden()
+            .hints(HintRow::OnPress),
+        ScreenDecl::new("night", "demo.page.title", 1)
+            .hints(HintRow::Shown)
+            .hints_hidden(),
+    ] {
+        d.screen(screen).unwrap();
+    }
     d.submit().unwrap();
     drop(d);
     let batch = records_decode(&batches[0]).unwrap();
@@ -758,7 +766,7 @@ fn a_screen_declared_with_its_hints_has_flag_bits_13_and_14() {
             _ => None,
         })
         .collect();
-    assert_eq!(flags, [0x4000, 0x2000, 0x6000, 0x4000]);
+    assert_eq!(flags, [0x4000, 0x2000, 0x6000, 0x4000, 0x4000, 0x100]);
 }
 
 #[test]

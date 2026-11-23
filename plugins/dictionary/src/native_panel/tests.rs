@@ -32,6 +32,21 @@ fn a_word_wider_than_a_line_is_cut() {
 }
 
 #[test]
+fn a_word_longer_than_the_host_measures_is_cut_too() {
+    // The host measures at most 4,096 bytes at once.
+    let host = |text: &str| {
+        if text.len() > 4096 {
+            Err(Error::Invalid)
+        } else {
+            ten(text)
+        }
+    };
+    let long = "ä".repeat(3000);
+    let panel = Panel::new(&[entry("A", &long)], "", host, 40.0).unwrap();
+    assert_eq!(lines(&panel)[0], "ääää");
+}
+
+#[test]
 fn sources_are_named_only_where_there_are_several() {
     let one = Panel::new(&[entry("A", "x"), entry("A", "y")], "", ten, 200.0).unwrap();
     assert!(lines(&one).iter().all(|l| !l.starts_with('(')));

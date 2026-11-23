@@ -2,8 +2,8 @@
 use super::{
     Error, Host,
     binding::status,
-    settings::SettingValue,
-    wire::{commands_wire as wire, settings_wire::SettingValueRef},
+    settings::{self, SettingValue},
+    wire::commands_wire as wire,
 };
 use core::fmt;
 use paperpaw_native::host_glue::PpBytes;
@@ -108,13 +108,10 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
         if key.starts_with("core.grant.") {
             return Err(Error::Denied);
         }
-        let value = match value {
-            SettingValue::Absent => SettingValueRef::Absent,
-            SettingValue::Bool(value) => SettingValueRef::Bool(value),
-            SettingValue::Int(value) => SettingValueRef::Int(value),
-            SettingValue::Text(value) => SettingValueRef::Text(value),
-        };
-        self.submit(wire::Command::SetSetting { key, value })
+        self.submit(wire::Command::SetSetting {
+            key,
+            value: settings::to_wire(value),
+        })
     }
 
     /// Stage opening a registered screen, including another plugin's screen.

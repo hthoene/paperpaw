@@ -30,20 +30,19 @@ use paperpaw_sdk::native::{
         Request, RequestId,
     },
 };
+use paperpaw_sdk::web::USER_AGENT;
 use paperpaw_ui_kit::{
     mem::{buffer, push, wipe},
     text::{concat, copy},
 };
 
 use crate::native_fetch::{Archived, Entry, Token, Unread};
-use crate::native_keep::Secret;
+use crate::native_keep::{self as keep, Secret};
 use crate::native_lists::{self as lists, ENTRIES, ENTRY, Files, TMP};
 use crate::native_wallabag::{Article, MAX_ARTICLES, is_id};
 
 /// The plugin's own number of its one request, in its `http_done` event.
 pub const REQUEST_TOKEN: u32 = 1;
-/// The `User-Agent` of interface 6.
-const USER_AGENT: &str = "PaperPaw/0.1 (e-reader)";
 /// The folder of the books, below the library folder.
 pub const FOLDER: &str = "Wallabag";
 const LIST_PATH: &str =
@@ -791,7 +790,7 @@ impl Fetcher {
         };
         let run = self.run.as_ref().ok_or(Error::State)?;
         let url = concat(&[&run.server, &path])?;
-        let bearer = Secret::bearer(run.token.as_ref().ok_or(Error::State)?)?;
+        let bearer = keep::bearer(run.token.as_ref().ok_or(Error::State)?)?;
         let headers = [
             Header::new("Authorization", bearer.as_str())?,
             Header::new("User-Agent", USER_AGENT)?,

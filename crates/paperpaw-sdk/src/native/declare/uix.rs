@@ -2,7 +2,10 @@
 use super::{Declarations, DeclareError, records_wire as wire};
 use crate::native::{
     Error,
-    ui::{HintInput, navigation::full_id},
+    ui::{
+        HintInput,
+        navigation::{full_id, is_dotted_id},
+    },
 };
 
 macro_rules! declaration {
@@ -368,17 +371,11 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
 }
 
 fn relative(value: &str) -> Result<(), Error> {
-    if value.is_empty()
-        || value.split('.').any(|part| {
-            part.is_empty()
-                || !part
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        })
-    {
-        return Err(Error::Invalid);
+    if is_dotted_id(value) {
+        Ok(())
+    } else {
+        Err(Error::Invalid)
     }
-    Ok(())
 }
 fn filled(value: &str) -> Result<(), Error> {
     if value.is_empty() {

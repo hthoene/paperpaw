@@ -233,7 +233,7 @@ impl PanelView {
             value: 0,
             pager: style.row,
             margin: style.margin,
-            rtl: false,
+            rtl: style.rtl,
             top: self.top,
             touch: self.touch,
         };
@@ -487,7 +487,13 @@ impl PanelView {
                 paint::push(body, Paint::Focus(rect, style.corner, Some(thickness), ink))?;
             }
             if focused {
-                paperpaw_ui_kit::focus::ring(body, style, rect.grow(2))?;
+                paperpaw_ui_kit::parts::button_ring(
+                    body,
+                    rect,
+                    style.corner,
+                    paperpaw_ui_kit::parts::button_border(style.line),
+                    style.roles.outline.unwrap_or(style.ink),
+                )?;
             }
             let color = if on && !faint { style.paper } else { ink };
             let room = f32::from(button_room(rect.width, style.margin)).max(1.0);
@@ -894,11 +900,18 @@ impl PanelView {
                 CommandSender::new(host, &mut [0; 64]).back()?;
                 yes
             }
-            "core.up" | "core.left" | "core.previous" | "core.prev-page" => {
+            // Right to left, the controls of a row run from the right: left
+            // goes on, as the bar's keys do.
+            "core.left" | "core.right" => {
+                let on = (action == "core.right") != layout.rtl;
+                self.move_focus(host, layout, if on { 1 } else { -1 })?;
+                yes
+            }
+            "core.up" | "core.previous" | "core.prev-page" => {
                 self.move_focus(host, layout, -1)?;
                 yes
             }
-            "core.down" | "core.right" | "core.next" | "core.next-page" => {
+            "core.down" | "core.next" | "core.next-page" => {
                 self.move_focus(host, layout, 1)?;
                 yes
             }
@@ -947,7 +960,11 @@ impl PanelView {
                 let Some(info) = &part.info else {
                     return handled;
                 };
-                if let Some(Value::Int(next)) = model::stepped(info, i64::from(step)) {
+                // As the list and the settings step: the size of book text
+                // to the next size that looks different.
+                if let Some(Value::Int(next)) =
+                    crate::native_plugin::next_value(host, info, i64::from(step))?
+                {
                     commands.set_setting(&info.key, SettingValue::Int(next))?;
                 }
             }

@@ -234,22 +234,6 @@ pub fn text_of<R>(host: &Host<'_>, key: &str, f: impl FnOnce(&str) -> R) -> Resu
     })
 }
 
-/// A decimal number as text on the stack.
-#[must_use]
-pub fn fmt_u32(value: u32, out: &mut [u8; 10]) -> &str {
-    let mut end = out.len();
-    let mut rest = value;
-    loop {
-        end -= 1;
-        out[end] = b'0' + (rest % 10) as u8;
-        rest /= 10;
-        if rest == 0 {
-            break;
-        }
-    }
-    core::str::from_utf8(&out[end..]).unwrap_or("0")
-}
-
 /// `write!` into a stack buffer that refuses what does not fit.
 #[derive(Debug)]
 pub struct Stack<const N: usize> {
@@ -329,12 +313,5 @@ mod tests {
         assert_eq!(out.as_str(), "1234");
         assert!(write!(out, "5").is_err());
         assert_eq!(out.as_str(), "1234");
-    }
-
-    #[test]
-    fn numbers_are_written_in_decimal() {
-        let mut bytes = [0; 10];
-        assert_eq!(fmt_u32(0, &mut bytes), "0");
-        assert_eq!(fmt_u32(4_294_967_295, &mut bytes), "4294967295");
     }
 }

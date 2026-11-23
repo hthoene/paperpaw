@@ -100,7 +100,8 @@ impl Kernel {
                 if !valid {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
-                let staged = staged_of(stage, owner_key);
+                let staged = staged_of(&mut stage, owner_key);
+                drop(stage);
                 Ok::<_, Error>((status, owner, staged))
             })??
         };

@@ -46,6 +46,10 @@ pub enum Ending {
     Ejected,
     /// The other side does not speak Calibre's protocol.
     NotCalibre,
+    /// A book was larger than the free space on the card.
+    NoRoom,
+    /// A book could not be saved on the card (busy, refused, a card error).
+    NotReceived,
     /// The connection failed, for this reason.
     Failed(String),
     /// Calibre said there was an error, in these words.
@@ -492,6 +496,21 @@ impl Session {
     /// `NoMemory`.
     pub fn not_text(&mut self) -> Result<Vec<Step>, Error> {
         self.end_with(Ending::NotCalibre, Step::Disconnect)
+    }
+
+    /// A book could not be received: `no_room` where it is larger than the
+    /// free space on the card, else the card did not take it. The connection
+    /// ends: Calibre would wait for the book for ever.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn not_received(&mut self, no_room: bool) -> Result<Vec<Step>, Error> {
+        let ending = if no_room {
+            Ending::NoRoom
+        } else {
+            Ending::NotReceived
+        };
+        self.end_with(ending, Step::Disconnect)
     }
 
     fn ok(steps: &mut Vec<Step>, args: &str) -> Result<(), Error> {

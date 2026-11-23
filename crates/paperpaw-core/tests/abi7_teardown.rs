@@ -1,6 +1,10 @@
 //! Deferred cleanup with the production lifetime primitive and fake resources.
 #![allow(clippy::unwrap_used, reason = "fixture refusals must fail the test")]
 #[path = "../src/abi7/handles.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod handles;
 use handles::{Handles, Kind, Release};
 use paperpaw_core::native_host::{DispatchDepth, Error, HostOwner, Teardown};

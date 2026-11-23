@@ -742,9 +742,10 @@ impl Page {
 }
 
 impl Page {
-    /// Whether this page is past the end of the document.
+    /// Whether this page is past the end of the document: nothing is on it,
+    /// no line, picture or rule (a table's row of empty cells is its rules).
     pub fn is_past_end(&self) -> bool {
-        self.lines.is_empty() && self.images.is_empty()
+        self.lines.is_empty() && self.images.is_empty() && self.rules.is_empty()
     }
 }
 
@@ -997,8 +998,10 @@ pub fn line_start(cx: &LayoutContext<'_>, at: Locator) -> Result<Locator, Docume
     if at.offset < block.start {
         return Ok(Locator::new(at.section, block.start));
     }
-    // A table's row is shown whole.
-    if block.kind == BlockKind::TableRow {
+    // A table's row set in columns is shown whole; one set as a paragraph
+    // (too wide for its columns) goes on over pages by its lines.
+    if block.kind == BlockKind::TableRow && table::row(cx, &block, at.section, 0.0, true).is_some()
+    {
         return Ok(Locator::new(at.section, block.start));
     }
     if block.kind == BlockKind::Image || at.offset == block.start {

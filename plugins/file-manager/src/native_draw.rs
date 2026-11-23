@@ -82,8 +82,12 @@ pub(crate) struct Hits {
     pub layout: Option<Layout>,
     pub margin: u16,
     pub gap: u16,
+    /// The style's line: how far a button's focus ring reaches out.
+    pub line: u16,
     pub header: Page,
     pub buttons: usize,
+    /// Where the frame's region began on the screen.
+    pub origin: (i32, i32),
 }
 
 impl Hits {
@@ -95,6 +99,20 @@ impl Hits {
         }
         let slot = (point.y - i32::from(layout.area.y)) as usize / usize::from(layout.row);
         (slot < layout.rows && slot < held).then_some(first + slot)
+    }
+
+    /// Where the focus of `browser` is drawn: its row on the page drawn, or
+    /// its button with its focus ring; none where the frame did not draw it.
+    pub(crate) fn focus_area(&self, browser: &Browser) -> Option<Rect> {
+        let layout = self.layout?;
+        if let Some(button) = browser.bar() {
+            return (button < self.buttons).then(|| {
+                let rect = layout.button(self.margin, self.gap, button, self.buttons);
+                paperpaw_ui_kit::parts::button_reach(rect, self.line)
+            });
+        }
+        let slot = browser.cursor().checked_sub(browser.first())?;
+        (slot < layout.rows && slot < browser.page().len()).then(|| row_rect(&layout, slot))
     }
 
     /// The button at `point`.
@@ -239,15 +257,7 @@ fn draw_with(
             .map_or_else(|| text::copy("."), Ok)?;
         let on_list = shown && browser.bar().is_none();
         for (slot, entry) in browser.page().iter().enumerate().take(layout.rows) {
-            let rect = Rect::new(
-                0,
-                layout
-                    .area
-                    .y
-                    .saturating_add((slot as u16).saturating_mul(layout.row)),
-                width,
-                layout.row,
-            );
+            let rect = row_rect(&layout, slot);
             let value = if entry.is_dir {
                 text::copy("›")?
             } else {
@@ -279,9 +289,24 @@ fn draw_with(
         layout: Some(layout),
         margin: style.margin,
         gap: style.gap,
+        line: style.line,
         header: head,
         buttons: buttons.len(),
+        origin: (frame.rect.x, frame.rect.y),
     })
+}
+
+/// Where row `slot` of the page lies.
+fn row_rect(layout: &Layout, slot: usize) -> Rect {
+    Rect::new(
+        layout.area.x,
+        layout
+            .area
+            .y
+            .saturating_add((slot as u16).saturating_mul(layout.row)),
+        layout.area.width,
+        layout.row,
+    )
 }
 
 /// The buttons along the bottom.

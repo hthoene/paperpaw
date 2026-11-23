@@ -8,10 +8,10 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         callbacks::{Input, InputGestureKind},
-        commands::{CommandSender, RedrawMode},
+        commands::CommandSender,
     },
 };
-use paperpaw_ui_kit::{Page, mem::push};
+use paperpaw_ui_kit::{Page, list::redraw_areas, mem::push};
 
 /// What a cell of the list is, and so what choosing it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -539,8 +539,16 @@ impl BookList {
         match step {
             ListStep::Focus(to) => {
                 if to != self.focus {
-                    let mut scratch = [0; 64];
-                    CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+                    // The cell the focus leaves and the one it reaches, where
+                    // the last frame drew both (else the whole screen). Its
+                    // cells lie in the frame's own pixels.
+                    let drawn = |cell: usize| {
+                        self.hits
+                            .iter()
+                            .find(|(_, at)| *at == cell)
+                            .map(|(rect, _)| *rect)
+                    };
+                    redraw_areas(host, (0, 0), [drawn(self.focus), drawn(to)])?;
                     self.focus = to;
                 }
             }

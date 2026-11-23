@@ -290,7 +290,7 @@ impl SockHost for Fake {
             .insert((root, path.to_string()), part);
         Ok(())
     }
-    fn showing_screen(&self, _: u64) -> Option<u64> {
+    fn calling_screen(&self, _: u64) -> Option<u64> {
         self.screen.get()
     }
 }

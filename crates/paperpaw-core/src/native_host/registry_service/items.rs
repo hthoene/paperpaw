@@ -41,8 +41,7 @@ fn item<'a>(id: &'a str, plugin: &'a str, flags: u32, title: &'a str) -> Record<
     })
 }
 
-/// The id, the plugin that owns it and the title as text: the part of the id
-/// before its last dot is the plugin.
+/// The plugin that owns `id`: its first segment ([`Id::namespace`]).
 fn namespace_of(id: &Id) -> &str {
     id.namespace()
 }

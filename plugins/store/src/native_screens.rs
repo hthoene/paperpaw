@@ -72,6 +72,13 @@ pub trait Loader {
             Trouble::Loading
         }
     }
+    /// Whether the loader holds what became of the page of plugin `id`: it is
+    /// here, asked for, or how it ended is known. A page screen whose page
+    /// another page screen's took the place of asks for it again. The default
+    /// says so where the page is here.
+    fn page_held(&self, id: &str) -> bool {
+        self.page(id).is_some()
+    }
     /// Whether the device has little memory (the pictures of a page are then
     /// kept small). Unknown reads as small.
     fn small_memory(&self) -> bool {
@@ -148,6 +155,10 @@ impl Loader for LoaderView<'_> {
         }
     }
 
+    fn page_held(&self, id: &str) -> bool {
+        self.loader.details().0 == Some(id)
+    }
+
     fn small_memory(&self) -> bool {
         self.small_memory
     }
@@ -168,8 +179,9 @@ pub enum Step {
     Installing,
     /// It was installed (a restart may be waiting).
     Installed,
-    /// It ended in this reason (`device.md` 5.5).
-    Failed(u32),
+    /// Its download failed, or the host refused the files (a refusal of the
+    /// install itself ends the step: the reader was told why).
+    Failed(crate::native_download::Failure),
 }
 
 /// What is going on with the installs.
@@ -255,6 +267,12 @@ pub trait Installs {
     fn foreign(&self, id: &str) -> bool {
         let _ = id;
         false
+    }
+    /// Counts the reads of what the device has installed (anew after a plugin
+    /// came, went or was switched on): the start counts its plugins again
+    /// where it moved. The default says nothing moves.
+    fn reads(&self) -> u32 {
+        0
     }
 }
 
@@ -475,10 +493,12 @@ pub trait Screen: Sized {
     /// `NoMemory`, or what the host refuses.
     fn input(&mut self, ctx: &Ctx<'_>, input: &Input<'_>) -> Result<(Handled, Next), Error>;
 
-    /// The reader leaves the screen through *Back* or the header's arrow, and
-    /// it may still do something first (the first-run offer adds the plugins
-    /// chosen). The default does nothing; the plugin calls this before it
-    /// closes the screen. (Addition of the offer.)
+    /// The reader left the screen through *Back* or the header's arrow, and
+    /// it may still do something (the first-run offer adds the plugins
+    /// chosen). The default does nothing; the plugin calls this when the host
+    /// says the screen closed, before [`closed`](Self::closed). What it asks
+    /// for closes no screen: the host refuses that from an event, and a
+    /// refused callback loses every command it gave. (Addition of the offer.)
     ///
     /// # Errors
     /// `NoMemory`, or what the card refuses.

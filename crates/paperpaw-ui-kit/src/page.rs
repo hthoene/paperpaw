@@ -527,40 +527,9 @@ impl<'h> Words<'h> {
     /// # Errors
     /// Host refusals and [`Error::NoMemory`].
     pub fn clock(&mut self, secs: u32) -> Result<String, Error> {
-        let (hour, minute) = ((secs / 3600) % 24, (secs / 60) % 60);
-        let shown = if self.twelve {
-            [12, hour % 12][usize::from(hour % 12 != 0)]
-        } else {
-            hour
-        };
-        let mut text = String::new();
-        let mut digits = [0u8; 20];
-        if !self.twelve && shown < 10 {
-            text.push('0');
-        }
-        text.push_str(crate::text::decimal(shown as usize, &mut digits));
-        text.push(':');
-        if minute < 10 {
-            text.push('0');
-        }
-        text.push_str(crate::text::decimal(minute as usize, &mut digits));
-        let text = self.say.digits(self.host, &text)?;
-        if !self.twelve {
-            return Ok(text);
-        }
-        let key = if hour < 12 {
-            "core.clock.am"
-        } else {
-            "core.clock.pm"
-        };
-        self.say.format(
-            self.host,
-            key,
-            &[Arg::Text {
-                name: "time",
-                value: &text,
-            }],
-        )
+        // Both below 60: no cut.
+        let (hour, minute) = (((secs / 3600) % 24) as u8, ((secs / 60) % 60) as u8);
+        crate::widget::cx::clock_text(&mut self.say, self.host, self.twelve, (hour, minute))
     }
 
     /// The footer's text: `key` (a message with `{when}` and what `args`

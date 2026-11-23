@@ -1,6 +1,6 @@
 //! Snapshot blobs and schema-checked call services. Blobs expire with their
 //! callback; service handles remain live until explicit release or owner teardown.
-use super::{Error, Host, binding::status};
+use super::{Error, Host, binding::status, ui::navigation::is_id_byte};
 use core::fmt;
 use paperpaw_native::host_glue::{PpBuffer, PpBytes};
 
@@ -135,9 +135,7 @@ fn validate_key(key: &str) -> Result<(), Error> {
         segments += 1;
         if s.len() > 32
             || !s.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
-            || !s
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            || !s.bytes().all(is_id_byte)
         {
             return Err(Error::Invalid);
         }

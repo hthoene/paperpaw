@@ -244,7 +244,8 @@ fn cursor(out: &mut Vec<Paint>, style: &Style, x: f32, top: f32, height: u16) ->
     )
 }
 
-/// A button of the field: outlined, filled while it has the focus.
+/// A button of the field: outlined, ringed while it has the focus (the ring
+/// stays inside the field: the button keeps a gap from its box).
 fn button(
     out: &mut Vec<Paint>,
     style: &Style,
@@ -266,13 +267,12 @@ fn button(
     )?;
     let radius = style.corner.max(u32::from(area.height) / 4);
     let thickness = u32::from(style.line).max(1);
+    boxed(out, area, radius, Some(thickness), style.ink)?;
     if focused {
-        boxed(out, area, radius, None, style.ink)?;
-        centred(out, font, label, style.small, area, style.paper)
-    } else {
-        boxed(out, area, radius, Some(thickness), style.ink)?;
-        centred(out, font, label, style.small, area, style.ink)
+        let border = paperpaw_ui_kit::parts::button_border(style.line);
+        paperpaw_ui_kit::parts::button_ring(out, area, radius, border, style.ink)?;
     }
+    centred(out, font, label, style.small, area, style.ink)
 }
 
 /// The text of several lines, wrapped to the box: the last lines that fit in
@@ -527,9 +527,12 @@ fn variants(
     );
     push(out, Paint::Fill(frame, style.paper))?;
     boxed(out, frame, style.corner, Some(border), style.ink)?;
+    // Each letter a button inside its key, with room in it for the ring of the
+    // focus.
+    let ring = paperpaw_ui_kit::parts::button_border(style.line);
     for (index, c) in popup.chars.iter().enumerate() {
         let key = popup.key(index);
-        let pad = style.line.max(1) * 3;
+        let pad = ring * 3;
         let r = Rect::new(
             key.x + pad,
             key.y + pad,
@@ -547,19 +550,17 @@ fn variants(
             popup.focus == Some(index),
             false,
         )?;
+        boxed(
+            out,
+            r,
+            radius,
+            Some(u32::from(style.line).max(1)),
+            style.ink,
+        )?;
         if popup.focus == Some(index) {
-            boxed(out, r, radius, None, style.ink)?;
-            centred(out, font, label, style.text, r, style.paper)?;
-        } else {
-            boxed(
-                out,
-                r,
-                radius,
-                Some(u32::from(style.line).max(1)),
-                style.ink,
-            )?;
-            centred(out, font, label, style.text, r, style.ink)?;
+            paperpaw_ui_kit::parts::button_ring(out, r, radius, ring, style.ink)?;
         }
+        centred(out, font, label, style.text, r, style.ink)?;
     }
     Ok(())
 }

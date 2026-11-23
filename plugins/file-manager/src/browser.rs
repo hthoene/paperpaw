@@ -10,7 +10,7 @@ use paperpaw_sdk::Storage;
 
 use crate::model::folder::{Entry, Folder};
 use crate::model::path::{self, copy, is_dir, is_within, join};
-use crate::model::{Error, ops};
+use crate::model::{Disk, Error, ops};
 
 /// The folder PaperPaw had up to 0.3: taken over as it starts, and where it
 /// could not take a file over the old one stays.
@@ -66,6 +66,14 @@ pub(crate) struct Browser {
     rows: usize,
     pub(crate) picked: Option<Picked>,
     pub(crate) note: Option<Note>,
+}
+
+/// The most UTF-16 units of a name on the memory card (FAT's long names).
+pub(crate) const NAME_UNITS: usize = 255;
+
+/// Whether `name`, as typed, is no longer than a name on the card can be.
+fn fits_card(name: &str) -> bool {
+    name.trim().encode_utf16().count() <= NAME_UNITS
 }
 
 /// A name for a file or folder that every file system takes as it is, the
@@ -221,11 +229,11 @@ impl Browser {
     /// Reads the page the focus is on, if it is not held: the next or the one
     /// before from the one held, as the buttons go.
     pub(crate) fn show_focus(&mut self, storage: &dyn Storage) {
-        let rows = self.rows;
-        let first = self.cursor - self.cursor % rows;
-        if self.len == 0 || first == self.first && !self.page.is_empty() {
+        if self.holds_focus() {
             return;
         }
+        let rows = self.rows;
+        let first = self.cursor - self.cursor % rows;
         let folder = self.folder(storage);
         let page = if first == self.first + rows {
             folder.after(self.page.last(), rows)
@@ -246,10 +254,16 @@ impl Browser {
         }
     }
 
+    /// Whether the page the focus is on is held: shown without the card.
+    pub(crate) fn holds_focus(&self) -> bool {
+        self.len == 0
+            || self.cursor - self.cursor % self.rows == self.first && !self.page.is_empty()
+    }
+
     /// Moves the focus one entry on (`1`) or back (`-1`), over the list and
     /// the bar below it, one round: past the last button to the first entry,
-    /// and back.
-    pub(crate) fn step(&mut self, storage: &dyn Storage, delta: isize) {
+    /// and back. The page it is on is read with [`Self::show_focus`].
+    pub(crate) fn step(&mut self, delta: isize) {
         let buttons = self.buttons().len();
         let (len, cursor) = (self.len, self.cursor);
         match self.bar {
@@ -271,7 +285,6 @@ impl Browser {
             }
             Some(i) => self.bar = Some(i - 1),
         }
-        self.show_focus(storage);
     }
 
     /// Moves the focus a page of the screen on (`1`) or back (`-1`).
@@ -381,7 +394,7 @@ impl Browser {
     }
 
     /// Puts what was picked in the shown folder, under a free name.
-    pub(crate) fn paste(&mut self, storage: &dyn Storage) {
+    pub(crate) fn paste(&mut self, storage: &dyn Disk) {
         let Some(picked) = self.picked.take() else {
             return;
         };
@@ -413,7 +426,7 @@ impl Browser {
     }
 
     /// Shows the folder again at the entry named like `path`, where it went.
-    fn reload_at(&mut self, storage: &dyn Storage, path: &str) {
+    fn reload_at(&mut self, storage: &dyn Disk, path: &str) {
         let name = path::name(path);
         let at = Entry::new(name, is_dir(storage, path), 0);
         match at {
@@ -426,7 +439,7 @@ impl Browser {
     }
 
     /// Deletes `path`, as the reader said yes.
-    pub(crate) fn delete(&mut self, storage: &dyn Storage, path: &str) {
+    pub(crate) fn delete(&mut self, storage: &dyn Disk, path: &str) {
         if is_own_data(storage, path) {
             self.note = Some(Note::OwnData);
             return;
@@ -459,8 +472,18 @@ impl Browser {
         self.reload(storage, at);
     }
 
+    /// A name was typed that is longer than one on the card can be: the line
+    /// says so, nothing changes.
+    pub(crate) fn name_too_long(&mut self) {
+        self.note = Some(Note::Failed(Error::NoSpace));
+    }
+
     /// Renames `path` to `name` as typed.
-    pub(crate) fn rename(&mut self, storage: &dyn Storage, path: &str, name: &str) {
+    pub(crate) fn rename(&mut self, storage: &dyn Disk, path: &str, name: &str) {
+        if !fits_card(name) {
+            self.name_too_long();
+            return;
+        }
         let Some(name) = valid_name(name) else {
             self.note = Some(Note::BadName);
             return;
@@ -486,7 +509,11 @@ impl Browser {
 
     /// Makes a folder called `name` in the shown folder, beside what has that
     /// name (`name (2)`).
-    pub(crate) fn new_folder(&mut self, storage: &dyn Storage, name: &str) {
+    pub(crate) fn new_folder(&mut self, storage: &dyn Disk, name: &str) {
+        if !fits_card(name) {
+            self.name_too_long();
+            return;
+        }
         let Some(name) = valid_name(name) else {
             if !name.trim().is_empty() {
                 self.note = Some(Note::BadName);

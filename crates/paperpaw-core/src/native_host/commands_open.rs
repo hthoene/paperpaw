@@ -121,6 +121,7 @@ impl<'a> CommandStage<'a> {
     /// As `into_ui_output`, with the opens the drain needs (hand-overs and
     /// the screens they replace). Without them the claims are rolled back
     /// when the stage is dropped.
+    #[cfg(test)]
     pub(crate) fn into_ui_output_with_opens(mut self) -> (Vec<Ask>, Option<ui::Redraw>, u8, Opens) {
         self.take_ui_output_with_opens()
     }

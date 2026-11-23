@@ -444,8 +444,10 @@ impl EpubDocument {
             (Err(error), None) => Err(package::error(error)),
             (Ok(()), None) if woff => Ok(None),
             (Ok(()), None) if written == 0 => Err(bad()),
+            // The pieces reach the card before the rename that publishes them.
             (Ok(()), None) => storage
-                .rename(&temp, dest)
+                .sync()
+                .and_then(|()| storage.rename(&temp, dest))
                 .map(|()| u32::try_from(written).ok())
                 .map_err(Into::into),
         };
@@ -1059,8 +1061,10 @@ impl Document for EpubDocument {
                 true
             });
             if let Some((offset, chars)) = found {
-                let mut text =
-                    fallible::zeroed((chars as usize * 4).min(MAX_SPAN as usize)).ok()?;
+                // `chars` is the XPointer's, from outside: four bytes each
+                // would pass a 32-bit `usize` from 2^30 on.
+                let span = (chars as usize).saturating_mul(4).min(MAX_SPAN as usize);
+                let mut text = fallible::zeroed(span).ok()?;
                 let n = storage
                     .read_at(&paths.text, u64::from(offset), &mut text)
                     .ok()?;

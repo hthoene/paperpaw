@@ -2,6 +2,7 @@
 //! background*, owner decision 52): how often, and which accounts a round
 //! has still to check. The host-free part; the work, the socket and the
 //! connection are `native_background.rs`.
+use super::job::Run;
 use super::mem::{Error, push};
 use alloc::vec::Vec;
 
@@ -75,13 +76,19 @@ impl Round {
         }
     }
 
-    /// The round ends where it is (a failure ends it for all: a connection that
-    /// fails once is not tried again at once for the next account).
-    pub fn end(&mut self) {
-        self.queue.clear();
+    /// The check of the account at the front ended as `run` says, or still
+    /// goes on (false). Whatever the end, the round goes on with the next
+    /// account: a password that is refused or a key that changed is that
+    /// account's alone.
+    pub fn checked(&mut self, run: &Run) -> bool {
+        let ended = matches!(run, Run::Done | Run::Failed(_) | Run::Untrusted { .. });
+        if ended {
+            self.pass();
+        }
+        ended
     }
 
-    /// Whether every account was checked or the round was ended.
+    /// Whether every account was checked.
     #[must_use]
     pub fn is_over(&self) -> bool {
         self.queue.is_empty()

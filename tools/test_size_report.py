@@ -102,13 +102,13 @@ class SizeGate(unittest.TestCase):
         # first native images (train t40) exceed it until they are shrunk: these
         # ceilings are the lines of the last train (t45), and only go down (back to
         # 6,400,000). The experimental picco is not part of that train: its ceiling
-        # is its line, measured in CI (#4525, #472).
+        # is its line, measured in CI (#4525, #472, #486).
         ceilings = {
             "x4": 6_276_352,
             "x3": 6_288_336,
             "x4-pro": 6_845_216,
             "x4-classic": 6_395_632,
-            "picco": 6_652_352,
+            "picco": 6_675_056,
         }
         for device, budget in images.items():
             self.assertLessEqual(budget, ceilings[device], device)

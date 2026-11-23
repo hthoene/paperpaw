@@ -21,7 +21,7 @@ use paperpaw_ui_kit::{
     mem::{buffer, wipe},
 };
 
-use crate::native_link::{Entry, Link, TOKEN};
+use crate::native_link::{Entry, Link, TOKEN, take};
 use crate::native_plan::Side;
 use crate::native_sync::TRASH_DIR;
 
@@ -136,36 +136,32 @@ impl Link for HostLink<'_, '_> {
         &self.data
     }
 
-    fn list(&mut self, folder: &str, out: &mut Vec<Entry>, most: usize) -> Result<(), Error> {
+    fn list(&mut self, folder: &str, out: &mut Vec<Entry>, most: usize) -> Result<bool, Error> {
         let host = self.host;
         let (mut input, mut reply) = (buffer(INPUT_BYTES)?, buffer(OUTPUT_BYTES)?);
         let files = self.files()?;
         let mut cursor = 0;
-        // A folder is read page by page; no more pages than a folder holds.
+        // A folder is read page by page, no more pages than `most` entries
+        // fill: one that goes on after them (many names a sync leaves out)
+        // holds more than a sync takes, too.
         for _ in 0..(most / PAGE_MAX_ROWS.max(1) + 3) {
             let page = files.list(host, Root::Files, folder, cursor, &mut input, &mut reply)?;
-            for entry in page.entries() {
-                if entry.unaddressable() || out.len() >= most {
-                    continue;
-                }
-                paperpaw_ui_kit::mem::push(
-                    out,
-                    Entry {
-                        name: paperpaw_ui_kit::text::copy(entry.name())?,
-                        folder: entry.is_folder(),
-                        side: Side {
-                            size: entry.size(),
-                            stamp: entry.modified().unwrap_or(0),
-                        },
-                    },
-                )?;
+            let rows = page.entries().filter(|e| !e.unaddressable()).map(|e| {
+                let side = Side {
+                    size: e.size(),
+                    stamp: e.modified().unwrap_or(0),
+                };
+                (e.name(), e.is_folder(), side)
+            });
+            if take(rows, out, most)? {
+                return Ok(true);
             }
             match page.next() {
-                Some(next) if out.len() < most => cursor = next,
-                _ => break,
+                Some(next) => cursor = next,
+                None => return Ok(false),
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     fn stat(&mut self, path: &str) -> Result<Option<Side>, Error> {

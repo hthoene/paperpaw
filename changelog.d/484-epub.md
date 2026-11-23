@@ -1,0 +1,19 @@
+### Fixed
+
+- **Formulas in books** (#484): a formula with an element left open inside it
+  no longer swallows the rest of its chapter, and a formula nested very deeply
+  no longer runs out of memory.
+- **Books after a power cut** (#484): a chapter, a book's contents and long
+  cache files are no longer kept cut short when the power goes while a book is
+  converted; the part cut off is converted again.
+- **Pictures in books** (#484): when the card refuses the list of a chapter's
+  pictures (it is full), the chapter is converted again later instead of
+  showing those pictures as their descriptions for good.
+- **Printed page numbers** (#484): when the card refuses the list of a book's
+  printed pages, the book is read again later instead of keeping no page
+  numbers for good.
+- **Book styles** (#484): a book with very many or very long style rules keeps
+  the first of them instead of losing all its styles.
+- **Picture books** (#484): a fixed-layout book of pictures shows the same
+  title, authors and subjects as any other book; words of a name are no longer
+  run together, and up to 16 authors are listed.

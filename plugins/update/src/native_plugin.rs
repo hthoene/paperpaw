@@ -102,8 +102,8 @@ enum View {
     /// The server could not be asked, or answered with an error.
     Unreachable(Trouble),
     /// An update the server named, to download, and the plugins built in now it
-    /// leaves out (their names, empty for none).
-    Offer(Offer, String),
+    /// leaves out (their names, empty for none; `None` where not known).
+    Offer(Offer, Option<String>),
     /// An update the server named that waits for plugins.
     Waiting(waiting::Waited),
     /// The same, which the reader chose to download anyway.
@@ -214,6 +214,9 @@ pub struct NativeUpdate {
     away: bool,
     /// The reader chose to update anyway, while it waits for plugins.
     anyway: bool,
+    /// A restart was asked for: the host asks the reader first, and a restart
+    /// that does not happen ends with an `install_done` of the install's request.
+    restart_asked: bool,
     online: online::Online,
 }
 
@@ -733,6 +736,7 @@ impl NativeUpdate {
                     drop(commands);
                     return self.show(host, View::RestartFailed);
                 }
+                self.restart_asked = true;
                 Ok(())
             }
             Some(Button::Install) => {
@@ -802,6 +806,16 @@ impl NativeUpdate {
             return Ok(());
         }
         let Some(job) = self.job.take() else {
+            // The restart asked for did not happen: the image stays installed
+            // and waiting, and the button asks again.
+            if core::mem::take(&mut self.restart_asked) {
+                let view = if native_card::restart_declined(done.outcome()) {
+                    View::Installed(true)
+                } else {
+                    View::RestartFailed
+                };
+                return self.show(host, view);
+            }
             return Ok(());
         };
         match ended(done.status().is_ok(), done.outcome()) {
@@ -814,7 +828,8 @@ impl NativeUpdate {
                 };
                 let mut commands = buffer(COMMANDS)?;
                 let restarted = CommandSender::new(host, &mut commands).firmware_restart();
-                let view = if restarted.is_ok() {
+                self.restart_asked = restarted.is_ok();
+                let view = if self.restart_asked {
                     View::Installed(false)
                 } else {
                     View::RestartFailed
@@ -889,6 +904,12 @@ impl NativeUpdate {
         let card = self.started_card(host);
         // Where the setting is on; a device without declared work has no look.
         online::tolerate(self.plan_look(host))?;
+        // What a fetch a restart cut off left.
+        online::tolerate(fetch::clear_staging(host))?;
+        // An update named before and installed since is no longer one.
+        if !self.version.is_empty() {
+            online::tolerate(Self::forget_reached_offer(host, &self.version))?;
+        }
         // The *New* mark as the offer kept says (the host kept the last one).
         online::tolerate(Self::mark_new(host))?;
         card
@@ -1143,10 +1164,9 @@ fn rows_of(
             }
         }
         View::Offer(_, leaves) => {
-            let label = if leaves.is_empty() {
-                "update.download"
-            } else {
-                "update.download-without"
+            let label = match leaves.as_deref() {
+                Some(names) if !names.is_empty() => "update.download-without",
+                _ => "update.download",
             };
             plain(host, messages, &mut rows, label, Button::Download)?;
         }
@@ -1278,7 +1298,9 @@ fn texts(
         }
         View::UpToDate => ("update.up-to-date.title", "update.up-to-date.help", true),
         View::Unreachable(trouble) => return unreachable_texts(host, messages, *trouble),
-        View::Offer(offer, leaves) => return offer_texts(host, messages, offer, leaves, current),
+        View::Offer(offer, leaves) => {
+            return offer_texts(host, messages, offer, leaves.as_deref(), current);
+        }
         View::Waiting(waited) => return waiting::texts(host, messages, waited, false),
         View::Anyway(waited) => return waiting::texts(host, messages, waited, true),
         View::Downloading(version, _) => return downloading_texts(host, messages, version),
@@ -1357,7 +1379,7 @@ fn offer_texts(
     host: &Host<'_>,
     messages: &mut Messages,
     offer: &Offer,
-    leaves: &str,
+    leaves: Option<&str>,
     current: &str,
 ) -> Result<(String, String), Error> {
     let version = shown_version(host, messages, &offer.version)?;
@@ -1376,7 +1398,7 @@ fn offer_texts(
     // What cannot come along comes first: where the footer is cut, the size goes.
     if offer.size == 0 {
         let help = messages.format(host, "update.offer.help-unsized", &[current])?;
-        let help = leaves::leaves_first(host, messages, &help, "update.leaves.download", leaves)?;
+        let help = leaves::offer_help(host, messages, &help, leaves)?;
         return Ok((title, help));
     }
     let (key, value) = match offer.size / 1024 {
@@ -1396,7 +1418,7 @@ fn offer_texts(
         value: &size,
     };
     let help = messages.format(host, "update.offer.help", &[current, size])?;
-    let help = leaves::leaves_first(host, messages, &help, "update.leaves.download", leaves)?;
+    let help = leaves::offer_help(host, messages, &help, leaves)?;
     Ok((title, help))
 }
 

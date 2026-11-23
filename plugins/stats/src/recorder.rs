@@ -69,9 +69,6 @@ pub(crate) struct Reading<'a> {
 pub(crate) struct Told {
     /// The statistics could not be saved (said once until they can again).
     pub not_saved: bool,
-    /// Today and the seconds read on it, when that changed (for the reading
-    /// goal).
-    pub today: Option<(i32, u32)>,
 }
 
 /// The book being read and the page it is on.
@@ -121,8 +118,6 @@ pub(crate) struct Recorder {
     /// The day and the seconds read on it, summed once from the records and
     /// counted on as stays are recorded.
     today: Option<(i32, u32)>,
-    /// What was told last of today.
-    told: Option<(i32, u32)>,
 }
 
 /// The page and the number of pages of a reading event: as the reader
@@ -218,20 +213,22 @@ impl Recorder {
     }
 
     /// Says that the statistics could not be saved (once until writing works
-    /// again) and how long was read today, when it changed.
-    pub(crate) fn tell(&mut self, cx: &dyn Surroundings) -> Told {
+    /// again). Today's reading is not told: who shows it asks
+    /// ([`Recorder::read_today`], the stage and the sleep screen), so an event
+    /// reads no day log for it (each wake of the X4 is a start).
+    pub(crate) fn tell(&mut self) -> Told {
         let mut told = Told::default();
         if self.write_failed == Some(false) {
             told.not_saved = true;
             self.write_failed = Some(true);
         }
-        if let Some(today) = self.read_today(cx)
-            && self.told != Some(today)
-        {
-            self.told = Some(today);
-            told.today = Some(today);
-        }
         told
+    }
+
+    /// The log may have been replaced (a sync merged another device's reading,
+    /// an import added some): today's seconds are summed again when asked.
+    pub(crate) fn forget_today(&mut self) {
+        self.today = None;
     }
 
     /// Today and the seconds read on it, if the device knows the date:
@@ -303,11 +300,22 @@ impl Recorder {
                 Some(&(_, id)) => id,
                 None => {
                     let (path, title) = self.path_title(stay.name);
-                    let id = register_book(cx, path, title, start, stay.pages);
-                    if ids.try_reserve(1).is_ok() {
-                        ids.push((stay.name, id));
+                    match register_book(cx, path, title, start, stay.pages) {
+                        Ok(id) => {
+                            if ids.try_reserve(1).is_ok() {
+                                ids.push((stay.name, id));
+                            }
+                            id
+                        }
+                        // `books.ini` could not be written: this stay and the
+                        // rest wait for the next page, said once, as a failed
+                        // append is (they were dropped unsaid).
+                        Err(error) => {
+                            self.wrote::<()>(Err(error));
+                            self.keep_undated(stay, stays);
+                            break;
+                        }
                     }
-                    id
                 }
             };
             if let (Some(book), Ok(start @ 1..)) = (book, u32::try_from(start)) {
@@ -326,20 +334,12 @@ impl Recorder {
                     *seconds = seconds.saturating_add(u32::from(stay.duration));
                 }
                 if recorded.is_none() {
-                    // Kept to be written with the next page.
-                    if self.undated.try_reserve(1).is_ok() {
-                        self.undated.push(stay);
-                    }
-                    for rest in stays {
-                        if self.undated.try_reserve(1).is_err() {
-                            break;
-                        }
-                        self.undated.push(rest);
-                    }
+                    self.keep_undated(stay, stays);
                     break;
                 }
             }
         }
+        let mut refused = None;
         if let Some(session) = &mut self.session
             && session.book.is_none()
         {
@@ -350,15 +350,38 @@ impl Recorder {
                         .names
                         .get(session.name)
                         .map_or(("", ""), |(p, t)| (p, t));
-                    register_book(cx, path, title, unix(cx.now_ms()), session.pages)
+                    register_book(cx, path, title, unix(cx.now_ms()), session.pages).unwrap_or_else(
+                        |error| {
+                            refused = Some(error);
+                            None
+                        },
+                    )
                 }
             };
-            // A book that cannot be read is not recorded.
-            if session.book.is_none() {
+            // A book that cannot be read is not recorded; one `books.ini`
+            // could not take is tried again with the next page.
+            if session.book.is_none() && refused.is_none() {
                 self.session = None;
             }
         }
+        if let Some(error) = refused {
+            self.wrote::<()>(Err(error));
+        }
         self.prune();
+    }
+
+    /// `stay` and the `rest` after it are kept to be written with the next
+    /// page (as many as there is room for).
+    fn keep_undated(&mut self, stay: Stay, rest: impl Iterator<Item = Stay>) {
+        if self.undated.try_reserve(1).is_ok() {
+            self.undated.push(stay);
+        }
+        for rest in rest {
+            if self.undated.try_reserve(1).is_err() {
+                break;
+            }
+            self.undated.push(rest);
+        }
     }
 
     /// The reader shows the page of `reading`.
@@ -427,7 +450,7 @@ impl Recorder {
         if self.reading(reading.path) && cx.limits().enabled {
             self.turn(cx, reading);
         }
-        self.tell(cx)
+        self.tell()
     }
 
     /// A book is shown.
@@ -435,7 +458,7 @@ impl Recorder {
         if cx.limits().enabled {
             self.open(cx, reading);
         }
-        self.tell(cx)
+        self.tell()
     }
 
     /// The book at `path` was closed: its page ends, and nothing is read
@@ -445,7 +468,7 @@ impl Recorder {
             self.finish_page(cx);
             self.session = None;
         }
-        self.tell(cx)
+        self.tell()
     }
 
     /// The book at `from` is at `to` now.
@@ -464,7 +487,7 @@ impl Recorder {
             changed
         });
         self.wrote(result);
-        self.tell(cx)
+        self.tell()
     }
 
     /// The book at `path` was read to the end: kept as when it was finished
@@ -489,17 +512,17 @@ impl Recorder {
     }
 
     /// The start: files a cut left beside their place are put there before
-    /// anything is recorded; today's reading is told, for those who show it.
+    /// anything is recorded.
     pub(crate) fn started(&mut self, cx: &dyn Surroundings) -> Told {
         store::recover(cx.data());
-        self.tell(cx)
+        self.tell()
     }
 
     /// The time became known (or was set anew): what was read before is
     /// recorded.
     pub(crate) fn clock_changed(&mut self, cx: &dyn Surroundings) -> Told {
         self.date(cx);
-        self.tell(cx)
+        self.tell()
     }
 
     /// Records what the view is to include: the current page.
@@ -530,18 +553,23 @@ fn today(cx: &dyn Surroundings) -> Option<i32> {
 }
 
 /// The book at `path` in `books.ini`, added if new: recognised by its
-/// fingerprint, with title as the reader shows it. `None` where `books.ini`
-/// cannot be read or written: it then stays as it was, and nothing is
-/// recorded for the book.
+/// fingerprint, with title as the reader shows it; `None` where the book's
+/// file cannot be read (nothing is recorded for it).
+///
+/// # Errors
+/// `books.ini` cannot be read or written: it stays as it was, and the
+/// caller keeps what it would record to try again.
 fn register_book(
     cx: &dyn Surroundings,
     path: &str,
     title: &str,
     now: i64,
     pages: u32,
-) -> Option<u16> {
+) -> Result<Option<u16>, StorageError> {
     let mut digits = [0u8; 32];
-    let md5 = md5::partial_into(cx.files(), path, &mut digits)?;
+    let Some(md5) = md5::partial_into(cx.files(), path, &mut digits) else {
+        return Ok(None);
+    };
     let mut id = None;
     store::update_books(cx.data(), |books| {
         let at = match books.iter().position(|b| b.md5 == md5) {
@@ -594,9 +622,8 @@ fn register_book(
         }
         id = Some(book.id);
         true
-    })
-    .ok()?;
-    id
+    })?;
+    Ok(id)
 }
 
 /// The book at `path` was read to the end `now`: kept as when it was

@@ -495,16 +495,32 @@ fn an_event_reads_only_what_its_decision_needs() {
     calls.borrow_mut().clear();
     send(&plugin, declared::WORK, &due(65_000));
     assert_eq!(calls_of(&calls), "device.wifi");
-    // Scanned: the networks in reach and the networks joined before with
-    // their passwords.
-    let mut world = World::new(ON);
-    world.reach = vec![("Home", true)];
     let scanned = event_batch(&Record::EventWifiScanned(EventWifiScanned {
         now_ms: 6_000,
         networks: 1,
     }))
     .unwrap();
-    let log = reads(world, declared::WIFI_SCANNED, scanned);
+    // Scanned with no round of joining under way (nothing was wanted): the
+    // radio alone. Before, every network joined before was read with its
+    // password, for a decision that looks at none of them.
+    let mut world = World::new(ON);
+    world.reach = vec![("Home", true)];
+    assert_eq!(
+        reads(world, declared::WIFI_SCANNED, scanned.clone()),
+        "device.wifi"
+    );
+    // Scanned in a round that joins a network joined before (one was
+    // wanted): the networks in reach and those joined before with their
+    // passwords.
+    let mut world = World::new(ON);
+    world.reach = vec![("Home", true)];
+    let calls = world.calls.clone();
+    let host = host_of(world);
+    let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
+    send(&plugin, declared::NETWORK_WANTED, &wanted(5_000));
+    calls.borrow_mut().clear();
+    send(&plugin, declared::WIFI_SCANNED, &scanned);
+    let log = calls_of(&calls);
     assert!(
         log.starts_with("device.wifi device.networks secrets.list secrets.get"),
         "{log}"

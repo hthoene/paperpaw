@@ -8,6 +8,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use paperpaw_sdk::Handled;
+use paperpaw_sdk::Point;
 use paperpaw_sdk::native::callbacks::{DrawFrame, Input, InputGestureKind};
 use paperpaw_sdk::native::commands::{CommandSender, RedrawMode};
 use paperpaw_sdk::native::document::{Documents, ReaderCursor};
@@ -17,13 +18,14 @@ use paperpaw_sdk::native::library::{BookRef, Library};
 use paperpaw_sdk::native::settings::{self, SettingValue};
 use paperpaw_sdk::native::ui::{Open, Param, Question, RequestId, TextWrite, Ui};
 use paperpaw_sdk::native::{Error, Host, Plugin, registrations, reply::Reply};
-use paperpaw_sdk::{Point, Storage};
+use paperpaw_ui_kit::list::redraw_areas;
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer, push};
 use paperpaw_ui_kit::text::{concat, copy};
 use paperpaw_ui_kit::{Messages, Screens, uitext};
 
 use crate::browser::{Browser, Button, is_own_data};
 use crate::card::{with_card, with_card_noted};
+use crate::model::Disk;
 use crate::model::folder::Entry;
 use crate::native_draw::{self, Hits};
 
@@ -34,8 +36,9 @@ mod image {
 const OPEN: u32 = crate::declarations::OPEN_TOKEN;
 const BROWSER: u32 = crate::declarations::BROWSER_TOKEN;
 const HIDDEN: &str = "file-manager.hidden";
-/// The longest name the keyboard takes.
-const NAME_LIMIT: usize = 256;
+/// The longest name typed that is read, in bytes: a name on the card (255
+/// UTF-16 units, [`crate::browser::NAME_UNITS`]) is at most 765 of UTF-8.
+const NAME_LIMIT: usize = 1_024;
 /// Every option an entry can have (the labels are `file-manager.option.*`).
 const OPTIONS: [&str; 6] = ["open", "open-with", "rename", "move", "copy", "delete"];
 /// Reading apps listed for "Open with" at most.
@@ -212,7 +215,7 @@ impl NativeFileManager {
     fn browse<T>(
         &mut self,
         host: &Host<'_>,
-        work: impl FnOnce(&mut Browser, &dyn Storage) -> T,
+        work: impl FnOnce(&mut Browser, &dyn Disk) -> T,
     ) -> Result<Option<T>, Error> {
         self.browse_if(host, work, |_| true)
     }
@@ -222,7 +225,7 @@ impl NativeFileManager {
     fn browse_if<T>(
         &mut self,
         host: &Host<'_>,
-        work: impl FnOnce(&mut Browser, &dyn Storage) -> T,
+        work: impl FnOnce(&mut Browser, &dyn Disk) -> T,
         changed: impl FnOnce(&T) -> bool,
     ) -> Result<Option<T>, Error> {
         let Some(view) = self.screens.top(BROWSER) else {
@@ -246,12 +249,8 @@ impl NativeFileManager {
         let (cursor, bar) = (view.browser.cursor(), view.browser.bar());
         let button = bar.and_then(|i| view.browser.buttons().get(i).copied());
         match action {
-            "core.up" | "core.left" | "core.previous" => {
-                self.browse(host, |browser, card| browser.step(card, -1))?;
-            }
-            "core.down" | "core.right" | "core.next" => {
-                self.browse(host, |browser, card| browser.step(card, 1))?;
-            }
+            "core.up" | "core.left" | "core.previous" => self.step(host, -1)?,
+            "core.down" | "core.right" | "core.next" => self.step(host, 1)?,
             "core.prev-page" | "core.next-page" => {
                 let forward = action == "core.next-page";
                 self.browse(host, |browser, card| browser.turn(card, forward))?;
@@ -266,6 +265,23 @@ impl NativeFileManager {
             _ => return Ok(Handled::No),
         }
         Ok(Handled::Yes)
+    }
+
+    /// Moves the focus by `delta`. Within the page held only the row (or
+    /// button) it leaves and the one it reaches are drawn again, and the card
+    /// is not asked; another page is read first.
+    fn step(&mut self, host: &Host<'_>, delta: isize) -> Result<(), Error> {
+        let Some(view) = self.screens.top(BROWSER) else {
+            return Ok(());
+        };
+        let left = view.hits.focus_area(&view.browser);
+        view.browser.step(delta);
+        if view.browser.holds_focus() {
+            let reached = view.hits.focus_area(&view.browser);
+            return redraw_areas(host, view.hits.origin, [left, reached]);
+        }
+        self.browse(host, |browser, card| browser.show_focus(card))?;
+        Ok(())
     }
 
     fn touch(
@@ -634,6 +650,25 @@ impl NativeFileManager {
         self.ask(host, question, Asked::Delete { path, book })
     }
 
+    /// The name typed for `request`; none where it is longer than any name
+    /// on the card.
+    fn typed_name(&self, host: &Host<'_>, request: RequestId) -> Result<Option<String>, Error> {
+        match uitext::read_all(self.ui()?, host, request.text(), NAME_LIMIT) {
+            Ok(typed) => Ok(Some(typed)),
+            Err(Error::NoSpace) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// The line says the name typed is too long.
+    fn name_too_long(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(view) = self.screens.top(BROWSER) else {
+            return Ok(());
+        };
+        view.browser.name_too_long();
+        redraw(host)
+    }
+
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
         let Some((request, _)) = &self.asked else {
             return Ok(());
@@ -676,12 +711,16 @@ impl NativeFileManager {
                 None => Ok(()),
             },
             Asked::Rename { path } => {
-                let typed = uitext::read_all(self.ui()?, host, request.text(), NAME_LIMIT)?;
+                let Some(typed) = self.typed_name(host, request)? else {
+                    return self.name_too_long(host);
+                };
                 self.browse(host, |browser, card| browser.rename(card, &path, &typed))?;
                 Ok(())
             }
             Asked::NewFolder => {
-                let typed = uitext::read_all(self.ui()?, host, request.text(), NAME_LIMIT)?;
+                let Some(typed) = self.typed_name(host, request)? else {
+                    return self.name_too_long(host);
+                };
                 self.browse(host, |browser, card| browser.new_folder(card, &typed))?;
                 Ok(())
             }

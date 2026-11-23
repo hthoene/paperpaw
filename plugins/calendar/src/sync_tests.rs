@@ -55,6 +55,8 @@ struct World {
     next: u32,
     offline: bool,
     denies: bool,
+    /// A calendar whose `REPORT` fails with a server error.
+    broken: Option<String>,
 }
 
 impl World {
@@ -155,6 +157,7 @@ xmlns:card=\"urn:ietf:params:xml:ns:carddav\">{inner}</d:multistatus>"
                 };
             }
             "PROPFIND" => self.propfind(&path),
+            "REPORT" if self.broken.as_ref() == Some(&path) => return 500,
             "REPORT" => {
                 self.bodies.push(call.body.unwrap_or("").to_string());
                 self.report(&path)
@@ -492,4 +495,75 @@ fn more_events_than_the_reader_holds_are_counted_not_lost_silently() {
     assert_eq!(reader.store.entries.len(), crate::model::MAX_ENTRIES);
     assert_eq!(report.skipped, 20);
     assert_eq!(reader.store.source(id).unwrap().state, state::PARTLY);
+}
+
+const FAMILY: &str = "/dav/calendars/anna/family/";
+
+fn family(world: &mut World, title: &str) {
+    world.calendars.insert(
+        FAMILY.into(),
+        alloc::vec![ical(&format!(
+            "BEGIN:VEVENT\r\nUID:zoo@x\r\nSUMMARY:{title}\r\nDTSTART;VALUE=DATE:20261119\r\nEND:VEVENT\r\n"
+        ))],
+    );
+}
+
+#[test]
+fn a_calendar_that_fails_keeps_its_events_while_the_others_are_read() {
+    let mut world = World::new();
+    personal(&mut world);
+    family(&mut world, "Zoo");
+    let mut reader = Reader::default();
+    let id = reader.add(Kind::Caldav, "Work", ROOT);
+    reader.run(&mut world, false);
+    let known = reader.agenda(14);
+    assert!(known.contains(&"+1 all day Zoo".to_string()), "{known:?}");
+    assert!(known.contains(&"+0 14:30 Call".to_string()), "{known:?}");
+    // The family calendar (read first) changed; the personal one fails.
+    family(&mut world, "Zoo trip");
+    world.broken = Some(PERSONAL.into());
+    let report = reader.run(&mut world, false);
+    assert_eq!(report.read, 1);
+    assert_eq!(reader.store.source(id).unwrap().state, state::PARTLY);
+    let now = reader.agenda(14);
+    let want: Vec<String> = known
+        .iter()
+        .map(|line| line.replace("Zoo", "Zoo trip"))
+        .collect();
+    assert_eq!(now, want);
+    // Read again whole, and a calendar gone from the account takes its events along.
+    world.broken = None;
+    world.calendars.remove(FAMILY);
+    reader.run(&mut world, false);
+    assert_eq!(reader.store.source(id).unwrap().state, state::OK);
+    let without: Vec<String> = known
+        .into_iter()
+        .filter(|line| !line.contains("Zoo"))
+        .collect();
+    assert_eq!(reader.agenda(14), without);
+}
+
+#[test]
+fn a_page_that_is_no_calendar_replaces_nothing() {
+    let mut world = World::new();
+    world.feeds.insert(
+        "/holidays.ics".into(),
+        ical("BEGIN:VEVENT\nUID:h1\nSUMMARY:Day off\nDTSTART;VALUE=DATE:20261119\nEND:VEVENT\n"),
+    );
+    let mut reader = Reader::default();
+    let id = reader.add(Kind::Ics, "Holidays", "https://cloud.example/holidays.ics");
+    reader.run(&mut world, false);
+    assert_eq!(reader.agenda(3), ["+1 all day Day off"]);
+    // A captive portal answers in its place, then a text cut short.
+    for answer in [
+        "<html><body>Sign in to the Wi-Fi</body></html>".to_string(),
+        ical("BEGIN:VEVENT\nUID:h2\nSUMMARY:Other\nDTSTART;VALUE=DATE:20261119\nEND:VEVENT\n")
+            .replace("END:VCALENDAR\r\n", ""),
+    ] {
+        world.feeds.insert("/holidays.ics".into(), answer);
+        let report = reader.run(&mut world, false);
+        assert_eq!(report.failed, 1);
+        assert_eq!(reader.store.source(id).unwrap().state, state::FAILED);
+        assert_eq!(reader.agenda(3), ["+1 all day Day off"]);
+    }
 }

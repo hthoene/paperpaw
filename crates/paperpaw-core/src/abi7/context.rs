@@ -13,10 +13,6 @@ use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_platform::Rect;
 use paperpaw_sdk::Settings;
 
-#[allow(
-    dead_code,
-    reason = "service view fields are consumed by slots 17-19 encoders"
-)]
 #[path = "usage_views.rs"]
 pub(crate) mod usage_views;
 pub(crate) use usage_views::{DeviceUsageView, PluginRow};
@@ -29,7 +25,6 @@ pub(crate) mod ui_guard;
 pub(crate) mod ui_views;
 
 /// Table position after a scoped visitor stops; counters are not snapshotted.
-#[allow(dead_code, reason = "row offsets are read by the service encoder")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RowsEnd {
     pub(crate) total: u32,
@@ -39,7 +34,6 @@ pub(crate) struct RowsEnd {
 
 /// What `kind` names (section 5.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "read by slot 35 and the frame's compose hook")]
 pub(crate) enum ComposeKind {
     /// A widget instance (`draw.frame.purpose` 4).
     Widget,
@@ -51,7 +45,6 @@ pub(crate) enum ComposeKind {
 
 /// One checked `ui.compose` call, as the frame's hook gets it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code, reason = "read by slot 35 and the frame's compose hook")]
 pub(crate) struct ComposeRequest {
     pub(crate) kind: ComposeKind,
     /// The instance or handle that op 4, 14 or 15 gave.
@@ -68,10 +61,6 @@ pub(crate) struct ComposeRequest {
 
 /// The value of one of the kernel's own status items (`ui.md` 5.3, todo 598).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(
-    dead_code,
-    reason = "made by Core's frame; the tests that include this file make none"
-)]
 pub(crate) enum HostStatus {
     /// A text of this many bytes, written to the caller's buffer.
     Text(usize),

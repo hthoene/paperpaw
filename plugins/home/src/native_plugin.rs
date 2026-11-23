@@ -42,6 +42,7 @@ use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::{Dashboard, redraw};
 use crate::native_drawer::{self as drawer, Drawer};
 use crate::native_lines;
+use crate::native_pages;
 use crate::native_reflow::fit;
 use crate::native_source::is_grid_setting;
 use crate::native_widgets::Widgets;
@@ -201,7 +202,7 @@ impl Plugin for NativeHome {
                 self.covers_now();
                 self.widgets
                     .tick(host, self.ui.as_ref().ok_or(Error::State)?);
-                Ok(())
+                self.tick_page(host)
             }
             Event::WidgetChanged { instance, .. } if token == WIDGET_CHANGED => {
                 self.widget_changed(host, instance)
@@ -416,6 +417,31 @@ impl NativeHome {
         redraw(host)
     }
 
+    /// The minute on Home's own page: its clock, date and status line draw
+    /// their own places again where they show something new. They are this
+    /// plugin's own, not the host's instances, so no `widget_changed` comes
+    /// for them (#308 left the page's own clock at the minute it was drawn).
+    fn tick_page(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(top) = self.screens.top_instance(DASHBOARD) else {
+            return Ok(());
+        };
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let Some(Slot::Dashboard(dashboard)) = self.screens.get(top) else {
+            return Ok(());
+        };
+        let areas = dashboard.ticked(host, ui)?;
+        // Under another screen it is drawn when it shows again.
+        if areas.is_empty() || self.stack_top(host)? != Some(top) {
+            return Ok(());
+        }
+        let mut scratch = [0; 64];
+        let mut commands = CommandSender::new(host, &mut scratch);
+        for area in areas {
+            commands.queue_redraw_area(RedrawMode::Partial, area)?;
+        }
+        Ok(())
+    }
+
     /// A widget shows something new. One whose height does not depend on what it
     /// shows (the clock, the date, the status line) draws its own place again
     /// where the page stands as it was laid out; else the page is laid out and
@@ -529,10 +555,11 @@ impl NativeHome {
         instance: Instance,
         handover: Option<HandoverId>,
     ) -> Result<(), Error> {
-        // Opened to edit (`mode` = `edit`) starts editing.
+        // Opened to edit (`mode` = `edit`, or as the editor of a page's
+        // setting) starts editing, on that page.
         if screen == DASHBOARD_SCREEN {
-            let edit = self.edits(host, handover)?;
-            return open_dashboard(&mut self.screens, instance, edit);
+            let (edit, page) = self.edits(host, handover)?;
+            return open_dashboard(&mut self.screens, instance, (edit, page));
         }
         if screen == drawer::SCREEN {
             let drawer = Drawer::new(host, None)?;
@@ -549,10 +576,14 @@ impl NativeHome {
         self.screens.open(instance, Slot::Items(editor))
     }
 
-    /// Whether the handover asks to edit (`mode` = `edit`).
-    fn edits(&self, host: &Host<'_>, handover: Option<HandoverId>) -> Result<bool, Error> {
+    /// Whether the handover asks to edit, and which page ([`edit_mode`]).
+    fn edits(
+        &self,
+        host: &Host<'_>,
+        handover: Option<HandoverId>,
+    ) -> Result<(bool, Option<usize>), Error> {
         let Some(handover) = handover else {
-            return Ok(false);
+            return Ok((false, None));
         };
         let mut input = buffer(SERVICE_BUFFER)?;
         let mut output = buffer(SERVICE_BUFFER)?;
@@ -628,31 +659,35 @@ impl NativeHome {
 fn open_dashboard(
     screens: &mut Screens<Slot>,
     instance: Instance,
-    edit: bool,
+    (edit, page): (bool, Option<usize>),
 ) -> Result<(), Error> {
     if let Some(Slot::Dashboard(dashboard)) = screens.get(instance) {
-        dashboard.reopened(edit);
+        dashboard.reopened(edit, page);
         return Ok(());
     }
     let mut dashboard = Dashboard::new();
     if edit {
-        dashboard.start_editing();
+        dashboard.start_editing(page);
     }
     screens.open(instance, Slot::Dashboard(dashboard))
 }
 
-/// Whether the params ask to edit: `mode` = `edit`.
+/// Whether the params ask to edit: `mode` = `edit`, or `id` a page's setting
+/// (the settings open the home screen as its editor, `home.page-N`), and the
+/// slot of that page.
 fn edit_mode<'a>(
     params: impl Iterator<Item = Result<(&'a str, &'a str), Error>>,
-) -> Result<bool, Error> {
-    let mut edits = false;
+) -> Result<(bool, Option<usize>), Error> {
+    let (mut edits, mut page) = (false, None);
     for param in params {
         let (key, value) = param?;
-        if key == "mode" {
-            edits = value == "edit";
+        match key {
+            "mode" => edits = value == "edit",
+            "id" => page = native_pages::slot_of(value),
+            _ => {}
         }
     }
-    Ok(edits)
+    Ok((edits || page.is_some(), page))
 }
 
 /// What the screen `status-items` edits for `id`: the footer's items, and the
@@ -758,10 +793,15 @@ mod tests {
     #[test]
     fn the_dashboard_edits_when_asked_to() {
         let edit = [("mode", "edit")];
-        assert!(edit_mode(pairs(&edit)).unwrap());
+        assert_eq!(edit_mode(pairs(&edit)).unwrap(), (true, None));
         let other = [("mode", "view"), ("page", "1")];
-        assert!(!edit_mode(pairs(&other)).unwrap());
-        assert!(!edit_mode(pairs(&[])).unwrap());
+        assert!(!edit_mode(pairs(&other)).unwrap().0);
+        assert!(!edit_mode(pairs(&[])).unwrap().0);
+        // As the editor of a page's setting: that page is edited (Beta 3).
+        let page = [("id", "home.page-3")];
+        assert_eq!(edit_mode(pairs(&page)).unwrap(), (true, Some(2)));
+        let other = [("id", "home.columns")];
+        assert_eq!(edit_mode(pairs(&other)).unwrap(), (false, None));
         let refused = [Err(Error::Busy)];
         assert_eq!(edit_mode(refused.into_iter()), Err(Error::Busy));
     }

@@ -262,11 +262,10 @@ pub fn checkbox(
     Ok(())
 }
 
-/// A button with `label` in `rect`, as a dialog's buttons are: the chosen one
-/// is the theme's focus (a bar, or a frame with a ring focus) with the ink that
-/// reads on it, the others an outline, a card's colour behind the label, or the
-/// label alone as the theme chose (`core.ui-button`). The label is shortened to
-/// fit and centred.
+/// A button with `label` in `rect`, as a dialog's buttons are: an outline, a
+/// card's colour behind the label, or the label alone as the theme chose
+/// (`core.ui-button`); with the focus, a ring round it ([`button_ring`]). The
+/// label is shortened to fit and centred.
 ///
 /// # Errors
 /// Font refusals and [`Error::NoMemory`].
@@ -277,6 +276,23 @@ pub fn button(
     rect: Rect,
     label: &str,
     focused: bool,
+) -> Result<(), Error> {
+    button_on(out, font, style, rect, label, (false, focused))
+}
+
+/// A [`button`] filled as the theme's focus bar is, with the ink that reads on
+/// it, where `on` (the choice made, a page's main button); `focused` rings it
+/// either way.
+///
+/// # Errors
+/// Font refusals and [`Error::NoMemory`].
+pub fn button_on(
+    out: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    label: &str,
+    (on, focused): (bool, bool),
 ) -> Result<(), Error> {
     let radius = if style.pill {
         u32::from(rect.height) / 2
@@ -291,7 +307,7 @@ pub fn button(
         focused,
         false,
     )?;
-    let ink = if focused {
+    let ink = if on {
         paint::push(out, Paint::Focus(rect, radius, None, style.bar()))?;
         crate::list::ink(style, true)
     } else {
@@ -307,11 +323,56 @@ pub fn button(
         }
         style.ink
     };
+    if focused {
+        let ring = style.roles.outline.unwrap_or(style.ink);
+        button_ring(out, rect, radius, button_border(style.line), ring)?;
+    }
     let room = f32::from(rect.width.saturating_sub(style.margin)).max(1.0);
     let shown = crate::text::fit(font, style.text, label, room)?;
     let wide = font.measure_text(style.text, &shown)?;
     let x = f32::from(rect.x) + (f32::from(rect.width) - wide).max(0.0) / 2.0;
     crate::text::label(out, font, &shown, style.text, x, rect, ink, Some(rect))
+}
+
+/// The width of the ring round a button with the focus, and of the gap
+/// between the two, for a style's `line`: at least 2 pixels.
+#[must_use]
+pub fn button_border(line: u16) -> u16 {
+    line.max(2)
+}
+
+/// Where a button at `rect` draws with its focus ring ([`button_ring`]) for a
+/// style's `line`: what a screen draws again when the focus moves on or off it.
+#[must_use]
+pub fn button_reach(rect: Rect, line: u16) -> Rect {
+    rect.grow(button_border(line).saturating_mul(2))
+}
+
+/// The focus of a button at `rect` with corners `radius`: a ring `border`
+/// thick round it, `border` off its edge, so that the button keeps its own
+/// look and the gap tells the ring from its outline. It reaches `2 * border`
+/// outside `rect` ([`button_reach`]): a screen leaves that much room round a
+/// button and redraws it with the button when the focus moves.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the paint list cannot grow.
+pub fn button_ring(
+    out: &mut Vec<Paint>,
+    rect: Rect,
+    radius: u32,
+    border: u16,
+    ink: Color,
+) -> Result<(), Error> {
+    let off = border.saturating_mul(2);
+    paint::push(
+        out,
+        Paint::Focus(
+            rect.grow(off),
+            radius.saturating_add(u32::from(off)),
+            Some(u32::from(border)),
+            ink,
+        ),
+    )
 }
 
 /// A slider's line along `line` (its middle row): thin, thicker up to the

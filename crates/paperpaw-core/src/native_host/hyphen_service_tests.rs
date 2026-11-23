@@ -233,6 +233,26 @@ fn two_tables_stay_open_and_a_third_waits_for_one_to_go_idle() {
     assert_eq!(card.opens.get(), opens, "en was never closed");
 }
 
+/// The words of a language that has no room now read nothing from the card,
+/// word after word: it is tried again once a table can have gone idle (#483).
+#[test]
+fn a_language_without_room_reads_the_card_once_until_room_can_come() {
+    let card = Card::new();
+    for tag in ["de", "en", "fr"] {
+        card.add(tag, table(""));
+    }
+    let s = state(&card);
+    ask(&s, "de", "abab", 1, 1).unwrap();
+    ask(&s, "en", "abab", 1, 1).unwrap();
+    let opens = card.opens.get();
+    for _ in 0..20 {
+        assert_eq!(ask(&s, "fr", "abab", 1, 1), Ok(std::vec![]));
+    }
+    assert_eq!(card.opens.get(), opens + 1, "opened once, not each word");
+    // The open languages go on as before.
+    assert_eq!(ask(&s, "en", "abab", 1, 1), Ok(std::vec![1, 3]));
+}
+
 #[test]
 fn a_failed_read_closes_the_table_and_a_second_one_ends_the_language() {
     let card = Card::new();

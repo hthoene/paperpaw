@@ -22,6 +22,7 @@ pub const WORK_DUE: u32 = 9;
 pub const WORK_ALLOWED: u32 = 11;
 pub const HTTP_DONE: u32 = 12;
 pub const WORK_REFUSED: u32 = 13;
+pub const POWER_CHANGED: u32 = 14;
 /// The work that sends the progress when the radio is on anyway.
 pub const PUSH_WORK: &str = "push";
 
@@ -108,5 +109,6 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::WorkAllowed, WORK_ALLOWED)?;
     d.subscribe_event(EventKind::WorkRefused, WORK_REFUSED)?;
     d.subscribe_event(EventKind::HttpDone, HTTP_DONE)?;
+    d.subscribe_event(EventKind::PowerChanged, POWER_CHANGED)?;
     d.submit()
 }

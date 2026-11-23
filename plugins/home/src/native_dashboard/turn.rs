@@ -1,5 +1,24 @@
 //! The page shown after the screen turned.
-use super::{Dashboard, Error, HostSource, native_pages};
+use super::{Dashboard, Error, HostSource, Nav, native_pages};
+
+/// The page of `pages` to lay out and how many there are, `nav` set to it: the
+/// one `wanted` names by its slot (opened to edit a page's setting; taken),
+/// else the one the screen's turn leads to (`turned`), else the one shown.
+pub(super) fn page_to_show(
+    (nav, wanted): (&mut Option<Nav>, &mut Option<usize>),
+    pages: &[native_pages::Page],
+    turned: Option<usize>,
+) -> (usize, usize) {
+    let wanted = wanted
+        .take()
+        .and_then(|slot| pages.iter().position(|p| p.slot == slot));
+    let nav = nav.get_or_insert(Nav::new(pages.len()));
+    nav.resize(pages.len());
+    if let Some(at) = wanted.or(turned) {
+        nav.page = at;
+    }
+    (nav.page, nav.pages)
+}
 
 impl Dashboard {
     /// The screen turned: the page that shows the first item of the one before,

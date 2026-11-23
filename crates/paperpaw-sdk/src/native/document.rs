@@ -18,10 +18,6 @@ const IMAGE_SIDE_MAX: u32 = 1600;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DocId(u32);
 impl DocId {
-    /// The id a host record names (`event.document_changed`).
-    pub(crate) const fn from_wire(document: u32) -> Self {
-        Self(document)
-    }
     fn record(self) -> wire::ServiceDocRef {
         wire::ServiceDocRef { document: self.0 }
     }

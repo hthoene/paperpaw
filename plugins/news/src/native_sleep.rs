@@ -8,10 +8,9 @@ use paperpaw_sdk::native::storage::{self, Root};
 use paperpaw_sdk::native::{Error, Host, callbacks::DrawFrame};
 use paperpaw_ui_kit::page::{Face, Look, Words};
 use paperpaw_ui_kit::widget::Align;
-use paperpaw_ui_kit::{files::read_all_on, text};
+use paperpaw_ui_kit::{files::read_all, text};
 
 use crate::native_news::{FETCHED_FILE, HEADLINES_CAP, HEADLINES_FILE, without_mark};
-use crate::native_plugin::DataVolume;
 
 /// How many headlines the screen shows at most, and where they start and end
 /// (design pixels).
@@ -64,7 +63,7 @@ pub fn read_lines(
 
 /// When the headlines were fetched (seconds since 1970), 0 if not known.
 fn fetched(host: &Host<'_>) -> i64 {
-    match read_all_on(&DataVolume(host), FETCHED_FILE, 32) {
+    match read_all(host, Root::Data, FETCHED_FILE, 32) {
         Ok(Some(bytes)) => core::str::from_utf8(&bytes)
             .ok()
             .and_then(|text| text.trim().parse().ok())
@@ -86,7 +85,7 @@ pub struct Prepared {
 /// # Errors
 /// `NoMemory`.
 pub fn read(host: &Host<'_>) -> Result<Prepared, Error> {
-    let bytes = match read_all_on(&DataVolume(host), HEADLINES_FILE, HEADLINES_CAP) {
+    let bytes = match read_all(host, Root::Data, HEADLINES_FILE, HEADLINES_CAP) {
         Ok(Some(bytes)) => bytes,
         Ok(None) => Vec::new(),
         Err(Error::NoMemory) => return Err(Error::NoMemory),

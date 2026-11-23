@@ -20,7 +20,7 @@ use paperpaw_sdk::{
         fonts::{Font, FontRole},
         library::Library,
         snapshot::{self, Snapshot},
-        ui::Ui,
+        ui::{ButtonHint, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -32,7 +32,7 @@ use crate::native_links::{DocRef, PageLink, Returns};
 use crate::native_marks::Span;
 use crate::native_pages;
 use crate::native_place::Progress;
-use crate::native_selection::live::{At, Live, Move, Side, Went, lead_of};
+use crate::native_selection::live::{At, Live, Move, Pages, Side, Went, lead_of};
 use crate::native_selection::{Mode, line_boxes};
 use crate::native_wordbox::word_at;
 
@@ -309,22 +309,10 @@ impl Marking {
         self.note.take()
     }
 
-    /// Whether text is chosen.
-    #[must_use]
-    pub const fn is_selecting(&self) -> bool {
-        self.selection.is_some()
-    }
-
     /// Whether text or a link is being chosen: a tap is the marking's then.
     #[must_use]
     pub const fn is_active(&self) -> bool {
         self.selection.is_some() || self.linking.is_some()
-    }
-
-    /// Whether a bar is shown over the status line.
-    #[must_use]
-    pub fn shows_bar(&self) -> bool {
-        self.selection.is_some_and(|s| s.mode == Mode::Bar)
     }
 
     /// Takes an input if it is the marking's.
@@ -399,6 +387,7 @@ impl Marking {
             .is_ok()
         {
             self.layer = want;
+            name_select(host, !want);
         }
     }
 
@@ -437,7 +426,13 @@ impl Marking {
             && pending.page != ctx.page_start
         {
             self.pending = None;
-            live.pages.turned(pending.forward);
+            if live.mode == Mode::Choosing {
+                // The cursor alone crossed the page: what the cap counts
+                // starts where the text begins, on this page.
+                live.pages = Pages::default();
+            } else {
+                live.pages.turned(pending.forward);
+            }
             if let Some(side) = pending.side {
                 live.land(ctx.words, side, pending.forward);
             }
@@ -880,6 +875,32 @@ fn frame_words(
 /// `NoMemory`.
 pub fn text_of(words: &[Word], lo: usize, hi: usize) -> Result<String, Error> {
     act::text_of(words, lo, hi)
+}
+
+/// Names Select in the key bar of the reading screen: *Menu*, which it opens
+/// there (as in Beta 3), or its usual name while text is chosen, where it
+/// widens the choice. A hint the host refuses leaves the bar as it was. For a
+/// callback that may send commands (an input or a show); its own frame.
+#[inline(never)]
+pub fn name_select(host: &Host<'_>, menu: bool) {
+    const SELECT: &str = "core.confirm";
+    let word = if menu {
+        match Messages::new().and_then(|mut say| say.copy(host, "core.hint.core.menu")) {
+            Ok(word) => Some(word),
+            Err(_) => return,
+        }
+    } else {
+        None
+    };
+    let hint = match &word {
+        Some(word) => ButtonHint::words(SELECT, word),
+        None => ButtonHint::usual(SELECT),
+    };
+    if let Ok(hint) = hint {
+        match CommandSender::new(host, &mut [0; 256]).set_hint(hint) {
+            Ok(()) | Err(_) => {}
+        }
+    }
 }
 
 #[cfg(test)]

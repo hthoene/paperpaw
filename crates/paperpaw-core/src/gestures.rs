@@ -109,6 +109,21 @@ impl Kernel {
         }
     }
 
+    /// Forgets the presses and touches under way, after a sleep: none is
+    /// followed across it, and a release lost while the device slept would
+    /// hold its button on (a long press nobody made, the next press taken
+    /// for a repeat, a key held for the plugins, #483). A finger a screen
+    /// captured stays its own: the screen hears its end.
+    pub(crate) fn forget_presses(&mut self) {
+        self.input.recognizer.forget_all();
+        self.input.edge_touch = None;
+        self.input.edge_pending = None;
+        self.input.pending = None;
+        self.input.swapped.clear();
+        self.shared.keys_held.clear();
+        self.forget_raw();
+    }
+
     pub(crate) fn pointer(&mut self, event: PointerEvent) {
         if event.phase == PointerPhase::Down {
             self.input.pressed_on = self.input_index().map(|index| self.stack[index].serial);
@@ -117,6 +132,13 @@ impl Kernel {
         // Held still there, it becomes a long press all the same.
         if let Some(touch) = self.input.edge_touch.filter(|t| t.id == event.id) {
             match event.phase {
+                // The finger came down again: the lift of the touch at the
+                // edge was lost (a filter took it, a sleep came between).
+                // That touch is over; this one is new (#483).
+                PointerPhase::Down => {
+                    self.input.edge_touch = None;
+                    self.input.recognizer.forget_pointer(event.id);
+                }
                 PointerPhase::Up => {
                     self.input.edge_touch = None;
                     let thresholds = self.thresholds();
@@ -140,7 +162,9 @@ impl Kernel {
                 }
                 _ => {}
             }
-            return;
+            if event.phase != PointerPhase::Down {
+                return;
+            }
         }
         // A screen may take a finger before the edges do: what it takes
         // is meant for it (a grip that moves a row, a handle), as apps on

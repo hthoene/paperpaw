@@ -46,7 +46,7 @@ existed and is not repeated; the random old-vs-new policy runs (200 runs of 40 e
   joining, joined, failed; the two steps and the one-time move to the page when a phone joins; the
   ten minutes of idle time; what the radio keeps for the user) as a state fed what happened that
   answers a list of `Effect`s (radio on, scan, host, serve, respond with a page, choose a network,
-  wake, back), and `native_phone/page.rs` (the form read fallibly, the passwords typed wiped, and
+  wake), and `native_phone/page.rs` (the form read fallibly, the passwords typed wiped, and
   the choose, joining and not-found pages). The four scenarios of `tests/phone.rs` run on it, the
   form is compared with the old functions on the same text, and `tests/native_phone_parity.rs`
   compares every page byte for byte with what the interface-6 screen serves on the real kernel.
@@ -92,8 +92,9 @@ existed and is not repeated; the random old-vs-new policy runs (200 runs of 40 e
   while no network is kept, the networks, the three settings; the same rows and words as the
   interface-6 page), the networks in reach (a kept network joins at once with its password from
   `core.secrets`, an open one once, a secured one after its password is asked for with the host's
-  masked text question; the row that looks again; long press or menu button forgets a kept one and
-  leaves it if joined) and the setup with a phone up to what is possible now (below). The password
+  masked text question; the row that looks again; long press, Select held or the menu button forgets
+  a kept one and leaves it if joined, the key bar naming *Forget* for the menu button there; with the
+  radio off the list says so and stays, as an event cannot leave a screen) and the setup with a phone up to what is possible now (below). The password
   typed is read from the host text with buffers that are wiped, goes to `Policy::choose` and is kept
   (`native_known::remember`) when the device is in that network (`WifiChanged`, state online), as the
   old page kept it after `wifi_done` (a wrong password is not kept: the join fails and nothing is
@@ -255,8 +256,11 @@ existed and is not repeated; the random old-vs-new policy runs (200 runs of 40 e
   plugin cannot overwrite the host's folder), and the password typed on the page is wiped.
 - The server cap: the X4 has one server. A refused `serve` (`ERR_BUSY`) is shown on the screen
   ("another page is already served") and is not a failure of the callback. Closing the screen
-  (`ScreenClosed`) stops serving (`stop_serving`) and leaves the own network; so does the idle time
-  (ten minutes, a `core.work` wake).
+  (`ScreenClosed`) stops serving (`stop_serving`) and leaves the own network, also one asked for and
+  not open yet (one that opens after the screen closed is left on its `wifi_done`); so does the idle
+  time (ten minutes, a `core.work` wake), after which the screen says the setup ended until Back
+  leaves it (a timer cannot leave a screen). Connected, the setup gives the radio back at once and the
+  screen says so until Back. A password over 63 bytes from the phone gets the page again with why.
 - The codes: the join code and the page address are QR codes drawn under the rows by the ui kit's
   new `Footer::Code`; the codes are made with the new fallible `QrCode::try_new` (`paperpaw-qr`), a
   short heap is an error, never an abort; where a code cannot be made the name, the password and the
@@ -272,7 +276,7 @@ existed and is not repeated; the random old-vs-new policy runs (200 runs of 40 e
   2,048 bytes (`MOST_PAGE`; unit test with 64 networks). The address is a row of words whenever the
   step shows it (no code where one could not be made or the rows take pages); a refused code is no
   failure of the callback, which would drop the redraw. The join code is wiped (`QrCode::wipe`) when the
-  screen closes. A setup that cannot be made (no memory) says so and closes the screen. A body file is
+  screen closes. A setup that cannot be made (no memory) says so and stays for Back. A body file is
   removed even where no buffer is had for it.
 - `serve` is called from the radio's event (the own network opens asynchronously); network.md 5.1 is
   relaxed to any callback while one of the plugin's screens is showing and not covered (Kernel). Until the

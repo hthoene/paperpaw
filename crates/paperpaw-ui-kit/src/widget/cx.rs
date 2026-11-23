@@ -171,34 +171,9 @@ impl<'a> Cx<'a> {
     ///
     /// # Errors
     /// The host's refusal and [`Error::NoMemory`].
-    #[allow(dead_code, reason = "the world clock and the word clock use it")]
     pub fn clock_of(&mut self, hour: u8, minute: u8) -> Result<String, Error> {
-        let mut text = super::settings::Stack::<16>::new();
-        if !self.twelve_hours()? {
-            core::fmt::Write::write_fmt(&mut text, format_args!("{hour:02}:{minute:02}"))
-                .map_err(|_| Error::NoSpace)?;
-            return self.messages.digits(self.host, text.as_str());
-        }
-        let key = if hour < 12 {
-            "core.clock.am"
-        } else {
-            "core.clock.pm"
-        };
-        let shown = match hour % 12 {
-            0 => 12,
-            h => h,
-        };
-        core::fmt::Write::write_fmt(&mut text, format_args!("{shown}:{minute:02}"))
-            .map_err(|_| Error::NoSpace)?;
-        let time = self.messages.digits(self.host, text.as_str())?;
-        self.messages.format(
-            self.host,
-            key,
-            &[Arg::Text {
-                name: "time",
-                value: &time,
-            }],
-        )
+        let twelve = self.twelve_hours()?;
+        clock_text(&mut self.messages, self.host, twelve, (hour, minute))
     }
 
     /// The catalog's text for `key` in the form `count` selects, with the
@@ -410,6 +385,45 @@ pub fn face_font<'a>(host: &'a Host<'a>, face: &str) -> Result<Font<'a>, Error> 
 fn for_display<S>(kept: Option<((u16, u16), S)>, display: (u16, u16)) -> Option<S> {
     kept.filter(|(was, _)| *was == display)
         .map(|(_, kept)| kept)
+}
+
+/// A time of day on a `twelve`-hour clock or not: `14:05` or `2:05 PM`, in
+/// the digits of the language shown (the clock of a widget and of a page).
+///
+/// # Errors
+/// The host's refusal and [`Error::NoMemory`].
+pub(crate) fn clock_text(
+    messages: &mut Messages,
+    host: &Host<'_>,
+    twelve: bool,
+    (hour, minute): (u8, u8),
+) -> Result<String, Error> {
+    let mut text = super::settings::Stack::<16>::new();
+    if !twelve {
+        core::fmt::Write::write_fmt(&mut text, format_args!("{hour:02}:{minute:02}"))
+            .map_err(|_| Error::NoSpace)?;
+        return messages.digits(host, text.as_str());
+    }
+    let key = if hour < 12 {
+        "core.clock.am"
+    } else {
+        "core.clock.pm"
+    };
+    let shown = match hour % 12 {
+        0 => 12,
+        h => h,
+    };
+    core::fmt::Write::write_fmt(&mut text, format_args!("{shown}:{minute:02}"))
+        .map_err(|_| Error::NoSpace)?;
+    let time = messages.digits(host, text.as_str())?;
+    messages.format(
+        host,
+        key,
+        &[Arg::Text {
+            name: "time",
+            value: &time,
+        }],
+    )
 }
 
 #[cfg(test)]

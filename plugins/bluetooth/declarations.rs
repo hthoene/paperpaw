@@ -1,17 +1,19 @@
 //! The Bluetooth plugin's native declarations: its settings page and the
-//! setting on it, its two screens, the action that opens the page, the menu
-//! need that hides it where there is no radio, the slot it fills and the
-//! events it listens to.
+//! setting on it, its two screens, the action and the status item that open
+//! the page, the menu need that hides it where there is no radio, the slot it
+//! fills and the events it listens to.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, GroupDecl, Instances, Kind, ScreenDecl,
-    SlotOfferDecl, SpecDecl,
+    SlotOfferDecl, SpecDecl, StatusItemDecl,
 };
 
 /// The callback token of the events (start, waking, books, settings).
 pub const EVENTS_TOKEN: u32 = 1;
 /// The action that opens the page.
 pub const OPEN_TOKEN: u32 = 2;
+/// The status item: the Bluetooth sign while a device is connected.
+pub const STATUS_TOKEN: u32 = 3;
 /// The page: the devices bonded with this one; one instance at a time.
 pub const PAGE_TOKEN: u32 = 10;
 /// Adding a device: a search, then pairing; one instance at a time.
@@ -70,11 +72,17 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The action, its icons, where the radio is needed, and the slot.
+/// The action and the status item that open the page, the icons, where the
+/// radio is needed, and the slot.
 pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.action(ActionDecl::new("open", "bluetooth.title", OPEN_TOKEN))?;
+    // The names are constants the tests pin, so these cannot be refused.
+    let status = StatusItemDecl::new("status", "bluetooth.status.item", STATUS_TOKEN)
+        .and_then(|item| item.tap("open"))
+        .map_err(|_| DeclareError::Empty("status item"))?;
+    d.status_item(status)?;
     d.icon(GROUP, "bluetooth")?;
     d.icon(OPEN, "bluetooth")?;
     d.menu_need(GROUP, MenuNeed::Bluetooth)?;

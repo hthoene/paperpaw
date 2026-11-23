@@ -5,7 +5,7 @@
 use super::browser::Words;
 use super::fail::Fail;
 use super::mem::{Error, copy, push, push_char, push_str, string_with};
-use super::session::Task;
+use super::session::{SEEN, Task};
 use super::store::{self, Letter, Row};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -76,7 +76,7 @@ pub fn fetch_tasks(
         },
     )?;
     if mark_read {
-        push(&mut tasks, flag_task(folder, uid, "\\Seen", true)?)?;
+        push(&mut tasks, flag_task(folder, uid, SEEN, true)?)?;
     }
     Ok(tasks)
 }

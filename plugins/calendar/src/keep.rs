@@ -206,6 +206,7 @@ mod tests {
                     span: 1,
                     known: false,
                     uid: n as u32,
+                    cal: crate::model::WHOLE_SOURCE,
                     over: None,
                     rule: String::new(),
                     skip: Vec::new(),

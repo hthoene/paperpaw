@@ -684,10 +684,15 @@ impl BitmapFont {
             strike.bitmaps.checked_add(at as usize)?
         };
         let space = if cold { self.cold_len() } else { d.len() };
+        // Read in place, a glyph is bounded by the pack; packed or cold it
+        // takes memory of the size its record says: no larger than a glyph
+        // of its strike may be.
+        if (strike.packed || cold)
+            && !crate::glyph::fits(usize::from(width), usize::from(height), strike.size)
+        {
+            return None;
+        }
         let (format, len) = if strike.packed {
-            if !crate::glyph::fits(usize::from(width), usize::from(height), strike.size) {
-                return None;
-            }
             // Read in place, a glyph is as long as its data goes; cold, at
             // most a byte for a pixel (a one pixel run takes two nibbles) and
             // what lies before the next cold glyph's bitmap, which follows

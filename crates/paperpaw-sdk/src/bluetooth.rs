@@ -1,15 +1,18 @@
-//! Bluetooth Low Energy (see [ADR 0027](../../../docs/adr/0027-bluetooth.md)):
-//! `Place::bluetooth` is `Some` where the kernel
-//! may use a radio ([`Capabilities::bluetooth`](crate::Capabilities)).
+//! Bluetooth Low Energy as the kernel keeps it (see
+//! [ADR 0027](../../../docs/adr/0027-bluetooth.md)): `Place::bluetooth` is
+//! `Some` where the kernel may use a radio
+//! ([`Capabilities::bluetooth`](crate::Capabilities)).
 //!
-//! A plugin that declares [`Uses::BLUETOOTH`](crate::Uses::BLUETOOTH)
-//! asks with the functions of this module, which write
-//! `Ask::Bluetooth`, and hears everything as its own events, each a
-//! [`BtEvent`]: a scan's on the event it names ([`scan`]), a link's on the
-//! link's ([`connect`]), being seen on its own ([`advertise`]), a GATT
-//! service's on the service's ([`ServiceSpec`]). Every command is
-//! answered, by its result or a [`BtEvent::Failed`] that says which
-//! command failed and why.
+//! A plugin that declares [`Uses::BLUETOOTH`](crate::Uses::BLUETOOTH) asks
+//! with the device service's Bluetooth commands (`CommandSender::bt_scan`
+//! and the others of `native`, `docs/abi/device.md`). The kernel takes each
+//! as a [`BtRequest`] of a [`BtCommand`] (the functions of this module make
+//! them too, for the kernel's own asking, `Ask::Bluetooth`), and answers in
+//! events, each a [`BtEvent`]: a scan's on the event it names ([`scan`]), a
+//! link's on the link's ([`connect`]), being seen on its own
+//! ([`advertise`]), a GATT service's on the service's ([`ServiceSpec`]).
+//! Every command is answered, by its result or a [`BtEvent::Failed`] that
+//! says which command failed and why.
 //!
 //! - **Scanning**: [`scan`] finds devices in reach ([`BtEvent::Found`]),
 //!   always for a while ([`Scan::lasting`]), by default passively and
@@ -18,15 +21,15 @@
 //!   hearing only what passes its own filters.
 //! - **A GATT client**: [`connect`] (by default at [`LinkPower::Low`]),
 //!   [`discover`] the services, [`read`], [`write()`], [`subscribe`] to
-//!   notifications ([`BtEvent::Value`]), or `subscribe_to` a service's
-//!   characteristic by its UUIDs, handles found by the kernel.
+//!   notifications ([`BtEvent::Value`]), or to a service's characteristic
+//!   by its UUIDs ([`BtCommand::SubscribeTo`]), handles found by the kernel.
 //! - **Pairing** ([`pair`]) is always confirmed by the reader, in the
 //!   kernel's own question: a plugin only asks.
 //! - **Being seen**: [`advertise`] for a while, and a GATT server of
-//!   services declared at registration
-//!   (`Staging::add_gatt_service`):
-//!   centrals' reads and writes come as events, answered with `respond`
-//!   or `refuse`, and `notify_centrals` sends to those subscribed.
+//!   services declared at registration (the kernel's
+//!   `Staging::add_gatt_service`): centrals' reads and writes come as
+//!   events, answered with [`BtCommand::Respond`] or [`BtCommand::Refuse`],
+//!   and [`BtCommand::NotifyCentrals`] sends to those subscribed.
 //! - **Keys of a remote or a keyboard**: a bonded device that types is the
 //!   kernel's: [`remote_keys`] connects it and its keys arrive as buttons
 //!   of the key maps (`button.hid.right`, `button.hid.page-down` …), with
@@ -850,8 +853,8 @@ pub mod bt_params {
     pub const CHARACTERISTIC: &str = "characteristic";
 }
 
-/// The commands as the kernel gets them (plugins write them with the
-/// functions of this module).
+/// The commands as the kernel gets them (from a plugin's wire commands, or
+/// made with the functions of this module).
 mod request;
 
 #[cfg(feature = "kernel")]

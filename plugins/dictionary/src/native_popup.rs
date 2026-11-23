@@ -627,9 +627,12 @@ fn entries(
     };
     // Whatever a provider answers wrong or fails with is no entry: the panel
     // opens with what was found, and says so when that is nothing.
-    let _ = ask_all(host, &lookup, word, language, &mut found, asking);
+    let asked = ask_all(host, &lookup, word, language, &mut found, asking);
     let _ = lookup.release(host);
-    Ok(found)
+    match asked {
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Ok(()) | Err(_) => Ok(found),
+    }
 }
 
 fn ask_all(
@@ -643,8 +646,13 @@ fn ask_all(
     let (mut input, mut out) = (buffer(lookup::BUFFER)?, buffer(lookup::BUFFER)?);
     for cursor in 0..MAX_ENTRIES as u32 {
         let question = Question::new(word)?.language(language)?.cursor(cursor);
-        let Some(entry) = lookup.ask(host, &question, &mut input, &mut out)? else {
-            break;
+        let entry = match lookup.ask(host, &question, &mut input, &mut out) {
+            Ok(Some(entry)) => entry,
+            // Past the last provider.
+            Ok(None) => break,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            // This provider failed or answered wrong: the next is asked.
+            Err(_) => continue,
         };
         // A provider that must fetch answers later (`event.lookup_ready`).
         if entry.pending() {

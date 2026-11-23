@@ -59,6 +59,24 @@ fn a_dropped_press_pressed_again_after_the_frame_does_not_stick() {
     assert!(nothing_held(&kernel));
 }
 
+/// A press held as the device went to sleep is over when it wakes: its
+/// release, lost while asleep, does not hold the button on (a long press
+/// nobody made, the next press swallowed, a key held for the plugins) (#483).
+#[test]
+fn a_press_held_across_a_sleep_is_over_at_the_wake() {
+    let log = log();
+    let mut kernel = shown_kernel(&log);
+    button(&mut kernel, 1500, "back", ButtonState::Pressed);
+    kernel.suspend(Instant(1600));
+    kernel.resume(Instant(60_000));
+    assert!(kernel.shared.keys_held.is_empty(), "no key held");
+    assert!(nothing_held(&kernel));
+    kernel.tick(Instant(61_000));
+    button(&mut kernel, 62_000, "back", ButtonState::Pressed);
+    button(&mut kernel, 62_050, "back", ButtonState::Released);
+    assert_eq!(*log.borrow(), ["a:core.back"]);
+}
+
 #[test]
 fn a_held_press_pressed_again_before_the_frame_keeps_its_release() {
     let log = log();
@@ -293,6 +311,25 @@ fn a_finger_held_at_an_edge_is_a_long_press() {
     finger(&mut kernel, 3700, 0, PointerPhase::Up, (70, 45));
     tap(&mut kernel, 4000, 88, 45);
     assert_eq!(*log.borrow(), ["core.home", "core.back", "Tap 88,45"]);
+    assert!(nothing_held(&kernel));
+}
+
+/// A finger that comes down again where the lift of its touch at an edge was
+/// lost (a filter took it, a sleep came between) is a new touch: the tap is
+/// the screen's, not swallowed or read as a swipe from the edge (#483).
+#[test]
+fn a_touch_after_an_edge_touch_whose_lift_was_lost_is_a_new_one() {
+    let log = log();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(gesture_plugin_manifest(), gesture_plugin(log.clone()))
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    render(&mut kernel);
+    finger(&mut kernel, 100, 0, PointerPhase::Down, (88, 45));
+    // Its lift never came.
+    tap(&mut kernel, 1000, 45, 45);
+    assert_eq!(*log.borrow(), ["Tap 45,45"]);
     assert!(nothing_held(&kernel));
 }
 

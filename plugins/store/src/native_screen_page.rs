@@ -45,7 +45,6 @@ use paperpaw_ui_kit::{
 use crate::native_item::More;
 use crate::native_model::Entry;
 use crate::native_page::{self, Installed, Kind, PageInput, Row};
-use crate::native_refusal::{self, Outcome};
 use crate::native_screen_shots as shots;
 use crate::native_screens::{Ask, Ctx, Next, Reply, Screen, Step, Trouble, ids};
 
@@ -352,6 +351,15 @@ pub const fn go(choice: &Choice) -> Go {
     }
 }
 
+/// Whether a page screen asks for its plugin's page: where it is not `here`,
+/// unless it was `asked` for and the loader still `held` what became of it
+/// (coming, or how it ended). A page the loader let go of for another page
+/// screen's is asked for again.
+#[must_use]
+pub const fn asks_page(here: bool, asked: bool, held: bool) -> bool {
+    !here && !(asked && held)
+}
+
 /// The line under the rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -368,9 +376,9 @@ pub enum Note<'a> {
 }
 
 /// The note: the job of this plugin, another's, a restart, or how the last
-/// install ended (a refusal says why, with the plugin's name).
+/// install ended (why the download failed, with the plugin's name).
 #[must_use]
-pub fn note<'a>(first: Option<Row>, step: &Step, other: Option<&'a str>, flash: bool) -> Note<'a> {
+pub fn note<'a>(first: Option<Row>, step: &Step, other: Option<&'a str>) -> Note<'a> {
     if first == Some(Row::Stop) {
         return Note::Downloading;
     }
@@ -381,10 +389,7 @@ pub fn note<'a>(first: Option<Row>, step: &Step, other: Option<&'a str>, flash: 
         return Note::Restart;
     }
     match *step {
-        Step::Failed(reason) => match native_refusal::outcome(reason, flash) {
-            Outcome::Said(key) => Note::Ended(key),
-            _ => Note::Nothing,
-        },
+        Step::Failed(why) => Note::Ended(why.key()),
         _ => Note::Nothing,
     }
 }
@@ -609,10 +614,11 @@ impl View {
             .or(self.entry.as_ref())
     }
 
-    /// Asks for the plugin's page, once, where it is not here: what the
-    /// plugin does when the screen is shown.
+    /// Asks for the plugin's page where it is not here (see [`asks_page`]):
+    /// what the plugin does when the screen is shown.
     pub fn start(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
-        if self.asked || ctx.loader.page(&self.id).is_some() {
+        let here = ctx.loader.page(&self.id).is_some();
+        if !asks_page(here, self.asked, ctx.loader.page_held(&self.id)) {
             return Ok(Next::None);
         }
         self.asked = true;
@@ -698,7 +704,7 @@ impl View {
         }
         let other = ctx.installs.other_job(&self.id);
         let first = rows.first().copied();
-        let line = note(first, &step, other, ctx.installs.flash_hint());
+        let line = note(first, &step, other);
         let note = Self::note_text(host, &mut say, &line, &entry.name)?;
         if !note.is_empty() && below == Below::Nothing {
             below = Below::Note;
@@ -865,7 +871,7 @@ impl View {
             other_job: ctx.installs.other_job(&self.id).is_some(),
             code,
             told: ctx.data.exists(TOLD),
-            asked: self.asked,
+            asked: self.asked && ctx.loader.page_held(&self.id),
         };
         let id = copy(&self.id)?;
         Ok(match go(&choice) {
@@ -902,7 +908,7 @@ impl View {
     }
 
     /// The page came (or was refused) while *Install* waited for it.
-    fn resume(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+    fn resume_install(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
         let Some(row) = self.waiting else {
             return Ok(Next::None);
         };
@@ -1011,7 +1017,7 @@ impl View {
     fn settle(&mut self, ctx: &Ctx<'_>, always: bool) -> Result<Next, Error> {
         let sig = Sig::read(ctx, &self.id);
         let changed = always || sig != self.sig;
-        let next = self.resume(ctx)?;
+        let next = self.resume_install(ctx)?;
         let mut moved = false;
         if changed {
             self.build(ctx, false)?;
@@ -1212,6 +1218,13 @@ impl Screen for View {
     fn shown(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
         // What the card and the device hold may have changed meanwhile.
         self.build(ctx, false)
+    }
+
+    /// On top again: the rows are made anew, and the page is asked for again
+    /// where another page screen's took its place meanwhile.
+    fn resume(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        self.shown(ctx)?;
+        self.start(ctx)
     }
 
     /// On top for the first time: the page is asked for where it is not here

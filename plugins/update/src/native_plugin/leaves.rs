@@ -56,19 +56,19 @@ impl NativeUpdate {
 
     /// The plugins the update `offer` the server named leaves out, by their
     /// names (each with the server's reason where it gives one and `reasons`);
-    /// empty where it leaves none out or the answer does not say. A list that
-    /// cannot be read is none: the device's check names them once the update is
-    /// downloaded.
+    /// empty where it leaves none out or the answer does not say; `None` where
+    /// the plugins built in now cannot be read (the device's check names them
+    /// once the update is downloaded).
     pub(super) fn left_by_offer(
         &mut self,
         host: &Host<'_>,
         offer: &Offer,
         reasons: bool,
-    ) -> Result<String, Error> {
+    ) -> Result<Option<String>, Error> {
         match self.offer_names(host, offer, reasons) {
             Err(Error::NoMemory) => Err(Error::NoMemory),
-            Err(_) => Ok(String::new()),
-            Ok(names) => Ok(names),
+            Err(_) => Ok(None),
+            Ok(names) => Ok(Some(names)),
         }
     }
 
@@ -172,25 +172,40 @@ pub(super) fn with_leaves(
     }
 }
 
-/// The sentence `key` that names the plugins `names`, then `help`: where the
-/// footer is cut at six lines it is the end that goes.
-pub(super) fn leaves_first(
+/// The sentence of an update the server named that says what it leaves out
+/// (`leaves`, [`NativeUpdate::left_by_offer`]): none where it leaves none out,
+/// and where that could not be read, that it is not known yet.
+fn offer_sentence(leaves: Option<&str>) -> Option<&'static str> {
+    match leaves {
+        Some("") => None,
+        Some(_) => Some("update.leaves.download"),
+        None => Some("update.leaves.unknown"),
+    }
+}
+
+/// The sentence on what the update the server named leaves out
+/// ([`offer_sentence`]), then `help`: where the footer is cut at six lines it
+/// is the end that goes.
+pub(super) fn offer_help(
     host: &Host<'_>,
     messages: &mut Messages,
     help: &str,
-    key: &str,
-    names: &str,
+    leaves: Option<&str>,
 ) -> Result<String, Error> {
-    if names.is_empty() {
+    let Some(key) = offer_sentence(leaves) else {
         return copy(help);
-    }
-    let text = messages.format(host, key, &list(names))?;
+    };
+    let text = match leaves {
+        Some(names) => messages.format(host, key, &list(names))?,
+        None => messages.copy(host, key)?,
+    };
     concat(&[&text, " ", help])
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::install_label;
+    use super::offer_sentence;
     use crate::native_check::{Image, Signer};
     use alloc::string::ToString;
     use core::cmp::Ordering;
@@ -230,5 +245,16 @@ mod tests {
             label(Signer::Own([1; 32]), Ordering::Greater, "Stats"),
             "update.install-with-key"
         );
+    }
+
+    #[test]
+    fn an_offer_says_when_what_it_leaves_out_is_not_known() {
+        assert_eq!(offer_sentence(Some("")), None);
+        assert_eq!(
+            offer_sentence(Some("Stats")),
+            Some("update.leaves.download")
+        );
+        // The plugins built in could not be read: not a plain download.
+        assert_eq!(offer_sentence(None), Some("update.leaves.unknown"));
     }
 }

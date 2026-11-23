@@ -111,7 +111,7 @@ impl Smtp {
                 self.finished = true;
                 io.close();
                 drop(events);
-                one(Event::Failed(Failure::NoMemory))
+                one(self.end_of(Failure::NoMemory))
             }
             Err(other) => Err(other),
         }
@@ -125,7 +125,18 @@ impl Smtp {
     ) -> Result<(), Fail> {
         self.finished = true;
         io.close();
-        Ok(push(events, Event::Failed(failure))?)
+        Ok(push(events, self.end_of(failure))?)
+    }
+
+    /// How a session that ends with `failure` ends: sent once the server took
+    /// the message (its 250 after the data), whatever goes wrong while saying
+    /// goodbye, so that it is not sent a second time.
+    fn end_of(&self, failure: Failure) -> Event {
+        if self.step == Step::Quit {
+            Event::Done
+        } else {
+            Event::Failed(failure)
+        }
     }
 
     fn went(
@@ -250,24 +261,14 @@ impl Smtp {
             Input::Closed => return self.lost(io, events),
             Input::Failed(reason) => {
                 self.finished = true;
-                push(events, Event::Failed(failure_of(reason)))?;
+                push(events, self.end_of(failure_of(reason)))?;
             }
         }
         Ok(())
     }
 
     fn lost(&mut self, io: &mut dyn Io, events: &mut Vec<Event>) -> Result<(), Fail> {
-        self.finished = true;
-        io.close();
-        push(
-            events,
-            if self.step == Step::Quit {
-                Event::Done
-            } else {
-                Event::Failed(Failure::Network(Reason::Lost))
-            },
-        )?;
-        Ok(())
+        self.fail(io, events, Failure::Network(Reason::Lost))
     }
 
     fn run(&mut self, io: &mut dyn Io, events: &mut Vec<Event>) -> Result<(), Fail> {

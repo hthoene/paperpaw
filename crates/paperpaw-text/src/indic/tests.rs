@@ -530,6 +530,70 @@ mod fonts {
         }
     }
 
+    /// Bengali's font with its GSUB replaced: `akhn` of `bng2` lists
+    /// lookup 0, and each of `depth` contextual lookups applies the next at
+    /// `glyph`, the last a single substitution of it by itself.
+    fn nested_lookups(depth: u16, glyph: u16) -> Vec<u8> {
+        let mut gsub: Vec<u8> = Vec::new();
+        let put = |gsub: &mut Vec<u8>, words: &[u16]| {
+            for w in words {
+                gsub.extend_from_slice(&w.to_be_bytes());
+            }
+        };
+        // The header, the script list (one script, its default language
+        // system with feature 0) and the feature list (one feature, lookup 0).
+        put(&mut gsub, &[1, 0, 10, 30, 44]);
+        gsub.extend_from_slice(b"\0\x01bng2");
+        put(&mut gsub, &[8, 4, 0, 0, 0xFFFF, 1, 0]);
+        gsub.extend_from_slice(b"\0\x01akhn");
+        put(&mut gsub, &[8, 0, 1, 0]);
+        // The lookup list: 26 bytes a contextual lookup, the last 20.
+        put(&mut gsub, &[depth + 1]);
+        let lookups = 2 + 2 * (depth + 1);
+        put(
+            &mut gsub,
+            &(0..=depth).map(|i| lookups + 26 * i).collect::<Vec<_>>(),
+        );
+        for i in 0..depth {
+            // Format 3: one glyph of coverage, lookup i + 1 applied at it.
+            put(&mut gsub, &[5, 0, 1, 8, 3, 1, 1, 12, 0, i + 1, 1, 1, glyph]);
+        }
+        put(&mut gsub, &[1, 0, 1, 8, 1, 6, 0, 1, 1, glyph]);
+        // The font's table record of GSUB pointed at the new one, at its end.
+        let mut font = BENGALI.to_vec();
+        let tables = usize::from(u16::from_be_bytes([font[4], font[5]]));
+        let record = (0..tables)
+            .map(|i| 12 + 16 * i)
+            .find(|&at| &font[at..at + 4] == b"GSUB")
+            .unwrap();
+        font.resize(font.len().next_multiple_of(4), 0);
+        let (at, len) = (font.len() as u32, gsub.len() as u32);
+        font[record + 8..record + 12].copy_from_slice(&at.to_be_bytes());
+        font[record + 12..record + 16].copy_from_slice(&len.to_be_bytes());
+        font.extend_from_slice(&gsub);
+        font
+    }
+
+    /// Contextual lookups a crafted font nests in each other, as deep as
+    /// it likes, are not followed down: a pack's table is made of it with
+    /// a small stack (it overflowed the build's).
+    #[test]
+    fn deeply_nested_contextual_lookups_are_not_followed_down() {
+        let font = read_fonts::FontRef::new(BENGALI).unwrap();
+        let ka = skrifa::MetadataProvider::charmap(&font).map('ক').unwrap();
+        let crafted = nested_lookups(2000, ka.to_u32() as u16);
+        let made = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(move || {
+                let font = read_fonts::FontRef::new(&crafted).unwrap();
+                crate::indic::pack::make(font, &['ক']).is_some()
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert!(made);
+    }
+
     /// Prints each word of `$INDIC_WORDS` shaped with a pack made from
     /// `$INDIC_FONT`, as glyph numbers, to `$INDIC_OUT` (for comparing
     /// with HarfBuzz).

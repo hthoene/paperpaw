@@ -222,6 +222,9 @@ impl Panel {
     }
 }
 
+/// The most bytes the host measures at once: a longer piece is never one line.
+const MEASURED_MAX: usize = 4096;
+
 /// `text` broken into lines of at most `width` by words (inside a word where
 /// one alone is too wide), as byte ranges; a line break of the text is a line
 /// break, a blank line stays a blank line.
@@ -233,6 +236,9 @@ fn wrap(
     mut measure: impl FnMut(&str) -> Result<f32, Error>,
     width: f32,
 ) -> Result<Vec<Range<usize>>, Error> {
+    let mut wider = |piece: &str| -> Result<bool, Error> {
+        Ok(piece.len() > MEASURED_MAX || measure(piece)? > width)
+    };
     let mut lines = Vec::new();
     let mut start = 0;
     for paragraph in text.split('\n') {
@@ -242,16 +248,16 @@ fn wrap(
         for (at, word) in words(paragraph) {
             let at = start + at;
             let stop = at + word.len();
-            if end > from && measure(&text[from..stop])? > width {
+            if end > from && wider(&text[from..stop])? {
                 push(&mut lines, from..end)?;
                 from = at;
             }
             // A word wider than the line is cut where it no longer fits.
             let mut rest = at;
-            while measure(&text[from..stop])? > width && stop > rest {
+            while wider(&text[from..stop])? && stop > rest {
                 let mut cut = rest;
                 for (i, c) in text[rest..stop].char_indices() {
-                    if measure(&text[from..rest + i + c.len_utf8()])? > width && rest + i > from {
+                    if wider(&text[from..rest + i + c.len_utf8()])? && rest + i > from {
                         break;
                     }
                     cut = rest + i + c.len_utf8();

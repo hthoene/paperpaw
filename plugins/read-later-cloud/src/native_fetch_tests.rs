@@ -765,20 +765,15 @@ fn a_cancelled_fetch_is_over_and_its_end_is_ignored() {
     assert!(!f.busy());
 }
 
+/// A fetch the end of the work run cuts short is not reported as done
+/// ("N fetched, nothing failed"): it says the rest follows next time.
 #[test]
-fn the_end_of_the_work_run_ends_the_fetch_with_its_counts() {
+fn the_end_of_the_work_run_ends_the_fetch_unfinished() {
     let (mut w, mut lib, mut f) = fetched();
     start(&mut f, &mut w);
     let done = Done::new(w.id(), REQUEST_TOKEN, Reason::WorkEnded, 0);
     let end = f.ended(&mut w, &mut lib, &done);
-    assert_eq!(
-        end,
-        Ended::Finished {
-            fetched: 0,
-            archived: 0,
-            failed: 0
-        }
-    );
+    assert_eq!(end, Ended::Stopped(Stop::TimeUp));
     assert!(!f.busy());
 }
 

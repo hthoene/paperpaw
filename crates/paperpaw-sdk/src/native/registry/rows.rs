@@ -1,8 +1,8 @@
 //! Borrowed typed registry rows. Generated wire types stay private.
 use super::{Error, expect, wire};
 use crate::native::{
-    settings::SettingValue,
-    wire::settings_wire::{SettingValueRef, settings_decode},
+    settings::{self, SettingValue},
+    wire::settings_wire::settings_decode,
 };
 
 /// A registry category with unknown future values preserved.
@@ -838,11 +838,5 @@ fn validate_value(bytes: &[u8], withheld: bool) -> Result<(), Error> {
         .map_err(|_| Error::Invalid)
 }
 fn decoded_value(bytes: &[u8]) -> Option<SettingValue<'_>> {
-    let value = settings_decode(bytes).ok()?;
-    Some(match value {
-        SettingValueRef::Absent => SettingValue::Absent,
-        SettingValueRef::Bool(value) => SettingValue::Bool(value),
-        SettingValueRef::Int(value) => SettingValue::Int(value),
-        SettingValueRef::Text(value) => SettingValue::Text(value),
-    })
+    settings_decode(bytes).ok().map(settings::from_wire)
 }

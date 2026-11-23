@@ -5,4 +5,4 @@ Dialog "" at 35,263 410x274
 Text "It is taken off the card." at 70,371 223x35
 Button "Yes" at 70,441 152x61
 Button "No" (focused) at 257,441 152x61
-frame 800 rows, fnv1a64 9234ad31824ce591
+frame 800 rows, fnv1a64 5df07a5e9aa32945

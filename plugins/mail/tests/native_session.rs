@@ -15,6 +15,7 @@ mod pin;
 use fake::{Fake, Input, Proto, Script};
 use paperpaw_plugin_mail::native_model::fail::Fail;
 use paperpaw_plugin_mail::native_model::mem::{Error, Secret};
+use paperpaw_plugin_mail::native_model::reader;
 use paperpaw_plugin_mail::native_model::session as new;
 use paperpaw_plugin_mail::native_model::store as new_store;
 use paperpaw_sdk::native::sockets::{Reason, Untrusted};
@@ -575,6 +576,73 @@ fn the_smtp_failures_are_what_interface_6_did() {
         assert!(finished(&run.events), "{label}: {:?}", run.events);
     }
     pin.finish();
+}
+
+#[test]
+fn a_read_mark_the_folder_refuses_still_shows_the_mail() {
+    let mut script = Script {
+        read_only: true,
+        ..Script::default()
+    };
+    script.messages = vec![message(1, ""), message(3, "")];
+    // Opening a mail fetches it and marks it read: a read-only folder takes
+    // no mark, and the mail is there all the same.
+    let opened = reader::fetch_tasks(1, "INBOX", 30, true).unwrap();
+    let run = run_imap(script.clone(), new::Security::Implicit, &opened);
+    assert_eq!(run.events.last().map(String::as_str), Some("Done"));
+    let raw = new_store::raw_file(1, "INBOX", 30).unwrap();
+    assert!(run.fake.storage.get(&raw).is_some());
+    // A star is the reader's own: that it was refused is said.
+    let star = [reader::flag_task("INBOX", 30, "\\Flagged", true).unwrap()];
+    let run = run_imap(script, new::Security::Implicit, &star);
+    let last = run.events.last().unwrap();
+    assert!(last.starts_with("Failed(Refused"), "{last}");
+}
+
+#[test]
+fn a_message_the_server_took_is_sent_however_the_goodbye_goes() {
+    // The 250 after the data says the server has the message: a goodbye that
+    // goes wrong must not make it look unsent (it would be sent again).
+    for (label, goodbye) in [
+        ("closing", "421 4.4.2 closing\r\n"),
+        ("nonsense", "what\r\n"),
+        ("hung up", ""),
+    ] {
+        let script = Script {
+            smtp_quit: Some(goodbye.into()),
+            ..Script::default()
+        };
+        let run = run_smtp(script, new::Security::Implicit);
+        assert!(run.fake.smtp_got.is_some(), "{label}");
+        assert_eq!(
+            run.events.last().map(String::as_str),
+            Some("Done"),
+            "{label}: {:?}",
+            run.events
+        );
+    }
+    // The socket fails between the 250 and the goodbye.
+    let (from, to, data) = outgoing_parts();
+    let mut fake = Fake::new(Proto::Smtp, Script::default());
+    let mut session = new::Smtp::new(
+        new_endpoint(new::Security::Implicit, 465),
+        new::Outgoing::new(from, to, data),
+    );
+    session.start(&mut NativeIo(&mut fake)).unwrap();
+    while !fake.sent.iter().any(|line| line == "QUIT") {
+        let input = fake.next_input().unwrap();
+        let told = session
+            .step(to_new(&input), &mut NativeIo(&mut fake))
+            .unwrap();
+        assert!(told.iter().all(|event| !finished(&[new_told(event)])));
+    }
+    let told: Vec<String> = session
+        .step(new::Input::Failed(Reason::Lost), &mut NativeIo(&mut fake))
+        .unwrap()
+        .iter()
+        .map(new_told)
+        .collect();
+    assert_eq!(told, ["Done"]);
 }
 
 // ---- where the native session differs ----

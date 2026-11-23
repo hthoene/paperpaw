@@ -1,7 +1,15 @@
 //! Pinned host ownership and admission shared by every callback lease.
 #[path = "../src/abi7/calls.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod calls;
 #[path = "../src/abi7/lifecycle.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod lifecycle;
 
 use calls::{Depth, Instance};

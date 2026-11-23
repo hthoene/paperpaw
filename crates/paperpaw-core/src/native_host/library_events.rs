@@ -82,6 +82,22 @@ impl Kernel {
         }
     }
 
+    /// The kernel noted the status of the book closed or finished beside the
+    /// catalog (`core_plugin`'s reading), which gives the catalog a new
+    /// generation: the plugins hear `event.library_changed` with status set
+    /// at the next pass and read again, or their handles stay stale (a list
+    /// shown before the note would find no covers).
+    pub(crate) fn native_library_status_noted(&self) {
+        if let Some(library) = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.library())
+        {
+            library.0.status_noted();
+        }
+    }
+
     /// Another card is in, or a computer changed this one: nothing kept of
     /// the card stands (#151). The hyphenation tables open on it are
     /// checked again, the texts read from catalogs on it are forgotten, and

@@ -296,14 +296,76 @@ fn the_end_of_the_run_stops_the_fetch_and_asks_for_no_more() {
 }
 
 #[test]
-fn a_start_replaces_the_fetch_under_way_and_ends_its_request() {
-    let url = "https://a.example/1";
+fn a_start_while_a_fetch_is_under_way_ends_nothing_and_follows_it() {
+    let (a, b, c) = (
+        "https://a.example/1",
+        "https://b.example/2",
+        "https://c.example/3",
+    );
     let mut f = Fetcher::new();
-    let mut w = World::new(&format!("{url}\n"));
+    let mut w = World::new(&format!("{a}\n{b}\n{c}\n"));
+    let mut shelf = Kept::default();
+    // B alone; meanwhile B again, then A, then all of them.
+    f.start(&mut w, 1, false).unwrap();
+    assert_eq!(f.start(&mut w, 1, false).unwrap(), Started::Fetching);
+    assert_eq!(f.start(&mut w, 0, false).unwrap(), Started::Fetching);
+    assert_eq!(f.start(&mut w, 0, true).unwrap(), Started::Fetching);
+    assert_eq!(w.cancelled, 0);
+    assert_eq!(w.requests.len(), 1);
+    // B, then on to the end of the list (C), then the one before (A), each
+    // once.
+    for (url, next) in [(b, Some(c)), (c, Some(a))] {
+        w.answer(url, RSS);
+        let done = ok(&w);
+        assert_eq!(end(&mut f, &mut w, &mut shelf, &done), Ended::Next);
+        assert_eq!(w.requests.last().map(|r| r.0.as_str()), next);
+    }
+    w.answer(a, RSS);
+    let done = ok(&w);
+    assert_eq!(
+        end(&mut f, &mut w, &mut shelf, &done),
+        Ended::Finished { done: 3, failed: 0 }
+    );
+    assert_eq!(w.requests.len(), 3);
+}
+
+#[test]
+fn a_feed_asked_for_during_a_fetch_of_all_comes_once_after_it() {
+    let (a, b, c) = (
+        "https://a.example/1",
+        "https://b.example/2",
+        "https://c.example/3",
+    );
+    let mut f = Fetcher::new();
+    let mut w = World::new(&format!("{a}\n{b}\n{c}\n"));
+    let mut shelf = Kept::default();
+    f.start(&mut w, 0, true).unwrap();
+    w.answer(a, RSS);
+    let done = ok(&w);
+    assert_eq!(end(&mut f, &mut w, &mut shelf, &done), Ended::Next);
+    // A was fetched already: again after the others. C comes anyway.
     f.start(&mut w, 0, false).unwrap();
-    f.start(&mut w, 0, false).unwrap();
-    assert_eq!(w.cancelled, 1);
-    assert!(f.busy());
+    f.start(&mut w, 2, false).unwrap();
+    for (url, next) in [(b, c), (c, a)] {
+        w.answer(url, RSS);
+        let done = ok(&w);
+        assert_eq!(end(&mut f, &mut w, &mut shelf, &done), Ended::Next);
+        assert_eq!(w.requests.last().unwrap().0, next);
+    }
+    w.answer(a, RSS);
+    let done = ok(&w);
+    assert_eq!(
+        end(&mut f, &mut w, &mut shelf, &done),
+        Ended::Finished { done: 4, failed: 0 }
+    );
+    // Over: what was asked for went with it.
+    f.start(&mut w, 1, false).unwrap();
+    w.answer(b, RSS);
+    let done = ok(&w);
+    assert_eq!(
+        end(&mut f, &mut w, &mut shelf, &done),
+        Ended::Finished { done: 1, failed: 0 }
+    );
 }
 
 #[test]

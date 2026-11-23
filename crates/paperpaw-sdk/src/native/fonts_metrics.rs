@@ -72,7 +72,12 @@ impl Font<'_> {
     /// Returns Invalid for a nonpositive or nonfinite size or overlong text,
     /// or the host's refusal, including State when the font handle is stale.
     pub fn ink(&self, size: f32, text: impl AsRef<str>) -> Result<Option<InkBounds>, Error> {
-        let text = text.as_ref();
+        self.ink_str(size, text.as_ref())
+    }
+
+    /// [`Self::ink`] for `&str` only: one copy of the host call in the image,
+    /// however many text types and crates ask.
+    fn ink_str(&self, size: f32, text: &str) -> Result<Option<InkBounds>, Error> {
         validate_text(size, text, TEXT_INK_MAX_BYTES)?;
         let handle = self.handle.ok_or(Error::State)?;
         let mut top = 0;
@@ -115,7 +120,12 @@ impl Font<'_> {
     /// refusal, including State when the font handle is stale and Unsupported on a
     /// host that has not wired the slot.
     pub fn covers(&self, text: impl AsRef<str>) -> Result<usize, Error> {
-        let text = text.as_ref();
+        self.covers_str(text.as_ref())
+    }
+
+    /// [`Self::covers`] for `&str` only: one copy of the host call in the
+    /// image, however many text types and crates ask.
+    fn covers_str(&self, text: &str) -> Result<usize, Error> {
         if text.len() > TEXT_COVERS_MAX_BYTES {
             return Err(Error::Invalid);
         }

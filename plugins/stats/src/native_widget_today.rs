@@ -21,7 +21,7 @@ use paperpaw_ui_kit::{Paint, geometry, paint, text};
 
 /// What the widget shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Numbers {
+pub(crate) struct Numbers {
     today: u64,
     pages: u32,
     week: u64,
@@ -148,13 +148,20 @@ pub fn draw(
     cx: &mut Cx<'_>,
     out: &mut Vec<Paint>,
     area: Rect,
-    _slot: &crate::native_widgets::Slot,
+    slot: &crate::native_widgets::Slot,
 ) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
     let goal = goal(cx.host)?;
-    let Some(numbers) = numbers(cx, goal)? else {
+    let key = (
+        crate::native_widgets::stamp(cx.host)?,
+        goal,
+        cx.week_start()?,
+        cx.settings.shows("pages")?,
+    );
+    if !slot.today.refresh(key, || numbers(cx, goal))? {
         return crate::native_widgets::message(cx, out, &look, "stats.no-clock");
-    };
+    }
+    let numbers = slot.today.value().ok_or(Error::State)?;
     body(cx, out, &look, &numbers, goal)
 }
 

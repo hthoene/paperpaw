@@ -328,16 +328,22 @@ impl NativeSmartHome {
         })
     }
 
-    fn secrets(&mut self, host: &Host<'_>) -> Option<&Secrets> {
+    /// The secrets store, opened once. A device without one has none; short
+    /// of memory it is asked again next time, not taken as missing.
+    fn secrets(&mut self, host: &Host<'_>) -> Result<Option<&Secrets>, Error> {
         if !self.secrets_tried {
+            match Secrets::open(host) {
+                Ok(secrets) => self.secrets = Some(secrets),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {}
+            }
             self.secrets_tried = true;
-            self.secrets = Secrets::open(host).ok();
         }
-        self.secrets.as_ref()
+        Ok(self.secrets.as_ref())
     }
 
     fn token_kept(&mut self, host: &Host<'_>) -> Result<bool, Error> {
-        match self.secrets(host) {
+        match self.secrets(host)? {
             Some(secrets) => keep::present(secrets, host, TOKEN),
             None => Ok(false),
         }
@@ -353,7 +359,7 @@ impl NativeSmartHome {
             Err(Refused::Empty) => return Ok(Err(Problem::NoServer)),
             Err(refused) => return Ok(Err(Problem::Address(refused))),
         };
-        let token = match self.secrets(host) {
+        let token = match self.secrets(host)? {
             Some(secrets) => keep::read(secrets, host, TOKEN)?,
             None => None,
         };
@@ -376,27 +382,32 @@ impl NativeSmartHome {
         if self.loaded {
             return Ok(());
         }
-        self.loaded = true;
-        let bytes = files::read_all(host, Root::Data, FILE, FILE_CAP)
-            .ok()
-            .flatten();
-        let kept = match bytes.as_deref().map(core::str::from_utf8) {
-            Some(Ok(text)) => Store::from_text(text)?,
-            _ => None,
-        };
-        if let Some(kept) = kept {
+        // A file that cannot be read now is not "no file": the error goes
+        // up, the next call reads again, and nothing is saved over it.
+        let read = files::read_all(host, Root::Data, FILE, FILE_CAP);
+        if let Some(kept) = Store::from_file(read)? {
             self.store = kept;
             if self.store.synced > 0 || !self.store.entities.is_empty() {
                 self.last = Last::Done;
             }
         }
+        self.loaded = true;
         Ok(())
     }
 
-    fn persist(&self, host: &Host<'_>) {
-        if let Ok(text) = self.store.to_text() {
-            files::replace(host, Root::Data, FILE, text.as_bytes()).ok();
+    /// Saves the entities. Only a store that was read is saved, so a file
+    /// that could not be read is never replaced by an empty list; a save the
+    /// card refuses is told to the reader.
+    fn persist(&self, host: &Host<'_>) -> Result<(), Error> {
+        if !self.loaded {
+            return Err(Error::State);
         }
+        let text = self.store.to_text()?;
+        if files::replace(host, Root::Data, FILE, text.as_bytes()).is_err() {
+            let words = HostSay::new(host)?.copy("smart-home.notice.not-saved")?;
+            notice(host, &words);
+        }
+        Ok(())
     }
 
     /// A digest of what the widgets show of the entities.
@@ -706,15 +717,19 @@ impl NativeSmartHome {
         if !done.saved() {
             return self.failed(host, Problem::Card, why);
         }
+        // The chosen entities' records, applied only once the whole list was
+        // read: a list cut short changes none of them.
         let (mut seen, mut count) = (0u32, 0usize);
-        let store = &mut self.store;
+        let mut found: Vec<(usize, Record)> = Vec::new();
+        let entities = &self.store.entities;
         let read = fetch::read_saved(host, &mut |record: Record| {
             count += 1;
-            if let Some(at) = store.entities.iter().position(|e| e.id == record.id) {
+            if let Some(at) = entities.iter().position(|e| e.id == record.id)
+                && seen & (1 << at) == 0
+            {
                 seen |= 1 << at;
-                if let Some(entity) = store.entities.get_mut(at) {
-                    apply(entity, record)?;
-                }
+                found.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                found.push((at, record));
             }
             Ok(())
         });
@@ -730,6 +745,11 @@ impl NativeSmartHome {
             fetch::drop_saved(host);
             return self.failed(host, Problem::BadAnswer, why);
         }
+        for (at, record) in found {
+            if let Some(entity) = self.store.entities.get_mut(at) {
+                apply(entity, record)?;
+            }
+        }
         for (at, entity) in self.store.entities.iter_mut().enumerate() {
             if seen & (1 << at) == 0 {
                 entity.state = text::copy("unavailable")?;
@@ -738,7 +758,7 @@ impl NativeSmartHome {
         self.store.synced = capture_snapshot(host)?.unix_seconds().unwrap_or(0);
         self.store.read = true;
         self.last = Last::Done;
-        self.persist(host);
+        self.persist(host)?;
         if self.pick.top_instance(PICK_SCREEN).is_some() {
             let query = self.pick.top(PICK_SCREEN).map(|v| text::copy(v.query()));
             if let Some(query) = query {
@@ -876,7 +896,7 @@ impl NativeSmartHome {
             entity.pending = false;
             apply(entity, record)?;
         }
-        self.persist(host);
+        self.persist(host)?;
         self.said(host, id, "smart-home.notice.state")?;
         self.changed(host, false)
     }
@@ -1049,9 +1069,10 @@ impl NativeSmartHome {
     /// An entity of the list was chosen: taken into the dashboard (and its room
     /// asked for), or taken away where it was there.
     fn chosen(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        self.load(host)?;
         let mut say = HostSay::new(host)?;
         if self.store.remove(id) {
-            self.persist(host);
+            self.persist(host)?;
             return self.changed(host, false);
         }
         // Its state, name and unit from the saved list.
@@ -1082,7 +1103,7 @@ impl NativeSmartHome {
             }
             Err(error) => return Err(error),
         }
-        self.persist(host);
+        self.persist(host)?;
         self.changed(host, false)?;
         let title = say.copy("smart-home.pick.room")?;
         self.ask(
@@ -1197,11 +1218,12 @@ impl NativeSmartHome {
         match what {
             Ask::Search => self.search(host, text),
             Ask::Room(id) => {
+                self.load(host)?;
                 let room = model::clean(text, ROOM_MAX)?;
                 if let Some(entity) = self.store.find_mut(id) {
                     entity.room = text::copy(&room)?;
                 }
-                self.persist(host);
+                self.persist(host)?;
                 self.changed(host, false)
             }
             Ask::Server => {
@@ -1242,7 +1264,7 @@ impl NativeSmartHome {
         let mut say = HostSay::new(host)?;
         let key = if token.len() > MAX_TOKEN {
             Some("smart-home.connect.not-kept")
-        } else if let Some(secrets) = self.secrets(host) {
+        } else if let Some(secrets) = self.secrets(host)? {
             let label = say.copy("smart-home.secret.token")?;
             match keep::keep(secrets, host, TOKEN, &label, token) {
                 Ok(()) => None,

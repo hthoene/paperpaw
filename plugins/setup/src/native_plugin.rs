@@ -2,7 +2,7 @@
 //! plugins ask for, with the answer in a card and *Next* always right. It is
 //! the screen of the slot `core.setup` and opens once, on the first start;
 //! *Set up PaperPaw* in the settings opens it again.
-use crate::native_guide::{Act, Fonts, Guide, HostMeasure, Texts, lay_out};
+use crate::native_guide::{Act, Drawn, Fonts, Guide, HostMeasure, Texts, lay_out};
 use crate::native_layout::Layout;
 use crate::native_state;
 use crate::native_steps::{Control, NewValue, Page, Reader, Setting};
@@ -24,6 +24,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::{
     Messages, Screens, Style, font_sizes,
+    list::redraw_areas,
     mem::{SERVICE_BUFFER, buffer},
     paint,
     text::{concat, copy},
@@ -142,14 +143,14 @@ impl Plugin for NativeSetup {
             };
             guide.prepare(&mut ops, &mut book, &fonts, &style, &layout)?;
             paint::replay(&mut frame, &ui, ops.iter())?;
-            match &reading {
-                Some(reading) => paint::replay(&mut frame, reading, book.iter()),
-                None => Ok(()),
+            if let Some(reading) = &reading {
+                paint::replay(&mut frame, reading, book.iter())?;
             }
+            Ok(Drawn::new((frame.rect.x, frame.rect.y), &layout, &style))
         })();
         let reading = reading.map(Font::release).transpose();
         let ui = ui.release();
-        result?;
+        guide.drawn = Some(result?);
         reading?;
         ui
     }
@@ -323,7 +324,13 @@ impl NativeSetup {
         match act {
             Act::Ignore | Act::Keep => Ok(()),
             Act::Focus(target) => {
-                Self::redraw(host, RedrawMode::Partial)?;
+                // The target the focus leaves (where it showed) and the one
+                // it reaches are drawn again, as in Beta 3.
+                let drawn = guide.drawn;
+                let area = |target| drawn.and_then(|d| d.area(target));
+                let left = if guide.shown { guide.focus } else { target };
+                let origin = drawn.map_or((0, 0), |d| d.origin);
+                redraw_areas(host, origin, [area(left), area(target)])?;
                 guide.focus = target;
                 guide.shown = true;
                 Ok(())

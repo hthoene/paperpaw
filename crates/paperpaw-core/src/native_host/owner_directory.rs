@@ -261,6 +261,16 @@ impl OwnerDirectory {
             .showing_screen(owner)
     }
 
+    /// The screen instance of `owner` whose callback runs, shown or covered
+    /// (`None` when unknown, not a screen's callback, or no stack is attached).
+    pub(crate) fn calling_screen(&self, owner: u64) -> Option<u64> {
+        self.screens
+            .try_borrow()
+            .ok()?
+            .as_ref()?
+            .calling_screen(owner)
+    }
+
     /// The topmost screen instance of `owner` when it is showing (`None` when
     /// unknown, covered, or no stack is attached).
     pub(crate) fn topmost_screen(&self, owner: u64) -> Option<u64> {

@@ -321,3 +321,31 @@ fn lines_are_read_in_pieces_and_a_long_one_is_none() {
     let storage = MemoryStorage::new().with("l", "y".repeat(3000));
     assert_eq!(nth_line(&storage, "l", 0).unwrap(), None);
 }
+
+/// #486: a download that failed was said on its page as an install that failed
+/// ("could not be installed" for a network that went), and a host that refused
+/// the files as one that could not be downloaded.
+#[test]
+fn each_failure_says_what_failed_in_both_languages() {
+    let keys = [
+        (Failure::Network, "store.failed"),
+        (Failure::Damaged, "store.failed"),
+        (Failure::Card, "store.failed.card"),
+        (Failure::Memory, "store.failed.memory"),
+        (Failure::Refused, "store.refused.other"),
+    ];
+    for (failure, key) in keys {
+        assert_eq!(failure.key(), key);
+        for catalog in [
+            include_str!("../../i18n/en.ini"),
+            include_str!("../../i18n/de.ini"),
+        ] {
+            assert!(
+                catalog
+                    .lines()
+                    .any(|line| line.starts_with(&alloc::format!("{key} = {{name}} "))),
+                "{key}"
+            );
+        }
+    }
+}

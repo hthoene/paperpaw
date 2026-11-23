@@ -58,6 +58,17 @@ fn what_is_kept_is_what_is_read() {
     assert_eq!(odd.unwrap().version, "0.5.0");
 }
 
+#[test]
+fn an_offer_the_device_reached_is_no_longer_kept() {
+    let text = read(BODY, "0.4.0", false, 4096).unwrap().to_text().unwrap();
+    let kept = |running| kept_offer(text.as_bytes(), running).unwrap();
+    assert_eq!(kept("0.4.0").unwrap().version, "0.5.0");
+    // Installed since, from the card or the download: the start lets it go.
+    assert_eq!(kept("0.5.0"), None);
+    assert_eq!(kept("0.6.0"), None);
+    assert_eq!(kept_offer(b"\xff\xfe", "0.4.0").unwrap(), None);
+}
+
 /// The interface-6 file is read as it was written (`docs/data-files.md`).
 #[test]
 fn an_offer_of_interface_6_is_read() {

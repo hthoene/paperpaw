@@ -32,6 +32,9 @@
 
 use alloc::vec::Vec;
 
+#[cfg(feature = "kernel")]
+use miniz_oxide::inflate::core::DecompressorOxide;
+
 /// What a version byte has set when the pack's bitmaps are deflated.
 pub(crate) const VERSION_FLAG: u8 = 0x80;
 /// The top bit of a glyph record's data offset: its bitmap is in the cold
@@ -105,11 +108,20 @@ impl Deflated {
     }
 
     /// Block `n` inflated into `out` (`BLOCK` bytes, or what is left of the
-    /// bitmaps in the last): `false` where it is damaged or there is no room.
-    pub(crate) fn inflate(&self, data: &[u8], n: usize, out: &mut Vec<u8>) -> bool {
+    /// bitmaps in the last) by the one decoder in `decoder`, made there on the
+    /// first block: on the heap, as it is some 11 KB and no frame may hold
+    /// it, and once for the blocks a glyph lies in. `false` where the block
+    /// is damaged or there is no room.
+    pub(crate) fn inflate(
+        &self,
+        data: &[u8],
+        n: usize,
+        decoder: &mut Vec<DecompressorOxide>,
+        out: &mut Vec<u8>,
+    ) -> bool {
         use miniz_oxide::inflate::TINFLStatus;
+        use miniz_oxide::inflate::core::decompress;
         use miniz_oxide::inflate::core::inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-        use miniz_oxide::inflate::core::{DecompressorOxide, decompress};
 
         if n >= self.blocks {
             return false;
@@ -133,15 +145,17 @@ impl Deflated {
             return false;
         }
         out.resize(size, 0);
-        // On the heap: the decoder is some 11 KB, no frame may hold it.
-        let mut decoder: Vec<DecompressorOxide> = Vec::new();
-        if decoder.try_reserve_exact(1).is_err() {
-            return false;
+        if decoder.is_empty() {
+            if decoder.try_reserve_exact(1).is_err() {
+                return false;
+            }
+            decoder.resize_with(1, DecompressorOxide::default);
         }
-        decoder.resize_with(1, DecompressorOxide::default);
         let Some(state) = decoder.first_mut() else {
             return false;
         };
+        // From the start of a stream: each block is deflated on its own.
+        state.init();
         let (status, _, made) = decompress(
             state,
             packed,
@@ -470,7 +484,7 @@ mod tests {
                 240,
                 "{compact} {tables}"
             );
-            // Again, from a full cache and the block it ended with.
+            // Again, from a full cache.
             assert_eq!(
                 same(&plain, &deflated, &mut cache),
                 240,
@@ -540,17 +554,19 @@ mod tests {
     }
 
     #[test]
-    fn a_block_is_inflated_once_for_the_glyphs_in_it() {
+    fn each_block_inflates_to_its_size_and_none_past_the_last() {
         let blocks = deflate_bitmaps(&pack(true, false, false), &deflate, &cold).unwrap();
         let font = BitmapFont::new(blocks).unwrap();
         let (deflated, bytes) = font.deflated().unwrap();
         assert!(deflated.len > BLOCK, "{}", deflated.len);
-        let mut out = Vec::new();
-        assert!(deflated.inflate(bytes, 0, &mut out) && out.len() == BLOCK);
+        let (mut decoder, mut out) = (Vec::new(), Vec::new());
+        assert!(deflated.inflate(bytes, 0, &mut decoder, &mut out) && out.len() == BLOCK);
         // The last block is what is left.
-        assert!(deflated.inflate(bytes, deflated.len / BLOCK, &mut out));
+        let last = deflated.len / BLOCK;
+        assert!(deflated.inflate(bytes, last, &mut decoder, &mut out));
         assert_eq!(out.len(), deflated.len % BLOCK);
-        assert!(!deflated.inflate(bytes, deflated.len.div_ceil(BLOCK), &mut out));
+        let past = deflated.len.div_ceil(BLOCK);
+        assert!(!deflated.inflate(bytes, past, &mut decoder, &mut out));
     }
 
     #[test]
@@ -584,6 +600,34 @@ mod tests {
                 assert_eq!(glyph.advance, plain.advance(ch, size), "{ch}");
             }
         }
+    }
+
+    /// A cold glyph whose record says it is larger than a glyph of its
+    /// strike may be is not read (inflated, it would take as much memory as
+    /// the record says), as a packed glyph is not.
+    #[test]
+    fn a_cold_glyph_larger_than_its_strike_allows_is_drawn_as_nothing() {
+        let flat = pack(false, false, false);
+        let mut blocks = deflate_bitmaps(&flat, &deflate, &cold).unwrap();
+        let plain = BitmapFont::new(flat).unwrap();
+        let b = plain.glyph('B', 10.0);
+        assert!(cold('B', 10.0) && b.width > 0);
+        // B's record at 10 px: its code, its size, a cold offset.
+        let record = (0..blocks.len() - RECORD)
+            .find(|&at| {
+                u32_at(&blocks, at) == Some(u32::from('B'))
+                    && u16_at(&blocks, at + 12) == Some(b.width)
+                    && u16_at(&blocks, at + 14) == Some(b.height)
+                    && u32_at(&blocks, at + 16).is_some_and(|at| at & COLD != 0)
+            })
+            .unwrap();
+        // Wider than the 80 pixels a glyph at 10 px may be, one row: what it
+        // says lies in the cold stream.
+        blocks[record + 12..record + 16].copy_from_slice(&[81, 0, 1, 0]);
+        let font = Font::Bitmap(BitmapFont::new(blocks).unwrap());
+        let mut cache = GlyphCache::new(4096);
+        let glyph = cache.glyph(0, &font, 'B', 10.0);
+        assert_eq!((glyph.width, glyph.height), (0, 0));
     }
 
     #[test]

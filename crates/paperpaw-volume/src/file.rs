@@ -7,6 +7,10 @@ use crate::io::{IoBase, Read, Seek, SeekFrom, Write};
 use crate::time::{Date, DateTime, TimeProvider};
 
 const MAX_FILE_SIZE: u32 = u32::MAX;
+// Modified for PaperPaw: added. The bytes of a directory at most: FAT numbers its entries in 16
+// bits (65,536 of them). Its size is not in an entry; its chain says it, and a chain that runs in
+// a loop has no end.
+const MAX_DIR_SIZE: u32 = 65_536 * 32;
 
 /// A FAT filesystem file object used for reading and writing data.
 ///
@@ -161,7 +165,7 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
                         let size = cluster_size.min(bytes_left);
                         bytes_left -= size;
                         Ok(Extent {
-                            offset: fs.offset_from_cluster(cluster),
+                            offset: fs.offset_from_cluster(cluster)?,
                             size,
                         })
                     }
@@ -186,7 +190,10 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
                 } else {
                     offset_mod_cluster_size
                 };
-                let offset_in_fs = self.fs.offset_from_cluster(n) + u64::from(offset_in_cluster);
+                // `None` where it is none of the volume's: the read or write that came to it
+                // failed already.
+                let offset_in_fs =
+                    self.fs.offset_from_cluster(n).ok()? + u64::from(offset_in_cluster);
                 Some(offset_in_fs)
             }
             None => None,
@@ -437,6 +444,11 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
         let Some(current_cluster) = current_cluster_opt else {
             return Ok(0);
         };
+        // Modified for PaperPaw: a directory whose chain goes on past its largest size is damaged
+        // (one that ran in a loop was read for ever).
+        if self.is_dir() && self.offset >= MAX_DIR_SIZE {
+            return Err(Error::CorruptedFileSystem);
+        }
         let offset_in_cluster = self.offset % cluster_size;
         let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
         let bytes_left_in_file = self.bytes_left_in_file().unwrap_or(bytes_left_in_cluster);
@@ -446,7 +458,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
         }
         trace!("read {} bytes in cluster {}", read_size, current_cluster);
         let offset_in_fs =
-            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+            self.fs.offset_from_cluster(current_cluster)? + u64::from(offset_in_cluster);
         let read_bytes = {
             let mut disk = self.fs.disk.borrow_mut();
             disk.seek(SeekFrom::Start(offset_in_fs))?;
@@ -493,6 +505,10 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
         if write_size == 0 {
             return Ok(0);
         }
+        // Modified for PaperPaw: a directory does not grow past its largest size.
+        if self.is_dir() && self.offset >= MAX_DIR_SIZE {
+            return Err(Error::NotEnoughSpace);
+        }
         // Modified for PaperPaw: the volume is not marked dirty for a file's data (see
         // `FsIoAdapter::write`).
         // Get cluster for write possibly allocating new one
@@ -518,8 +534,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
                     let referrer = self
                         .current_cluster
                         .map_or(Referrer::Unknown, Referrer::Link);
-                    self.fs
-                        .alloc_cluster(self.current_cluster, true, referrer)?
+                    self.fs.alloc_cluster(self.current_cluster, referrer)?
                 } else {
                     let entry = self
                         .entry
@@ -553,7 +568,7 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
         };
         trace!("write {} bytes in cluster {}", write_size, current_cluster);
         let offset_in_fs =
-            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+            self.fs.offset_from_cluster(current_cluster)? + u64::from(offset_in_cluster);
         let written_bytes = {
             let mut disk = self.fs.disk.borrow_mut();
             disk.seek(SeekFrom::Start(offset_in_fs))?;

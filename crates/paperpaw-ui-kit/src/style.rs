@@ -102,7 +102,7 @@ pub struct Plate {
     pub paper: Color,
 }
 
-/// How buttons that are not chosen look.
+/// How buttons look; the chosen one has a ring round it too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonLook {
     /// A line round the label, as they always were.
@@ -174,6 +174,12 @@ fn palette_or_none(read: Result<String, Error>) -> Result<String, Error> {
     }
 }
 
+/// The text setting `key`; an empty text where it holds a value of another
+/// kind.
+///
+/// # Errors
+/// What the host answers, and [`Error::NoSpace`] for a value longer than
+/// 512 bytes: it holds a value, so never read it as empty.
 pub fn setting_text(host: &Host<'_>, key: &str) -> Result<String, Error> {
     let mut bytes = [0; TEXT_BYTES];
     Ok(match settings::read_setting(host, key, &mut bytes)? {
@@ -202,7 +208,7 @@ pub struct Style {
     /// The frame of sheets, dialogs and chips where the theme chose one for
     /// all (`core.ui-frame`); `None` leaves each its own.
     pub frame: Option<Frame>,
-    /// How buttons that are not chosen look (`core.ui-button`).
+    /// How buttons look (`core.ui-button`); the chosen one is ringed too.
     pub button: ButtonLook,
     /// The panel shows black and white alone: a card is a sparser pattern.
     pub mono: bool,

@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::digest::fnv1a64;
-use paperpaw_sdk::document::{DocumentError, Metadata, PageProgression};
+use paperpaw_sdk::document::{DocumentError, PageProgression};
 use paperpaw_sdk::xml::{Attrs, Token, local_name, try_decode};
 use paperpaw_sdk::zip::ZipArchive;
 
@@ -25,15 +25,17 @@ use crate::fallible;
 use crate::package::{dir_of, error, package_path, tokenize, try_resolve};
 use crate::{PLUGIN, cached};
 
+/// Changes whenever fixed-layout books are read differently, so their kept
+/// list of pages (or the answer that they are no book of pictures) is made
+/// again.
+const FIXED_VERSION: u32 = 1;
 /// Pages kept at most: the first in reading order.
 const MAX_PAGES: usize = 2000;
 /// Characters of text (not counting spaces) from which a page is reading
 /// matter, not a picture with a caption.
 const TEXT_PAGE: usize = 120;
-/// Most of a metadata field kept.
+/// Most of the text of the layout's `<meta>` kept.
 const MAX_FIELD: usize = 512;
-/// Authors kept at most.
-const MAX_AUTHORS: usize = 8;
 /// The list's first word when the book runs left to right and right to left
 /// (a comic's list names its `ComicInfo.xml` there: neither is a record).
 const LEFT_TO_RIGHT: u32 = u32::MAX;
@@ -43,26 +45,16 @@ const RIGHT_TO_LEFT: u32 = u32::MAX - 1;
 const PAGINATED: u8 = 1;
 const REFLOWABLE: u8 = 2;
 
-/// What the package document says.
+/// What the package document says of the book's layout (its metadata is
+/// read as a reflowing book's, `package::read_book_metadata`).
 #[derive(Default)]
 struct Opf {
-    metadata: Metadata,
     fixed: bool,
     rtl: bool,
     /// The manifest's pages' ids (hashed) with their archive records, sorted.
     items: Vec<(u64, u32)>,
     /// The spine: an id (hashed) and what its itemref asks for.
     spine: Vec<(u64, u8)>,
-}
-
-/// Which text of the package is being read.
-#[derive(Clone, Copy, PartialEq)]
-enum Field {
-    None,
-    Title,
-    Author,
-    Language,
-    Layout,
 }
 
 /// A manifest item that is a page (the hash of its id and its record in
@@ -115,7 +107,8 @@ fn spine_item(attrs: &Attrs<'_>) -> Result<(u64, u8), DocumentError> {
 fn read_opf(storage: &dyn Storage, archive: &ZipArchive, path: &str) -> Result<Opf, DocumentError> {
     let base = fallible::string(dir_of(path))?;
     let mut opf = Opf::default();
-    let (mut field, mut text) = (Field::None, String::new());
+    // Whether the text read is the layout's `<meta>`'s, and that text.
+    let (mut layout, mut text) = (false, String::new());
     let mut failed = None;
     tokenize(storage, archive, path, &mut |token| {
         if failed.is_some() {
@@ -126,19 +119,14 @@ fn read_opf(storage: &dyn Storage, archive: &ZipArchive, path: &str) -> Result<O
                 Token::Start { name, attrs, .. } => {
                     let get = |n: &str| attrs.try_get(n).map_err(|_| fallible::OOM);
                     text.clear();
-                    field = Field::None;
+                    layout = false;
                     match local_name(name) {
-                        "title" if opf.metadata.title.is_none() => field = Field::Title,
-                        "creator" if opf.metadata.authors.len() < MAX_AUTHORS => {
-                            field = Field::Author;
-                        }
-                        "language" if opf.metadata.language.is_none() => field = Field::Language,
                         "meta" => {
                             let property = get("property")?;
                             if property.as_deref() == Some("rendition:layout")
                                 && get("refines")?.is_none()
                             {
-                                field = Field::Layout;
+                                layout = true;
                             } else if get("name")?.as_deref() == Some("fixed-layout")
                                 && get("content")?.as_deref() == Some("true")
                             {
@@ -158,29 +146,15 @@ fn read_opf(storage: &dyn Storage, archive: &ZipArchive, path: &str) -> Result<O
                         _ => {}
                     }
                 }
-                Token::Text(t) if field != Field::None => {
+                Token::Text(t) if layout => {
                     if text.len() < MAX_FIELD {
                         let t = try_decode(&t).map_err(|_| fallible::OOM)?;
-                        fallible::push_str(&mut text, t.trim())?;
+                        fallible::push_str(&mut text, &t)?;
                     }
                 }
-                Token::End { name } if field != Field::None => {
-                    let value = core::mem::take(&mut text);
-                    let value = value.trim();
-                    if !value.is_empty() && local_name(name) != "meta" || field == Field::Layout {
-                        match field {
-                            Field::Title => opf.metadata.title = Some(fallible::string(value)?),
-                            Field::Author => {
-                                fallible::push(&mut opf.metadata.authors, fallible::string(value)?)?
-                            }
-                            Field::Language => {
-                                opf.metadata.language = Some(fallible::string(value)?);
-                            }
-                            Field::Layout => opf.fixed |= value == "pre-paginated",
-                            Field::None => {}
-                        }
-                    }
-                    field = Field::None;
+                Token::End { .. } if layout => {
+                    opf.fixed |= text.trim() == "pre-paginated";
+                    layout = false;
                 }
                 _ => {}
             }
@@ -361,22 +335,26 @@ pub(crate) fn open(
     let archive = ZipArchive::open(storage, path).map_err(error)?;
     let package = package_path(storage, &archive)?;
     let cache = fallible::kept_path(&fallible::plugin_dir(PLUGIN.as_str())?, "fxd-", path)?;
-    let stamp = fallible::try_format!("{}\n", fallible::fingerprint(storage, path)?)?;
+    let stamp = fallible::try_format!(
+        "{}.{FIXED_VERSION} {}\n",
+        crate::package::CACHE_VERSION,
+        fallible::fingerprint(storage, path)?
+    )?;
     let stamp_path = fallible::try_format!("{cache}/source")?;
     let list = fallible::try_format!("{cache}/pages.bin")?;
     let fresh = paperpaw_sdk::read_file(storage, &stamp_path, 64)
         .ok()
         .as_deref()
         == Some(stamp.as_bytes());
-    let opf = if fresh && storage.size(&list).is_ok_and(|size| size >= 8) {
-        None
-    } else if fresh
-        && storage
-            .size(&fallible::try_format!("{cache}/reflow")?)
-            .is_ok()
-    {
-        return Ok(None);
-    } else {
+    let kept = fresh && storage.size(&list).is_ok_and(|size| size >= 8);
+    if !kept {
+        if fresh
+            && storage
+                .size(&fallible::try_format!("{cache}/reflow")?)
+                .is_ok()
+        {
+            return Ok(None);
+        }
         let opf = read_opf(storage, &archive, &package)?;
         if !opf.fixed && !opf.spine.iter().any(|&(_, asks)| asks == PAGINATED) {
             // Most books: nothing is kept for them.
@@ -390,16 +368,12 @@ pub(crate) fn open(
             return Ok(None);
         }
         storage.write(&stamp_path, stamp.as_bytes())?;
-        Some(opf)
-    };
+    }
     let size = storage.size(&list)?;
     let pages = (size / 4 - 1) as u32;
     let rtl = cached::u32_at(storage, &list, 0).ok() == Some(RIGHT_TO_LEFT);
-    let mut metadata = match opf {
-        Some(opf) => opf.metadata,
-        // Kept apart from the pages: read again from the package.
-        None => read_opf(storage, &archive, &package)?.metadata,
-    };
+    // Read as a reflowing book's: the same title, authors and the rest.
+    let mut metadata = crate::package::read_book_metadata(storage, &archive, &package)?;
     metadata.direction = if rtl {
         PageProgression::RightToLeft
     } else {
@@ -513,6 +487,27 @@ mod tests {
             .unwrap();
         assert_eq!(again.sections(), 3);
         assert_eq!(again.metadata().direction, PageProgression::RightToLeft);
+    }
+
+    /// The metadata is read as a reflowing book's: the words of a field
+    /// kept apart, as many authors, the subjects too.
+    #[test]
+    fn a_book_of_pictures_has_the_metadata_of_a_reflowing_one() {
+        let authors: String = (2..=12)
+            .map(|i| alloc::format!("<dc:creator>Author {i}</dc:creator>"))
+            .collect();
+        let metadata = alloc::format!(
+            "{LAYOUT}<dc:creator>Bob <!-- a comment --> Smith</dc:creator>{authors}\
+             <dc:subject>Comics</dc:subject>"
+        );
+        let storage = book(&metadata, "", PICTURES);
+        let doc = open(&storage, "b/pic.epub", &Default::default())
+            .unwrap()
+            .unwrap();
+        let m = doc.metadata();
+        assert_eq!(m.authors.len(), 13);
+        assert_eq!(m.authors[..2], ["Ann", "Bob Smith"]);
+        assert_eq!(m.subjects, ["Comics"]);
     }
 
     #[test]

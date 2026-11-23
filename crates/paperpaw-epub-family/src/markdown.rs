@@ -36,6 +36,9 @@ impl MarkdownDocument {
         {
             let _ = storage.create_dir(&dir);
             convert(storage, path, &html_path)?;
+            // The page appended reaches the card before the stamp that
+            // marks it whole (see `CachePaths::complete`).
+            storage.sync()?;
             storage.write(&stamp_path, stamp.as_bytes())?;
         }
         // Converted in the Markdown file's cache, so it goes with it.

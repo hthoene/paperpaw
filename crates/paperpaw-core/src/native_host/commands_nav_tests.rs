@@ -436,6 +436,47 @@ fn the_drain_applies_the_guards_own_commands_and_holds_the_others() {
     }
 }
 
+/// A preset applies its settings as the batch's own commands do: the guard's
+/// plugin's while its screen guards; another plugin's are held (#483).
+#[test]
+fn the_guards_own_preset_applies_while_it_guards_and_anothers_is_held() {
+    for (plugin, applied) in [("lock", true), ("probe", false)] {
+        let mut kernel = guarded_kernel();
+        for screen in ["probe.base", "lock.screen"] {
+            open(&mut kernel, screen);
+        }
+        assert!(kernel.guard().is_some());
+        let key: &'static str = alloc::boxed::Box::leak(alloc::format!("{plugin}.dark").into());
+        kernel
+            .shared
+            .settings
+            .define(paperpaw_sdk::SettingSpec::switch(
+                key,
+                "dark",
+                false,
+                paperpaw_sdk::builtin::groups::OTHER,
+            ))
+            .unwrap();
+        let preset: &'static str = alloc::boxed::Box::leak(alloc::format!("{plugin}.night").into());
+        let values: &'static str = alloc::boxed::Box::leak(alloc::format!("{key} = on\n").into());
+        kernel
+            .shared
+            .settings
+            .presets_mut()
+            .add(paperpaw_sdk::presets::Preset::new(
+                Id::new_static(preset),
+                Id::new_static("lock.kind"),
+                "t",
+                "d",
+                values,
+            ));
+        let owner = Id::new_static(plugin);
+        let authority = kernel.command_settings_authority(&owner);
+        kernel.apply_native_presets(&owner, authority, vec![preset.into()]);
+        assert_eq!(kernel.shared.settings.bool(key), applied, "{plugin}");
+    }
+}
+
 /// What `submit` leaves of a batch: the commands and the policy changes.
 fn submit_policy(
     kernel: &crate::Kernel,

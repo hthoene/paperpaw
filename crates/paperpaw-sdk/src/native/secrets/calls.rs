@@ -174,10 +174,12 @@ impl Secrets {
         Ok(RandomBytes(row))
     }
 }
+/// The one record of a reply. A record of another kind is a malformed reply
+/// (Invalid, as a page's), never State: that says the handle is not open.
 fn one<'a, T: wire::WireRecord<'a>>(bytes: &'a [u8]) -> Result<T, Error> {
     let raw = wire::RawRecord::one(bytes).map_err(Error::from_status)?;
     if raw.tag() != T::TAG {
-        return Err(Error::State);
+        return Err(Error::Invalid);
     }
     raw.decode::<T>().map_err(Error::from_status)
 }

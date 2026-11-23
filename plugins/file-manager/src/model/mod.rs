@@ -1,6 +1,6 @@
 //! What the file manager decides and does without a host: paths and names, a
 //! folder's entries a page at a time in their order, and the changes (rename,
-//! move, copy, delete) over the platform [`Storage`](paperpaw_sdk::Storage).
+//! move, copy, delete) over the platform [`paperpaw_sdk::Storage`].
 //!
 //! The storage is the card as the host gives it (the native shell hands the
 //! `core.files` adapter, whose folder reads are page by page), so nothing here
@@ -16,8 +16,33 @@ pub mod path;
 #[cfg(test)]
 pub(crate) mod testing;
 
-use paperpaw_sdk::StorageError;
 pub use paperpaw_sdk::native::Error;
+use paperpaw_sdk::{Storage, StorageError};
+
+/// The storage the file manager changes: a [`Storage`] that also says what a
+/// path names.
+pub trait Disk: Storage {
+    /// Whether `path` names a folder (`true`) or a file (`false`). A storage
+    /// that cannot ask for one entry lists the folder: what has no size and
+    /// does not list is nothing.
+    ///
+    /// # Errors
+    /// [`StorageError::NotFound`] where `path` names nothing; the storage's
+    /// error where it cannot tell.
+    fn is_folder(&self, path: &str) -> Result<bool, StorageError> {
+        match self.size(path) {
+            Ok(_) => Ok(false),
+            Err(StorageError::NotFound) => self
+                .list(path, &mut |_| {})
+                .map(|()| true)
+                .map_err(|_| StorageError::NotFound),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Disk for paperpaw_sdk::MemoryStorage {}
 
 /// A storage failure, told as the host's errors are.
 #[must_use]

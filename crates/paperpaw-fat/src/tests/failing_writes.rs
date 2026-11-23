@@ -68,3 +68,24 @@ fn a_write_the_card_refuses_fails_and_loses_nothing() {
     assert!(book.len() == 9000 || book.len() == 14_000, "{}", book.len());
     assert!(book[..9000].iter().all(|&b| b == 7));
 }
+
+#[test]
+fn a_sync_the_card_refused_is_done_by_the_next_one() {
+    let card = Failing {
+        card: Cut::formatted(FormatVolumeOptions::new()),
+        failing: alloc::rc::Rc::default(),
+    };
+    let s = storage(&card);
+    // Big enough to take clusters ahead when it grows (see `append`).
+    s.write("books/a.epub", &vec![7u8; 20_000]).unwrap();
+    s.sync().unwrap();
+    s.append("books/a.epub", &[1u8; 5000]).unwrap();
+    card.failing.set(true);
+    assert!(s.sync().is_err());
+    // The card takes writes again: the next sync writes back what the
+    // refused one did not, its new size in its folder.
+    card.failing.set(false);
+    s.sync().unwrap();
+    let after = mounted(card.card.image());
+    assert_eq!(after.size("books/a.epub"), Ok(25_000));
+}

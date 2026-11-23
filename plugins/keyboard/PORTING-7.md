@@ -25,10 +25,10 @@ likewise `metadata.host.*`; services `core.device`, `core.registry`, `core.ui`).
   size, the button focus and its column memory, the text field (end of the text with a cursor, the
   last lines of several lines), the hint of letters held or of how typing ends.
 - *Paste* (clipboard, op 19) and *Phone* (a nested text question on `core.remote-keyboard`, op 8,
-  with the text so far; never for a password; shown where the device has a network and the slot is
-  filled). A password shows dots, makes the instance secret and holds the edges
-  (`command.screen_policy`), keeps only Sleep, refresh and night mode, and is never put on the
-  clipboard or sent to the phone.
+  with the text so far; for a password a secret question from empty, as in Beta 3 (#481); shown
+  where the device has a network and the slot is filled). A password shows dots, makes the instance
+  secret and holds the edges (`command.screen_policy`), keeps only Sleep, refresh and night mode,
+  and is never put on the clipboard; its text so far is never sent to the phone.
 - The layouts chooser (*On (2)* shows the place in switching; *Automatic* stands for itself) over
   the setting `keyboard.layouts`; the five settings, the group, the icon, the first-run step, the
   held-Back action `keyboard.done` bound to `long.back` on `keyboard.screen`, and the need of

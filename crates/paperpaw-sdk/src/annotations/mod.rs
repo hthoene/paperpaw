@@ -171,12 +171,15 @@ pub fn file(book: &str) -> String {
 /// none where they cannot be read. Read them with [`load_for_update`] to
 /// change them.
 pub fn load(storage: &dyn Storage, book: &str) -> Vec<Annotation> {
-    each(storage, book, parse).unwrap_or_default()
+    each(storage, book, Cut::Taken, parse).unwrap_or_default()
 }
 
 /// Every annotation of the book at `book`, by position, to change them
 /// and [`save`] them: an error where the file is there but cannot be read
-/// (or is larger than a megabyte), so it is not written over.
+/// (or is larger than a megabyte), so it is not written over. A file with
+/// a line longer than this path reads whole ([`files::MAX_LINE`]; the
+/// native writer's rows go up to [`LINE_MAX`]) is
+/// [`StorageError::TooLarge`] too: written back, the line would be cut.
 pub fn load_for_update(storage: &dyn Storage, book: &str) -> Result<Vec<Annotation>, StorageError> {
     match storage.size(&file(book)) {
         Err(StorageError::NotFound) => return Ok(Vec::new()),
@@ -184,16 +187,28 @@ pub fn load_for_update(storage: &dyn Storage, book: &str) -> Result<Vec<Annotati
         Ok(size) if size > MAX_FILE => return Err(StorageError::TooLarge),
         Ok(_) => {}
     }
-    each(storage, book, parse)
+    each(storage, book, Cut::Refused, parse)
 }
 
 /// Only where the annotations are, for drawing them: read line by line,
 /// without their texts.
 pub fn marks(storage: &dyn Storage, book: &str) -> Vec<Mark> {
-    each(storage, book, |line, version| {
+    each(storage, book, Cut::Taken, |line, version| {
         fields(line, version).map(|(mark, _)| mark)
     })
     .unwrap_or_default()
+}
+
+/// What [`each`] does with a line longer than [`files::MAX_LINE`], which it
+/// is given cut.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Cut {
+    /// Read as it is, cut: for showing (a note cut short still shows; a
+    /// row of version 3 that lost its id is no row).
+    Taken,
+    /// The whole read is [`StorageError::TooLarge`]: for those that write
+    /// the file back, which would cut the line.
+    Refused,
 }
 
 /// What `parse` makes of each line of the book's file (with the file's
@@ -204,13 +219,18 @@ pub fn marks(storage: &dyn Storage, book: &str) -> Vec<Mark> {
 fn each<T>(
     storage: &dyn Storage,
     book: &str,
+    cut: Cut,
     parse: impl Fn(&str, u32) -> Option<T>,
 ) -> Result<Vec<T>, StorageError> {
     let mut all = Vec::new();
     let mut first = true;
-    let mut newer = false;
+    let (mut newer, mut too_long) = (false, false);
     let mut version = 1;
-    let read = files::for_each_line(storage, &file(book), &mut |line| {
+    let read = files::each_line(storage, &file(book), &mut |line, was_cut| {
+        if was_cut && cut == Cut::Refused {
+            too_long = true;
+            return ControlFlow::Break(());
+        }
         if core::mem::take(&mut first) && line.starts_with(crate::data::MARK) {
             version = crate::data::Format::version_of(line);
             newer = !(1..=FILE_VERSION).contains(&version);
@@ -230,6 +250,7 @@ fn each<T>(
     });
     match read {
         _ if newer => Err(StorageError::InvalidData),
+        _ if too_long => Err(StorageError::TooLarge),
         Ok(()) | Err(StorageError::NotFound) => Ok(all),
         Err(e) => Err(e),
     }
@@ -250,18 +271,21 @@ fn letter(kind: Kind) -> Option<char> {
 }
 
 /// The mark a line of a file of `version` describes, and the line's
-/// fields.
+/// fields. What a row is, is said once, by [`is_row`], which the native
+/// reader and writer go by too: a line they take for no row (an XPointer
+/// end without a start, say) is none here either, and is kept as it is.
 fn fields(line: &str, version: u32) -> Option<(Mark, Vec<&str>)> {
-    let fields: Vec<&str> = if version >= FILE_VERSION {
-        line.split('\t').collect()
-    } else {
-        line.splitn(if version >= VERSION { 13 } else { 10 }, '\t')
-            .collect()
-    };
-    // A row of version 3 has its 15 columns, the id and key among them.
-    if version >= FILE_VERSION && (fields.len() != 15 || ident(&fields).is_none()) {
+    if !is_row(line.as_bytes(), version) {
         return None;
     }
+    // Split as the native reader splits it: tabs past the last field
+    // belong to it.
+    let most = match version {
+        FILE_VERSION.. => 15,
+        VERSION => 13,
+        _ => 10,
+    };
+    let fields: Vec<&str> = line.splitn(most, '\t').collect();
     let kind = match *fields.first()? {
         "b" => Kind::Bookmark,
         "h" => Kind::Highlight,
@@ -310,10 +334,7 @@ fn text_field(fields: &[&str]) -> usize {
     }
 }
 
-/// The annotation of a line. **A second row rule:** this and [`fields`] still
-/// decide what a row is for the plain readers and writers here, apart from
-/// [`is_row`]. They stay until the writes slice replaces them with that one
-/// definition (todo: one rule, then ids on write cannot drift from the reads).
+/// The annotation of a line (a row as [`is_row`] says, see [`fields`]).
 fn parse(line: &str, version: u32) -> Option<Annotation> {
     parse_anchored(line, version).map(|(a, ..)| a)
 }
@@ -335,8 +356,11 @@ fn parse_anchored(line: &str, version: u32) -> Option<(Annotation, Option<Anchor
     // made in a conversion not known.
     let anchor = match fields.get(8) {
         Some(&"") if rest == 11 => None,
+        // Known only as 16 hex digits, as the native reader takes it.
         Some(conversion) if rest == 11 => Some(Anchor {
-            conversion: u64::from_str_radix(conversion, 16).ok(),
+            conversion: Some(conversion)
+                .filter(|c| c.len() == 16)
+                .and_then(|c| u64::from_str_radix(c, 16).ok()),
             start: field(9),
             end: field(10),
         }),
@@ -379,7 +403,7 @@ pub fn save(storage: &dyn Storage, book: &str, annotations: &[Annotation]) -> Re
         Some((a, None, ident)) => (ident.id != 0).then(|| Kept::Anchor(key(&a.mark), None, ident)),
         None => (!line.trim().is_empty()).then(|| Kept::Unread(line.to_string())),
     };
-    let kept = each(storage, book, kept)?;
+    let kept = each(storage, book, Cut::Refused, kept)?;
     let (mut anchors, mut unread) = (Vec::new(), Vec::new());
     for line in kept {
         match line {
@@ -665,7 +689,7 @@ pub fn relocate(
         let (_, anchor, _) = parse_anchored(line, version)?;
         anchor.as_ref().is_none_or(elsewhere).then_some(())
     };
-    if each(storage, book, due)?.is_empty() {
+    if each(storage, book, Cut::Taken, due)?.is_empty() {
         return Ok(false);
     }
     let read = |line: &str, version| match parse_anchored(line, version) {
@@ -673,7 +697,7 @@ pub fn relocate(
         None => (!line.trim().is_empty()).then(|| Err(line.to_string())),
     };
     let (mut all, mut unread) = (Vec::new(), Vec::new());
-    for line in each(storage, book, read)? {
+    for line in each(storage, book, Cut::Refused, read)? {
         match line {
             Ok(read) => all.push(read),
             Err(line) => unread.push(line),
@@ -782,7 +806,7 @@ pub fn stamp(
         None => (!line.trim().is_empty()).then(|| Err(line.to_string())),
     };
     let (mut all, mut unread) = (Vec::new(), Vec::new());
-    for line in each(storage, book, read)? {
+    for line in each(storage, book, Cut::Refused, read)? {
         match line {
             Ok(read) => all.push(read),
             Err(line) => unread.push(line),
@@ -1006,6 +1030,29 @@ mod tests {
         assert_eq!(a.mark.end, Locator::new(1, 20));
     }
 
+    /// What a row is, is said once ([`is_row`]): a line the native reader
+    /// takes for no row is none here either and is kept as it is, and a
+    /// conversion is known only as 16 hex digits.
+    #[test]
+    fn rows_are_those_the_native_reader_takes_for_rows() {
+        let book = "books/v2.epub";
+        let damaged = "h\t1\t10\t1\t20\t5\t100\t200\t00000000000000ab\t\t/b\tno start\t";
+        let v2 = format!(
+            "# format 2\n{damaged}\n\
+             h\t2\t0\t2\t5\t5\t0\t0\tabc\t/a\t\tshort\t\n\
+             h\t3\t0\t3\t5\t5\t0\t0\t00000000000000ab\t/c\t\tknown\t\n"
+        );
+        let storage = MemoryStorage::new().with(&file(book), v2.as_str());
+        let all = load(&storage, book);
+        let texts: Vec<&str> = all.iter().map(|a| a.text.as_str()).collect();
+        assert_eq!(texts, ["short", "known"]);
+        assert_eq!(write::try_info(&storage, &file(book)).unwrap().rows, 2);
+        save(&storage, book, &all).unwrap();
+        let text = String::from_utf8(storage.get(&file(book)).unwrap()).unwrap();
+        assert!(text.contains(&format!("\n{damaged}\n")), "{text}");
+        assert!(text.contains("\t?\t/a\t\tshort\t"), "{text}");
+    }
+
     const BOOK_V3: &str = "books/v3.epub";
     const TMP: &str = ".paperpaw/library/edits/v3.new";
 
@@ -1127,6 +1174,35 @@ mod tests {
         // The last row removed leaves the numbers.
         assert!(remove(&storage, BOOK_V3, |_| true).unwrap());
         assert_eq!(seen(&storage), (vec![], (3, 9, 8, 0)));
+    }
+
+    /// A row of the native writer longer than this path reads whole is
+    /// never written back cut: every change here is refused and the file
+    /// stays as it is, while the other rows still show.
+    #[test]
+    fn a_row_longer_than_this_path_reads_is_never_written_back_cut() {
+        let storage = native();
+        let info = write::try_info(&storage, &file(BOOK_V3)).unwrap();
+        let mut long = write::Spec::new(6, Kind::Highlight, Locator::new(4, 0), Locator::new(4, 9));
+        long.text = String::leak("t".repeat(5 * 1024));
+        let mut put = Put(vec![long]);
+        write::rewrite(&storage, &file(BOOK_V3), TMP, (&info, 1), &mut put).unwrap();
+        let before = storage.get(&file(BOOK_V3)).unwrap();
+        assert_eq!(
+            load_for_update(&storage, BOOK_V3),
+            Err(StorageError::TooLarge)
+        );
+        assert!(add(&storage, BOOK_V3, highlight(5, 6, "new")).is_err());
+        assert!(remove(&storage, BOOK_V3, |m| m.start.section == 1).is_err());
+        assert!(set_note(&storage, BOOK_V3, Locator::new(1, 10), "n", 9).is_err());
+        assert!(save(&storage, BOOK_V3, &load(&storage, BOOK_V3)).is_err());
+        let other = Fingerprint::parse("482133 0b6e8f2a6c1d4e5f8a9b0c1d2e3f4a5b").unwrap();
+        assert_eq!(
+            stamp(&storage, BOOK_V3, &other),
+            Err(StorageError::TooLarge)
+        );
+        assert_eq!(storage.get(&file(BOOK_V3)), Some(before));
+        assert_eq!(load(&storage, BOOK_V3).len(), 3);
     }
 
     #[test]

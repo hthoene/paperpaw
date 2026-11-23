@@ -33,6 +33,29 @@ impl<'h, 'cb> NativeIo<'h, 'cb> {
     }
 }
 
+/// The suffix of the file a long write is staged in, beside the file. Not
+/// the SDK's `STAGED_SUFFIX`: the host's calls refuse names ending in it.
+const STAGED: &str = ".tmp";
+
+impl NativeIo<'_, '_> {
+    /// Writes `data` to `staged` in `root`, then puts it in the place of
+    /// `name`.
+    fn stage(&self, root: Root, staged: &str, name: &str, data: &[u8]) -> Result<(), StorageError> {
+        // What a cut or a failure left would get the pieces after its own
+        // bytes, and the rename would publish them.
+        match storage::remove(self.host, root, staged) {
+            Ok(()) | Err(Error::NotFound) => {}
+            Err(error) => return Err(storage_error(error)),
+        }
+        for piece in data.chunks(storage::MAX_DATA) {
+            storage::append(self.host, root, staged, piece).map_err(storage_error)?;
+        }
+        // The pieces reach the card before the rename that publishes them.
+        self.sync()?;
+        storage::rename(self.host, root, staged, name).map_err(storage_error)
+    }
+}
+
 impl core::fmt::Debug for NativeIo<'_, '_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("NativeIo").finish_non_exhaustive()
@@ -85,19 +108,31 @@ impl Storage for NativeIo<'_, '_> {
         storage::size(self.host, root, name).map_err(storage_error)
     }
 
+    /// A write of at most [`storage::MAX_DATA`] is the host's, which is
+    /// atomic. A longer one is staged as the SDK's `DataStorage` stages it:
+    /// appended to a file beside, flushed, and renamed over the file, so a
+    /// power cut leaves the old file or the new one whole, never the first
+    /// pieces of the new one.
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         let (root, name) = route(&self.prefix, path);
         if root == Root::Book {
             return Err(StorageError::Unsupported);
         }
-        let mut pieces = data.chunks(storage::MAX_DATA);
-        // The first piece makes the file new, the rest follow it.
-        storage::write(self.host, root, name, pieces.next().unwrap_or_default())
-            .map_err(storage_error)?;
-        for piece in pieces {
-            storage::append(self.host, root, name, piece).map_err(storage_error)?;
+        if data.len() <= storage::MAX_DATA {
+            return storage::write(self.host, root, name, data).map_err(storage_error);
         }
-        Ok(())
+        let mut staged = String::new();
+        staged
+            .try_reserve_exact(name.len() + STAGED.len())
+            .map_err(|_| StorageError::Other(NO_MEMORY))?;
+        staged.push_str(name);
+        staged.push_str(STAGED);
+        let written = self.stage(root, &staged, name, data);
+        if written.is_err() {
+            // Best effort: the next long write of the file removes it first.
+            let _ = storage::remove(self.host, root, &staged);
+        }
+        written
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
@@ -117,6 +152,14 @@ impl Storage for NativeIo<'_, '_> {
     /// Listing the book's folder needs `native::files` on root 3 (#384).
     fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         Err(StorageError::Unsupported)
+    }
+
+    /// A host without a flush keeps nothing back (as the default says).
+    fn sync(&self) -> Result<(), StorageError> {
+        match storage::sync(self.host) {
+            Ok(()) | Err(Error::Unsupported) => Ok(()),
+            Err(error) => Err(storage_error(error)),
+        }
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {

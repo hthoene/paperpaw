@@ -3,7 +3,8 @@ use super::{
     Error, Host,
     wire::settings_wire::{self as wire, settings_decode},
 };
-use paperpaw_native::host_glue::{PpBuffer, PpBytes};
+use core::mem::MaybeUninit;
+use paperpaw_native::host_glue::{ERR_NO_SPACE, PpBuffer, PpBytes};
 
 /// A decoded settings value. Text borrows the scratch buffer supplied to [`read_setting`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,12 +91,9 @@ fn read_setting_str<'a>(
     }
     let length = read_raw(host, key, scratch)?;
     let value = scratch.get(..length).ok_or(Error::NoSpace)?;
-    Ok(match settings_decode(value).map_err(Error::from_status)? {
-        wire::SettingValueRef::Absent => SettingValue::Absent,
-        wire::SettingValueRef::Bool(value) => SettingValue::Bool(value),
-        wire::SettingValueRef::Int(value) => SettingValue::Int(value),
-        wire::SettingValueRef::Text(value) => SettingValue::Text(value),
-    })
+    settings_decode(value)
+        .map(from_wire)
+        .map_err(Error::from_status)
 }
 
 /// `value` as the bytes of a settings value: what `filter.verdict.value`
@@ -107,29 +105,66 @@ fn read_setting_str<'a>(
 /// Returns NoSpace when the value does not fit in `out`, Invalid for
 /// [`SettingValue::Absent`] (a preview of "not set" is `command.preview_setting`'s).
 pub fn encode_value<'o>(value: SettingValue<'_>, out: &'o mut [u8]) -> Result<&'o [u8], Error> {
-    let value = match value {
+    if matches!(value, SettingValue::Absent) {
+        return Err(Error::Invalid);
+    }
+    encode_into(to_wire(value), out)
+        .map(|encoded| &*encoded)
+        .map_err(Error::from_status)
+}
+
+/// `value` as the settings wire value.
+pub(crate) const fn to_wire(value: SettingValue<'_>) -> wire::SettingValueRef<'_> {
+    match value {
+        SettingValue::Absent => wire::SettingValueRef::Absent,
         SettingValue::Bool(value) => wire::SettingValueRef::Bool(value),
         SettingValue::Int(value) => wire::SettingValueRef::Int(value),
         SettingValue::Text(value) => wire::SettingValueRef::Text(value),
-        _ => return Err(Error::Invalid),
-    };
-    let mut raw = [core::mem::MaybeUninit::new(0_u8); ENCODED_MAX];
-    let length = wire::settings_encode(value, &mut raw).map_err(Error::from_status)?;
-    let (slots, room) = (raw.get(..length), out.get_mut(..length));
-    let (Some(slots), Some(room)) = (slots, room) else {
-        return Err(Error::NoSpace);
-    };
-    for (to, from) in room.iter_mut().zip(slots) {
-        // SAFETY: every slot was initialized above, and `settings_encode`
-        // writes initialized bytes only.
-        *to = unsafe { from.assume_init() };
     }
-    Ok(&*room)
 }
 
-/// The most bytes of an encoded value [`encode_value`] makes (a number, a
-/// switch or a short text).
-const ENCODED_MAX: usize = 64;
+/// A decoded settings wire value as the SDK's.
+pub(crate) const fn from_wire(value: wire::SettingValueRef<'_>) -> SettingValue<'_> {
+    match value {
+        wire::SettingValueRef::Absent => SettingValue::Absent,
+        wire::SettingValueRef::Bool(value) => SettingValue::Bool(value),
+        wire::SettingValueRef::Int(value) => SettingValue::Int(value),
+        wire::SettingValueRef::Text(value) => SettingValue::Text(value),
+    }
+}
+
+/// `value` encoded straight into the start of `out`, the part written
+/// returned: as long a value as `out` holds, with no copy in between.
+///
+/// # Errors
+/// `ERR_NO_SPACE` when the value does not fit in `out` (its start may then be
+/// written) or is a text over the settings cap.
+pub(crate) fn encode_into<'o>(
+    value: wire::SettingValueRef<'_>,
+    out: &'o mut [u8],
+) -> Result<&'o mut [u8], i32> {
+    // SAFETY: u8 and MaybeUninit<u8> have the same layout, and the encoder
+    // only ever stores initialized bytes, so `out` stays initialized.
+    let slots = unsafe {
+        core::slice::from_raw_parts_mut(out.as_mut_ptr().cast::<MaybeUninit<u8>>(), out.len())
+    };
+    encode_into_uninit(value, slots)
+}
+
+/// [`encode_into`] for a buffer not initialized yet: the part written is.
+///
+/// # Errors
+/// As [`encode_into`].
+pub(crate) fn encode_into_uninit<'o>(
+    value: wire::SettingValueRef<'_>,
+    out: &'o mut [MaybeUninit<u8>],
+) -> Result<&'o mut [u8], i32> {
+    let length = wire::settings_encode(value, out)?;
+    let written = out.get_mut(..length).ok_or(ERR_NO_SPACE)?;
+    // SAFETY: the encoder initialized exactly this prefix, u8 has the layout
+    // of MaybeUninit<u8>, and the exclusive borrow of `out` carries over.
+    Ok(unsafe { core::slice::from_raw_parts_mut(written.as_mut_ptr().cast(), written.len()) })
+}
 
 fn read_raw(host: &Host<'_>, key: &str, scratch: &mut [u8]) -> Result<usize, Error> {
     // SAFETY: the key and exclusively borrowed output remain live for this call.

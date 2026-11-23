@@ -30,8 +30,11 @@ const KEPT: [&str; 5] = ["alttext", "display", "open", "close", "separators"];
 /// What is kept of the element being read.
 struct Capture {
     markup: String,
-    /// The names of the open elements.
+    /// The names of the open elements, at most [`MAX_DEPTH`].
     open: Vec<String>,
+    /// Elements open below the deepest one kept in `open`: counted, not
+    /// named, so that no nesting, however deep, takes memory.
+    deep: u32,
     /// Open elements that hold no text of the formula (`annotation`).
     quiet: u32,
     text: String,
@@ -45,6 +48,8 @@ impl Capture {
     fn push_open(&mut self, tag: &str, attrs: &Attrs<'_>) -> Result<(), DocumentError> {
         if self.open.len() >= MAX_DEPTH {
             self.over = true;
+            self.deep = self.deep.saturating_add(1);
+            return Ok(());
         }
         if !self.over {
             fallible::push_char(&mut self.markup, '<')?;
@@ -63,6 +68,21 @@ impl Capture {
             self.quiet += 1;
         }
         fallible::push(&mut self.open, fallible::string(tag)?)
+    }
+
+    /// Ends the innermost open element.
+    fn close_innermost(&mut self) -> Result<(), DocumentError> {
+        let Some(tag) = self.open.pop() else {
+            return Ok(());
+        };
+        if matches!(tag.as_str(), "annotation" | "annotation-xml" | "mphantom") {
+            self.quiet = self.quiet.saturating_sub(1);
+        }
+        if !self.over {
+            fallible::try_write!(&mut self.markup, "</{tag}>")?;
+            self.over = self.markup.len() > MAX_MARKUP;
+        }
+        Ok(())
     }
 }
 
@@ -106,16 +126,24 @@ impl Formula for Capture {
         Ok(())
     }
 
-    fn end(&mut self) -> Result<Option<Done>, DocumentError> {
-        let Some(tag) = self.open.pop() else {
+    fn end(&mut self, tag: &str) -> Result<Option<Done>, DocumentError> {
+        let math = tag.eq_ignore_ascii_case("math");
+        if self.deep > 0 && !math {
+            self.deep -= 1;
+            return Ok(None);
+        }
+        self.deep = 0;
+        // The innermost open element of the name ends, and those left open
+        // inside it; an end tag of none open is passed over.
+        let Some(at) = self
+            .open
+            .iter()
+            .rposition(|open| open.eq_ignore_ascii_case(tag))
+        else {
             return Ok(None);
         };
-        if matches!(tag.as_str(), "annotation" | "annotation-xml" | "mphantom") {
-            self.quiet = self.quiet.saturating_sub(1);
-        }
-        if !self.over {
-            fallible::try_write!(&mut self.markup, "</{tag}>")?;
-            self.over = self.markup.len() > MAX_MARKUP;
+        while self.open.len() > at {
+            self.close_innermost()?;
         }
         if !self.open.is_empty() {
             return Ok(None);
@@ -152,6 +180,7 @@ pub(crate) const MAKER: FormulaMaker = |attrs| {
     let mut capture = Capture {
         markup: String::new(),
         open: Vec::new(),
+        deep: 0,
         quiet: 0,
         text: String::new(),
         alt,

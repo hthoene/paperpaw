@@ -202,7 +202,8 @@ pub const NO_MEMORY: u16 = 1;
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) const NO_MEMORY: u16 = 1;
 
-/// [`check_file`], for the marks an installer left ([`install::marks`](crate::install::marks)).
+/// [`check_file`], for the marks an installer left (the kernel's
+/// `kit::install::marks`).
 /// [`Problem::Other`]`(`[`NO_MEMORY`]`)` where the author's check found no
 /// memory.
 pub(crate) fn checked_file(

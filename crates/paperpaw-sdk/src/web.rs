@@ -238,20 +238,28 @@ pub fn clean_name(name: &str, max: usize) -> Option<String> {
     or_abort(try_clean_name(name, max))
 }
 
-/// [`clean_name`], allocating fallibly: one reservation of `name.len() + 1`
-/// bytes (the result is never longer than the name, but for the `_` put
-/// before a reserved name), the result built in a single pass.
+/// [`clean_name`], allocating fallibly: one reservation of at most
+/// `name.len() + 1` bytes, and no more than `max` asks for, the result
+/// built in a single pass.
 ///
 /// # Errors
 /// [`TryReserveError`] where the heap cannot give the reservation; no name is
 /// returned in part.
 pub fn try_clean_name(name: &str, max: usize) -> Result<Option<String>, TryReserveError> {
     let mut out = String::new();
-    out.try_reserve_exact(name.len() + 1)?;
+    out.try_reserve_exact(clean_name_room(name, max))?;
     // Forbidden characters are blanks, control characters are dropped, runs
     // of blanks are one space, and neither blanks nor dots begin the name.
     let mut space = false;
+    // What lies past `max` UTF-16 units is cut anyway: the name is built no
+    // further once it has more and it is told whether Windows keeps it for
+    // a device. That is said by the part before its first dot, and one of
+    // six characters or more is no such name (`COM1` and a space at most).
+    let (mut units, mut chars, mut dotted) = (0_usize, 0_usize, false);
     for c in name.chars() {
+        if units > max && (dotted || chars >= 6) {
+            break;
+        }
         let c = match c {
             '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => ' ',
             c => c,
@@ -269,10 +277,13 @@ pub fn try_clean_name(name: &str, max: usize) -> Result<Option<String>, TryReser
         if space {
             out.push(' ');
             space = false;
+            (units, chars) = (units + 1, chars + 1);
         }
         out.push(c);
+        (units, chars) = (units + c.len_utf16(), chars + 1);
+        dotted |= c == '.';
     }
-    // Room is there: the name only shrank.
+    // Room is there (see `clean_name_room`).
     if paperpaw_platform::storage::is_reserved_name(&out) {
         out.insert(0, '_');
     }
@@ -290,6 +301,17 @@ pub fn try_clean_name(name: &str, max: usize) -> Result<Option<String>, TryReser
         .len();
     out.truncate(end);
     Ok((!out.is_empty()).then_some(out))
+}
+
+/// The bytes [`try_clean_name`] reserves for `name` cut at `max` UTF-16
+/// units: what it builds before it stops, and the `_` put before a name
+/// Windows keeps. The name built never grows past `name`; it stops once it
+/// has more than `max` units (a unit is at most three bytes, and a step
+/// adds a space and a character of up to four) and at least six
+/// characters (up to four bytes each), so it never needs more than either.
+fn clean_name_room(name: &str, max: usize) -> usize {
+    let built = max.saturating_mul(3).max(5 * 4).saturating_add(1 + 4);
+    name.len().min(built) + 1
 }
 
 /// The `Authorization` header's value for `user` and `password`.
@@ -610,6 +632,10 @@ mod tests {
                 assert!(cleaned.capacity() <= name.len() + 1, "{name:?}");
             }
         }
+        // A long name cut short is built only as far as the cut needs.
+        let cleaned = try_clean_name(&"\u{e4}".repeat(2000), 20).unwrap();
+        assert_eq!(cleaned.as_deref(), Some("\u{e4}".repeat(20).as_str()));
+        assert!(cleaned.unwrap().capacity() <= 3 * 20 + 5 + 1);
     }
 
     #[test]

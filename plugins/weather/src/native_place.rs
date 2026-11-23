@@ -140,9 +140,8 @@ impl PlaceView {
     /// A view; `place` is the name set (trimmed), `has_place` whether coordinates are set.
     ///
     /// # Errors
-    /// `NoMemory`, or what the host says.
-    pub fn new(host: &Host<'_>, place: &str, has_place: bool) -> Result<Self, Error> {
-        let _ = host;
+    /// `NoMemory`.
+    pub fn new(place: &str, has_place: bool) -> Result<Self, Error> {
         Ok(Self {
             places: Vec::new(),
             search: Search::Idle,

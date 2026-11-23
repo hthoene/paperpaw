@@ -7,7 +7,8 @@
 )]
 use paperpaw_plugin_store::native_device::Facts;
 use paperpaw_plugin_store::native_load::{
-    Details, Done, Ended, LIST_PART, LIST_TOKEN, Loader, PAGE_TOKEN, Trouble, Wire,
+    Details, Done, Ended, LIST_PART, LIST_TOKEN, Loader, PAGE_TOKEN, QUEUE_PAGE_TOKEN, Trouble,
+    Wire,
 };
 use paperpaw_plugin_store::native_model::Revoked;
 use paperpaw_sdk::native::{
@@ -189,8 +190,127 @@ fn a_page_of_a_bad_name_is_not_asked_for_and_a_failed_one_says_so() {
         .unwrap();
     assert_eq!(ended, Ended::Page);
     assert_eq!(loader.details(), (Some("plugin-a"), Details::Offline));
-    loader.forget_page();
+    loader.forget_page(&mut wire);
     assert_eq!(loader.details(), (None, Details::None));
+}
+
+/// What the library answers for the page of plugin `id`.
+fn page_of(id: &str) -> String {
+    format!(
+        r#"{{"format": 2, "plugin": {{"id": "{id}", "name": "A", "summary": "Does a well.",
+  "group": "tools", "kind": "data", "author": "X", "licence": "MIT",
+  "latest": {{"version": "1.0.0", "sdk": "0.4", "formats": 1, "size": 30,
+    "files": [{{"path": "plugin.ini", "url": "plugin.ini", "size": 30,
+      "sha256": "{zero}"}}]}}}}}}"#,
+        zero = "0".repeat(64)
+    )
+}
+
+/// #486: the queue and a page screen shared one page; a screen opened while
+/// the queue waited took it, and the queue (or the screen) waited for ever.
+#[test]
+fn the_queues_page_and_a_screens_page_are_fetched_apart() {
+    let mut wire = Script::new();
+    let mut loader = Loader::default();
+    loader.start_queue_page(&mut wire, "plugin-a").unwrap();
+    loader.start_page(&mut wire, "plugin-b").unwrap();
+    assert_eq!(loader.queue_details(), (Some("plugin-a"), Details::Asked));
+    assert_eq!(loader.details(), (Some("plugin-b"), Details::Asked));
+    // Each into a file of its own, each told with its own number.
+    let asked: Vec<_> = wire
+        .asked
+        .iter()
+        .map(|(_, file, token)| (file.as_str(), *token))
+        .collect();
+    assert_eq!(
+        asked,
+        [
+            ("queue-plugin-a.part", QUEUE_PAGE_TOKEN),
+            ("plugin-plugin-b.part", PAGE_TOKEN)
+        ]
+    );
+    assert!(wire.cancelled.is_empty());
+    // Another page screen's page ends only the screen's request.
+    loader.start_page(&mut wire, "plugin-c").unwrap();
+    assert_eq!(wire.cancelled, [PAGE_TOKEN]);
+    assert_eq!(loader.queue_details(), (Some("plugin-a"), Details::Asked));
+    wire.storage
+        .write("queue-plugin-a.part", page_of("plugin-a").as_bytes())
+        .unwrap();
+    let ended = loader
+        .ended(&mut wire, &done(QUEUE_PAGE_TOKEN, Reason::Ok, 200))
+        .unwrap();
+    assert_eq!(ended, Ended::QueuePage);
+    assert_eq!(loader.queue_details(), (Some("plugin-a"), Details::Here));
+    assert!(loader.queue_page("plugin-a").is_some());
+    // The screens read only their own page; the screen's is still coming.
+    assert!(loader.page("plugin-a").is_none());
+    assert_eq!(loader.details(), (Some("plugin-c"), Details::Asked));
+    // Its install took what it needs: the queue's page goes, the screen's stays.
+    loader.release_queue_page("plugin-a");
+    assert_eq!(loader.queue_details(), (None, Details::None));
+    assert_eq!(loader.details(), (Some("plugin-c"), Details::Asked));
+}
+
+/// #486: leaving the last page screen dropped the page without ending its
+/// request: the answer was ignored and its part (up to 512 KiB) stayed.
+#[test]
+fn a_page_let_go_ends_its_request_and_its_part_goes() {
+    let mut wire = Script::new();
+    let mut loader = Loader::default();
+    loader.start_page(&mut wire, "plugin-a").unwrap();
+    loader.start_queue_page(&mut wire, "plugin-b").unwrap();
+    wire.storage.write("plugin-plugin-a.part", b"{").unwrap();
+    wire.cancelled.clear();
+    loader.forget_page(&mut wire);
+    assert_eq!(wire.cancelled, [PAGE_TOKEN]);
+    assert!(!wire.storage.exists("plugin-plugin-a.part"));
+    assert_eq!(loader.details(), (None, Details::None));
+    // The queue's page is the queue's.
+    assert_eq!(loader.queue_details(), (Some("plugin-b"), Details::Asked));
+    wire.storage.write("queue-plugin-b.part", b"{").unwrap();
+    loader.forget_queue_page(&mut wire);
+    assert_eq!(wire.cancelled, [PAGE_TOKEN, QUEUE_PAGE_TOKEN]);
+    assert!(!wire.storage.exists("queue-plugin-b.part"));
+    // A page asked for anew lets the one before go the same way.
+    loader.start_page(&mut wire, "plugin-a").unwrap();
+    wire.storage.write("plugin-plugin-a.part", b"{").unwrap();
+    wire.cancelled.clear();
+    loader.start_page(&mut wire, "plugin-b").unwrap();
+    assert_eq!(wire.cancelled, [PAGE_TOKEN]);
+    assert!(!wire.storage.exists("plugin-plugin-a.part"));
+    loader.forget_page(&mut wire);
+    // A page that is here asks the host for nothing when it goes.
+    loader.start_page(&mut wire, "plugin-a").unwrap();
+    loader
+        .ended(&mut wire, &done(PAGE_TOKEN, Reason::NoNetwork, 0))
+        .unwrap();
+    wire.cancelled.clear();
+    loader.forget_page(&mut wire);
+    assert!(wire.cancelled.is_empty());
+}
+
+/// #486: a request the host refused (too many at once, no network service)
+/// read as a page the library no longer offers, and the queue waited for an
+/// answer that never came.
+#[test]
+fn a_page_the_host_refuses_to_ask_for_is_no_connection() {
+    for refusal in [Error::Busy, Error::Denied, Error::Unsupported] {
+        let mut wire = Script::new();
+        wire.get = Err(refusal);
+        let mut loader = Loader::default();
+        loader.start_page(&mut wire, "plugin-a").unwrap();
+        assert_eq!(loader.details(), (Some("plugin-a"), Details::Offline));
+        loader.start_queue_page(&mut wire, "plugin-a").unwrap();
+        assert_eq!(loader.queue_details(), (Some("plugin-a"), Details::Offline));
+    }
+    // A library that does not know the device has no page of it.
+    let mut wire = Script::new();
+    wire.facts = None;
+    let mut loader = Loader::default();
+    loader.start_queue_page(&mut wire, "plugin-a").unwrap();
+    assert!(wire.asked.is_empty());
+    assert_eq!(loader.queue_details(), (Some("plugin-a"), Details::Failed));
 }
 
 #[test]

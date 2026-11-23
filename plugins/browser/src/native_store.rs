@@ -207,7 +207,12 @@ pub fn bookmarks(storage: &dyn Storage, language: &str) -> Result<Option<Vec<Ent
     if let Some(saved) = saved {
         return Ok(Some(saved));
     }
-    let language = language.split(['-', '_']).next().unwrap_or("en");
+    // No language set (the setting absent) is English.
+    let language = language
+        .split(['-', '_'])
+        .next()
+        .filter(|language| !language.is_empty())
+        .unwrap_or("en");
     let wikipedia = text::concat(&["https://", language, ".m.wikipedia.org/"])?;
     let mut list = Vec::new();
     mem::push(&mut list, Entry::new("Wikipedia", &wikipedia)?)?;

@@ -3,9 +3,10 @@
 //! opened and from a change of its annotations (`library_changed`); the
 //! rules are `native_exchange`'s, this file reads what they need from the
 //! library, the document and the card, and does what they say, in this
-//! order: a copy aside, the edits of the library's annotations (one
-//! transaction), KOReader's file, what both have. What is not here yet is
-//! in `PORTING-7.md`.
+//! order: a copy aside, the edits of the library's annotations (in
+//! transactions the host takes), KOReader's file, what both have. A book
+//! moved takes KOReader's files beside it along. What is not here yet is in
+//! `PORTING-7.md`.
 use crate::{
     declarations::EVENTS_TOKEN,
     native_exchange::{self as exchange, Edit, Mine, Placer, Removal, Setup, Stop, Theirs},
@@ -17,18 +18,20 @@ use paperpaw_sdk::{
     document::Locator,
     native::{
         Error, Host, Plugin,
+        commands::CommandSender,
         device::{Device, DeviceClass},
         document::{DocId, DocPosition, Documents, OpenBook, Preparation},
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
+        files::Files,
         library::{
             AnnotationCursor, AnnotationEdit, AnnotationKind, AnnotationTextKind,
-            AnnotationTextQuery, BookRef, Library,
+            AnnotationTextQuery, BookRef, Library, MAX_EDITS_PER_CALL,
         },
         registrations,
         reply::Reply,
         snapshot::capture_snapshot,
         storage::{self, Root},
-        ui::{Question, RequestId, Ui},
+        ui::{Notify, Question, RequestId, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -78,6 +81,9 @@ const MAX_KNOWN: usize = 1 << 20;
 const MAX_TEXT: usize = 4096;
 /// Annotations read of a book at most (the host's file cap is 1 MiB).
 const MOST_ANNOTATIONS: usize = 2048;
+/// Edits a transaction takes at most on the X4 (1,024 elsewhere,
+/// `library.md` 2.2): more go in several, one after the other.
+const EDITS_PER_COMMIT: usize = 128;
 
 /// What an exchange of a book came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +110,8 @@ pub struct NativeKoReader {
     file_cap: Option<usize>,
     documents: Option<Documents>,
     ui: Option<Ui>,
+    /// The card's folders, opened at the first book moved.
+    files: Option<Files>,
     /// The question for the reader whether to remove what KOReader's file
     /// has no more, while it is open.
     asked: Option<Asked>,
@@ -138,6 +146,11 @@ impl Plugin for NativeKoReader {
         }
         if let Some(Event::Book { reading, .. }) = incoming.decode_as::<kinds::BookOpened>()? {
             return self.exchange_or_ask(host, reading.path(), Removal::Ask);
+        }
+        if let Some(Event::BookMoved { from, path, .. }) =
+            incoming.decode_as::<kinds::BookMoved>()?
+        {
+            return self.moved_book(host, from, path);
         }
         if let Some(Event::LibraryChanged { what, path, .. }) =
             incoming.decode_as::<kinds::LibraryChanged>()?
@@ -221,6 +234,32 @@ impl NativeKoReader {
 
     fn library(&self) -> Result<&Library, Error> {
         self.library.as_ref().ok_or(Error::State)
+    }
+
+    /// A book moved from `from` to `path`: KOReader's files beside it go
+    /// along (what both had moves as book data, by the host), or KOReader
+    /// would no longer find them, and a file it made anew beside the book
+    /// would look as if every highlight had been removed there. Said where
+    /// they could not be moved.
+    fn moved_book(&mut self, host: &Host<'_>, from: &str, path: &str) -> Result<(), Error> {
+        if self.files.is_none() {
+            self.files = Some(Files::open(host)?);
+        }
+        let files = self.files.as_ref().ok_or(Error::State)?;
+        let card = Card { host, files };
+        let moved = match card.moves(from, path) {
+            Ok(moves) => card.carry_out(&moves),
+            Err(error) => Err(error),
+        };
+        match moved {
+            Ok(()) => Ok(()),
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => {
+                let text = Messages::new()?.copy(host, "koreader.not-moved")?;
+                let mut scratch = [0; 512];
+                CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+            }
+        }
     }
 
     /// Exchanges `book` as `removal` says; where the reader is to decide,
@@ -683,7 +722,11 @@ fn place(
     }
 }
 
-/// The annotations changed as `ours` says, in one transaction: all or none.
+/// The annotations changed as `ours` says, in transactions of at most
+/// [`EDITS_PER_COMMIT`] edits, each all or none, each from the generation the
+/// one before left. One refused after others went through leaves those: what
+/// both have is not kept then, and the next exchange, which finds them here
+/// and in KOReader's file, takes it up again.
 fn commit(
     host: &Host<'_>,
     library: &Library,
@@ -696,23 +739,102 @@ fn commit(
     for a in ours.iter().filter(|a| a.edit != Edit::None) {
         push(&mut edits, edit_of(a)?)?;
     }
-    if edits.is_empty() {
-        return Ok(());
+    let mut generation = generation;
+    for batch in edits.chunks(EDITS_PER_COMMIT) {
+        let mut transaction =
+            library.edit_begin(host, BookRef::path(book)?, generation, &mut input, &mut out)?;
+        for chunk in batch.chunks(MAX_EDITS_PER_CALL) {
+            if let Err(error) =
+                library.edit_add(host, &mut transaction, chunk, &mut input, &mut out)
+            {
+                // The transaction is given up; nothing of it is applied.
+                library
+                    .edit_abort(host, &mut transaction, &mut input, &mut out)
+                    .ok();
+                return Err(error);
+            }
+        }
+        generation = library
+            .edit_commit(host, &mut transaction, &mut input, &mut out)?
+            .annotation_generation();
     }
-    let mut transaction =
-        library.edit_begin(host, BookRef::path(book)?, generation, &mut input, &mut out)?;
-    for chunk in edits.chunks(3) {
-        if let Err(error) = library.edit_add(host, &mut transaction, chunk, &mut input, &mut out) {
-            // The transaction is given up; nothing is applied.
-            library
-                .edit_abort(host, &mut transaction, &mut input, &mut out)
-                .ok();
-            return Err(error);
+    Ok(())
+}
+
+/// The card's folders, for KOReader's files of a book moved.
+struct Card<'a, 'h> {
+    host: &'a Host<'h>,
+    files: &'a Files,
+}
+
+impl Card<'_, '_> {
+    /// What the move of the book from `from` to `to` moves of KOReader's
+    /// files ([`model::sidecar_moves`]); none where KOReader keeps none.
+    fn moves(&self, from: &str, to: &str) -> Result<Vec<(String, String)>, Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let sidecar = model::sidecar(from)?;
+        match self
+            .files
+            .list(self.host, Root::Files, &sidecar, 0, &mut input, &mut out)
+        {
+            Ok(page) if !page.is_empty() => {}
+            Ok(_) | Err(Error::NotFound) => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        }
+        model::sidecar_moves(from, to, self.shared(from)?)
+    }
+
+    /// Whether another format of the book that was at `from` is beside it
+    /// and shares KOReader's folder.
+    fn shared(&self, from: &str) -> Result<bool, Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let folder = paperpaw_sdk::files::parent(from);
+        let mut cursor = 0;
+        loop {
+            let page =
+                self.files
+                    .list(self.host, Root::Files, folder, cursor, &mut input, &mut out)?;
+            if page
+                .entries()
+                .any(|e| !e.is_folder() && model::same_book(from, e.name()))
+            {
+                return Ok(true);
+            }
+            match page.next() {
+                Some(next) => cursor = next,
+                None => return Ok(false),
+            }
         }
     }
-    library
-        .edit_commit(host, &mut transaction, &mut input, &mut out)
-        .map(|_| ())
+
+    /// Makes the folder the files go into, then moves them, never over a
+    /// file there.
+    fn carry_out(&self, moves: &[(String, String)]) -> Result<(), Error> {
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let Some((_, first)) = moves.first() else {
+            return Ok(());
+        };
+        let folder = paperpaw_sdk::files::parent(first);
+        self.files
+            .make_dir(self.host, Root::Files, folder, &mut input, &mut out)?;
+        for (from, to) in moves {
+            match self.files.move_entry(
+                self.host,
+                Root::Files,
+                from,
+                Root::Files,
+                to,
+                false,
+                &mut input,
+                &mut out,
+            ) {
+                // A file KOReader has not made yet (its annotations file).
+                Ok(()) | Err(Error::NotFound) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The edit that makes the library's annotation what `a` is.

@@ -23,6 +23,7 @@
 //! - a list of folders is sorted by lower-case characters without making a
 //!   lower-case copy of each name for every comparison (a word-final sigma
 //!   sorts as `σ`, where interface 6's `to_lowercase` made it `ς`).
+use super::compose;
 use super::fail::Fail;
 use super::header;
 use super::imap;
@@ -828,7 +829,7 @@ pub fn read_saves(storage: &dyn Storage, letter: &str) -> Result<Vec<Save>, Fail
 }
 
 /// The text of a file of at most `cap` bytes (`None` where there is none or it
-/// cannot be read): the draft kept for an account.
+/// cannot be read): what the reader may save of a letter.
 ///
 /// # Errors
 /// [`Fail::NoMemory`].
@@ -838,6 +839,59 @@ pub fn read_kept(storage: &dyn Storage, file: &str, cap: usize) -> Result<Option
         Err(Fail::NoMemory) => Err(Fail::NoMemory),
         Err(_) => Ok(None),
     }
+}
+
+/// How many drafts that could not be read are set aside next to the draft
+/// of an account at most (`draft-unreadable.txt`, `draft-unreadable-2.txt`, …).
+const MAX_SET_ASIDE: u32 = 9;
+
+/// What the draft file of an account holds as compose opens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum KeptDraft {
+    /// No draft is kept.
+    None,
+    /// The draft, as [`compose::Draft::to_text`] kept it.
+    Text(String),
+    /// It could not be read (larger than [`compose::MAX_DRAFT`], not text, a
+    /// card that says no): it was moved, never written over, to this path of
+    /// the data folder, and the account's draft is free for a new one.
+    SetAside(String),
+}
+
+/// The draft kept for `account`; one that cannot be read is set aside under
+/// a free name next to it, so that what the reader wrote is never lost and
+/// compose still opens.
+///
+/// # Errors
+/// [`Fail::NoMemory`]; [`Fail::Storage`] where the draft can be neither read
+/// nor moved.
+pub fn open_draft(storage: &dyn Storage, account: u8) -> Result<KeptDraft, Fail> {
+    let file = draft_file(account)?;
+    match read_text(storage, &file, compose::MAX_DRAFT) {
+        Ok(text) => Ok(KeptDraft::Text(text)),
+        Err(Fail::Storage(StorageError::NotFound)) => Ok(KeptDraft::None),
+        Err(Fail::NoMemory) => Err(Fail::NoMemory),
+        Err(Fail::Storage(_)) => set_aside(storage, account, &file).map(KeptDraft::SetAside),
+    }
+}
+
+/// Moves the draft `file` of `account` to the first free name for a draft
+/// that could not be read; that name.
+fn set_aside(storage: &dyn Storage, account: u8, file: &str) -> Result<String, Fail> {
+    let dir = account_dir(account)?;
+    for n in 1..=MAX_SET_ASIDE {
+        let aside = if n == 1 {
+            text::format(format_args!("{dir}/draft-unreadable.txt"))?
+        } else {
+            text::format(format_args!("{dir}/draft-unreadable-{n}.txt"))?
+        };
+        if !storage.exists(&aside) {
+            storage.rename(file, &aside)?;
+            return Ok(aside);
+        }
+    }
+    Err(StorageError::Full.into())
 }
 
 /// A letter read from its file (`None` where there is none or it cannot be

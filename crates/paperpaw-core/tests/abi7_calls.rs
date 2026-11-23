@@ -1,5 +1,9 @@
 //! Same-instance exclusion and shared nesting quota before dispatch is wired.
 #[path = "../src/abi7/calls.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod calls;
 use calls::{Depth, Error, Instance};
 

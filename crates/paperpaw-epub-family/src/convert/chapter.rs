@@ -240,7 +240,7 @@ impl<'a> Converter<'a> {
                 feed_html(storage, path, &full, &mut tokenizer, &mut handle)?;
             }
             Source::Fb2 { path, encoding } => {
-                crate::fb2::feed(storage, path, *encoding, &mut tokenizer, &mut handle)?;
+                crate::fb2::feed(storage, path, *encoding, &full, &mut tokenizer, &mut handle)?;
             }
         }
         tokenizer.finish(&mut handle);

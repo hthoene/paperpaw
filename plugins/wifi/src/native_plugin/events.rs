@@ -102,7 +102,8 @@ const NOTHING: Need = Need {
 };
 
 /// What the decisions that look at the networks in reach and the ones joined
-/// before (the next to join, the failure) read.
+/// before (the next to join, the failure) read, in a round that joins a
+/// network joined before ([`NativeWifi::round_need`]).
 const SCAN: Need = Need {
     networks: true,
     known: Level::All,
@@ -165,6 +166,19 @@ fn idle_ms(key: &str) -> u64 {
 }
 
 impl NativeWifi {
+    /// What a scan or a failed join reads: the networks in reach and every
+    /// network joined before with its password only in a round that joins
+    /// one of them, and not during the setup with a phone (which says what
+    /// the radio does). Otherwise the decisions look at the radio alone: no
+    /// password is read from the secrets, nor kept in memory, for nothing.
+    fn round_need(&self) -> Need {
+        if self.policy.goal == Goal::Known && !self.policy.phone {
+            SCAN
+        } else {
+            NOTHING
+        }
+    }
+
     /// Reads what the decision of an event needs.
     fn seen(&mut self, host: &Host<'_>, now_ms: u64, need: Need) -> Result<Seen, Error> {
         self.ensure(host)?;
@@ -428,7 +442,7 @@ impl NativeWifi {
     /// Networks were found: the next network joined before, another scan, or
     /// the failure told.
     pub(super) fn wifi_scanned(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
-        let seen = self.seen(host, now_ms, SCAN)?;
+        let seen = self.seen(host, now_ms, self.round_need())?;
         let actions = self.policy.on_scanned(&seen.facts())?;
         self.act(host, actions)?;
         self.phone_scanned(host)?;
@@ -442,7 +456,7 @@ impl NativeWifi {
         let Some(failure) = done.failure() else {
             return Ok(());
         };
-        let seen = self.seen(host, done.now_ms(), SCAN)?;
+        let seen = self.seen(host, done.now_ms(), self.round_need())?;
         let actions = self
             .policy
             .on_failed(&seen.facts(), done.ssid(), Failure::from(failure))?;

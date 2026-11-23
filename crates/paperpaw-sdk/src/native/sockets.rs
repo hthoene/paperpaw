@@ -405,7 +405,8 @@ impl Root {
 }
 
 /// A file read: the next `len` bytes of a socket written to `path` under
-/// `root` (as `<path>.part`, renamed when whole).
+/// `root` (as `<path>.pp-staged`, [`STAGED_SUFFIX`](super::storage::STAGED_SUFFIX),
+/// renamed over `path` when whole).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FileRead<'a> {
     root: Root,

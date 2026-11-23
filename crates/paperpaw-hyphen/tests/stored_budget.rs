@@ -128,3 +128,20 @@ fn the_heap_bound_holds_for_every_shipped_table() {
     let two: usize = bounds.iter().rev().take(2).sum();
     assert!(two <= 48 * 1024, "{two}");
 }
+
+/// What an open charges against its budget is what the reader holds once
+/// opened, and the 512-byte scratch buffer of the opening: no more, so a
+/// caller's budget is not spent on heap no table takes.
+#[test]
+fn an_open_charges_what_the_reader_holds() {
+    for set in shipped() {
+        let reader = StoredPatterns::open(Mem::new(set.table.clone()), 0, 4).unwrap();
+        let heap = reader.heap_bytes();
+        let Err(OpenError::OverBudget { needed }) =
+            StoredPatterns::open_within(Mem::new(set.table.clone()), 0, 4, 0)
+        else {
+            panic!("{}: opened within no heap", set.name);
+        };
+        assert_eq!(needed, heap + 512, "{}", set.name);
+    }
+}

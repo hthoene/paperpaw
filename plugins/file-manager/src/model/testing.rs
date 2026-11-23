@@ -180,6 +180,8 @@ impl Storage for Quiet {
     }
 }
 
+impl super::Disk for Quiet {}
+
 /// Refuses each allocation of `run` in turn on a fresh storage made by `make`:
 /// with none refused it must be `Ok`; with one refused it must be
 /// `Err(NoMemory)` or `Ok` (an allocation that is optional), and then

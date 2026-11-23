@@ -8,12 +8,16 @@
 //!
 //! Differences from interface 6: the clock is the host's milliseconds; a
 //! password typed on the page lives in a [`Password`], wiped when dropped;
-//! and every method that can run out of memory changes nothing when it
-//! says [`Error::NoMemory`].
+//! every method that can run out of memory changes nothing when it says
+//! [`Error::NoMemory`]; and the setup never leaves its screen by itself. The
+//! host takes no leaving of a screen from a timer or an event (only a key
+//! does that), so where interface 6 closed the screen (left alone, or
+//! connected) the setup ends and says so, and Back leaves it.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Error;
 use paperpaw_ui_kit::text::copy;
 
+use crate::native_known::MAX_PASSWORD;
 use crate::native_policy::Password;
 
 pub mod page;
@@ -24,12 +28,10 @@ pub const PORT: u16 = 80;
 /// How long after the page answered the device leaves its own network, so
 /// that the answer reaches the phone first.
 pub const LEAVE_MS: u64 = 1500;
-/// How long "Connected" shows before the screen closes.
-pub const DONE_MS: u64 = 2500;
 /// Longest form taken, in bytes.
 pub const MAX_FORM: usize = 1024;
-/// Without a request from the phone this long, the own network closes (and
-/// the screen with it): it is not left open by mistake.
+/// Without a request from the phone this long, the own network closes and
+/// the setup ends: it is not left open by mistake.
 pub const IDLE_MS: u64 = 10 * 60 * 1000;
 /// Letters of the own network's password: 62 bits, three groups of five.
 pub const PASSWORD_LETTERS: usize = 15;
@@ -83,6 +85,8 @@ pub enum Stage {
     Joining(String),
     Joined(String),
     Failed(Failed),
+    /// Left alone: the own network closed, the radio as the user left it.
+    Ended,
 }
 
 impl Stage {
@@ -115,6 +119,9 @@ pub struct Radio<'a> {
 pub enum Page {
     /// The networks to choose from; `again` after a form without one.
     Choose { again: bool },
+    /// The networks to choose from again: the password sent was longer than
+    /// a network's can be.
+    PasswordTooLong,
     /// The network being joined.
     Joining(String),
     /// Nothing is served there.
@@ -158,14 +165,11 @@ pub enum Effect {
     Choose { ssid: String, password: Password },
     /// Wake the screen at this time (milliseconds); the last wake counts.
     WakeAt(u64),
-    /// Leave the screen.
-    Back,
 }
 
 /// What a button or key means.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    Back,
     Confirm,
     NextPage,
     PrevPage,
@@ -213,6 +217,7 @@ impl core::fmt::Debug for Phone {
             Stage::Joining(_) => "Joining",
             Stage::Joined(_) => "Joined",
             Stage::Failed(_) => "Failed",
+            Stage::Ended => "Ended",
         };
         f.debug_struct("Phone")
             .field("stage", &stage)
@@ -241,6 +246,18 @@ impl Phone {
             active: now,
             moved_on: false,
             serve_again: false,
+        }
+    }
+
+    /// A setup that could not be made (no memory, no device): it says so and
+    /// does nothing more; `manual` is whether the user had switched the radio
+    /// on before.
+    #[must_use]
+    pub fn not_opened(manual: bool, now: u64) -> Self {
+        Self {
+            stage: Stage::Failed(Failed::NotOpened),
+            started: true,
+            ..Self::new(manual, now)
         }
     }
 
@@ -342,6 +359,20 @@ impl Phone {
         Ok(out)
     }
 
+    /// [`Effect::Draw`] could not be done (no memory, no device): the own
+    /// network is not made, and the setup says so.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn not_drawn(&mut self) -> Result<Vec<Effect>, Error> {
+        let mut out = room()?;
+        if matches!(self.stage, Stage::Searching) {
+            out.push(Effect::Redraw);
+            self.stage = Stage::Failed(Failed::NotOpened);
+        }
+        Ok(out)
+    }
+
     /// The radio's state changed.
     ///
     /// # Errors
@@ -372,9 +403,11 @@ impl Phone {
                 self.active = now;
                 self.step = Step::Open;
             }
+            // Connected: the setup is done, the radio as the user left it; the
+            // screen says so until Back leaves it.
             Stage::Joining(ssid) if radio.online == Some(ssid.as_str()) => {
                 let joined = copy(ssid)?;
-                out.push(Effect::WakeAt(now.saturating_add(DONE_MS)));
+                out.push(self.radio_as_left());
                 out.push(Effect::Redraw);
                 self.stage = Stage::Joined(joined);
             }
@@ -493,6 +526,11 @@ impl Phone {
                 (403, Page::Choose { again: true }, None)
             }
             ("POST", "/join") => match form.map(chosen).transpose()?.flatten() {
+                // The host would refuse to join with it, and the setup would
+                // wait for a join that never starts.
+                Some((_, password)) if password.as_str().len() > MAX_PASSWORD => {
+                    (400, Page::PasswordTooLong, None)
+                }
                 Some((ssid, password)) => {
                     (200, Page::Joining(copy(&ssid)?), Some((ssid, password)))
                 }
@@ -522,24 +560,23 @@ impl Phone {
     /// # Errors
     /// [`Error::NoMemory`].
     pub fn timer(&mut self, now: u64, radio: &Radio<'_>) -> Result<Vec<Effect>, Error> {
-        // Left alone: closed.
+        // Left alone: ended.
         if self.stage.waiting() && now >= self.active.saturating_add(IDLE_MS) {
-            return self.close(radio);
+            let mut out = self.closed(radio)?;
+            out.push(Effect::Redraw);
+            self.stage = Stage::Ended;
+            return Ok(out);
         }
         let mut out = room()?;
-        match &self.stage {
-            Stage::Leaving { ssid, .. } => {
-                // Everything that can fail first; then the state moves on.
-                let joining = copy(ssid)?;
-                let left = core::mem::replace(&mut self.stage, Stage::Joining(joining));
-                if let Stage::Leaving { ssid, password } = left {
-                    out.push(Effect::StopServing);
-                    out.push(Effect::Choose { ssid, password });
-                    out.push(Effect::Redraw);
-                }
+        if let Stage::Leaving { ssid, .. } = &self.stage {
+            // Everything that can fail first; then the state moves on.
+            let joining = copy(ssid)?;
+            let left = core::mem::replace(&mut self.stage, Stage::Joining(joining));
+            if let Stage::Leaving { ssid, password } = left {
+                out.push(Effect::StopServing);
+                out.push(Effect::Choose { ssid, password });
+                out.push(Effect::Redraw);
             }
-            Stage::Joined(_) => return self.close(radio),
-            _ => {}
         }
         // The screen's one timer: the idle time again, where it counts.
         if self.stage.waiting() {
@@ -552,13 +589,8 @@ impl Phone {
     ///
     /// # Errors
     /// [`Error::NoMemory`].
-    pub fn action(
-        &mut self,
-        action: Action,
-        radio: &Radio<'_>,
-    ) -> Result<Option<Vec<Effect>>, Error> {
+    pub fn action(&mut self, action: Action) -> Result<Option<Vec<Effect>>, Error> {
         let to = match action {
-            Action::Back => return self.close(radio).map(Some),
             Action::Confirm if self.stage.steps() => self.step.other(),
             Action::NextPage if self.stage.steps() => Step::Open,
             Action::PrevPage if self.stage.steps() => Step::Join,
@@ -573,20 +605,30 @@ impl Phone {
         Ok(Some(out))
     }
 
-    /// Closes the screen: the page no longer served, the own network closed,
-    /// the radio as the user left it.
-    fn close(&mut self, radio: &Radio<'_>) -> Result<Vec<Effect>, Error> {
+    /// The screen closed (or the setup ended with it open): the page no
+    /// longer served, the own network closed, the radio as the user left it.
+    /// The own network is left where it is open and also where it was asked
+    /// for and is not open yet, so that it does not open for nobody.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn closed(&self, radio: &Radio<'_>) -> Result<Vec<Effect>, Error> {
         let mut out = room()?;
         out.push(Effect::StopServing);
-        if radio.hosting {
+        if radio.hosting || matches!(self.stage, Stage::Opening) {
             out.push(Effect::Leave);
         }
-        out.push(Effect::Policy {
+        out.push(self.radio_as_left());
+        Ok(out)
+    }
+
+    /// What the policy is told once the setup is over: the radio is no longer
+    /// held on, and stays on only where the user had switched it on.
+    const fn radio_as_left(&self) -> Effect {
+        Effect::Policy {
             manual: self.manual,
             phone: false,
-        });
-        out.push(Effect::Back);
-        Ok(out)
+        }
     }
 }
 

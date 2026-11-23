@@ -6,6 +6,7 @@
 //! `native_model` and `native_page`, tested without one.
 use crate::{
     declarations::{ABOUT_TOKEN, FETCHED_TOKEN, PROVIDER_TOKEN, SCREEN_TOKEN, SUSPEND_TOKEN},
+    native_model::SCREEN_REQUEST,
     native_provider::Provider,
     native_view::View,
     stages::about_lines_v1 as lines,
@@ -171,7 +172,7 @@ impl Plugin for NativeWikipedia {
                         paperpaw_ui_kit::mem::buffer(paperpaw_sdk::native::net::REQUEST_INPUT)?,
                         paperpaw_ui_kit::mem::buffer(paperpaw_sdk::native::net::REPLY)?,
                     );
-                    net.cancel(host, FETCHED_TOKEN, &mut input, &mut out).ok();
+                    net.cancel(host, SCREEN_REQUEST, &mut input, &mut out).ok();
                 }
                 Ok(())
             }

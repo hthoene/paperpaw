@@ -110,12 +110,27 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Admits the navigation commands (`close`, `back_to`, `set_key_layer`,
-    /// `show_hints`, `raise_input`): `rows` is the kernel's stack, `owner` the
-    /// submitter's host owner id.
+    /// `show_hints`, `raise_input`) and the screen policies: `rows` is the
+    /// kernel's stack, `owner` the submitter's host owner id.
     #[must_use]
-    pub(crate) fn with_stack(mut self, rows: &'a StackRows, owner: u64) -> Self {
+    pub(crate) fn with_stack(self, rows: &'a StackRows, owner: u64) -> Self {
+        self.stack_of(rows, owner, true)
+    }
+
+    /// Admits the screen policies (`screen_policy`, `screen_ready`) alone,
+    /// for a callback that does not navigate: an event's (`ui.md` 1.2).
+    #[must_use]
+    pub(crate) fn with_policy_stack(self, rows: &'a StackRows, owner: u64) -> Self {
+        self.stack_of(rows, owner, false)
+    }
+
+    fn stack_of(mut self, rows: &'a StackRows, owner: u64, navigates: bool) -> Self {
         if let Some(ui) = &mut self.ui {
-            ui.stack = Some(super::nav::NavStack { rows, owner });
+            ui.stack = Some(super::nav::NavStack {
+                rows,
+                owner,
+                navigates,
+            });
         }
         self
     }
@@ -791,10 +806,6 @@ impl crate::Kernel {
     /// other commands. A change for a screen that is gone, or that turns
     /// `guards` on where the screen is no longer the top one, is dropped with
     /// a warning; the stage judged it at submit.
-    #[allow(
-        dead_code,
-        reason = "the command runner (shell_commands) calls it, wired with the shell"
-    )]
     pub(crate) fn native_screen_policies(
         &mut self,
         owner: &Id,

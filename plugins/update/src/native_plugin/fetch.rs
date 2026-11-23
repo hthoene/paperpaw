@@ -16,15 +16,16 @@ use paperpaw_sdk::{
         commands::{CommandSender, InstallRoot},
         device::{DeviceOutcome, DeviceRequest, InstallKind},
         events::InstallDone,
+        files::Files,
         formatting::Arg,
         net::{FileRoot, HttpDone, Net, REPLY, REQUEST_INPUT, Reason, Request, RequestId},
-        storage::DataStorage,
+        storage::{DataStorage, Root},
         ui::Notify,
     },
 };
 use paperpaw_ui_kit::{
     Messages,
-    mem::{buffer, push},
+    mem::{SERVICE_BUFFER, buffer, push},
     text::{concat, copy},
 };
 
@@ -134,6 +135,19 @@ fn clear(storage: &dyn Storage, package: &Package) {
     paperpaw_sdk::sort::sort_unstable_by_key(&mut folders, |f| core::cmp::Reverse(f.len()));
     for folder in folders {
         storage.remove(&folder).ok();
+    }
+}
+
+/// At start: what a fetch a restart cut off left in `staging` goes (a fetch
+/// is never carried over a restart).
+pub(super) fn clear_staging(host: &Host<'_>) -> Result<(), Error> {
+    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let files = Files::open(host)?;
+    let removed = files.remove_tree(host, Root::Data, STAGING, &mut input, &mut out);
+    files.release(host)?;
+    match removed {
+        Ok(_) | Err(Error::NotFound) => Ok(()),
+        Err(error) => Err(error),
     }
 }
 

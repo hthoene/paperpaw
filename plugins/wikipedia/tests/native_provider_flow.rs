@@ -8,15 +8,15 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "test assertions")]
 #[path = "support/provider.rs"]
 mod support;
-use paperpaw_plugin_wikipedia::{NATIVE_ENTRY, declarations::FETCHED_TOKEN};
+use paperpaw_plugin_wikipedia::{NATIVE_ENTRY, native_model::PROVIDER_REQUEST};
 use paperpaw_scripted_host::ScriptedHost;
 use support::{
-    EXTRACT, NOT_FOUND, PENDING, UNREACHABLE, ask, done, done_with, host_with, host_with_net,
-    open_screen, suspend, ui_handing_over, ui_handing_over_a_growing_text,
+    EXTRACT, NOT_FOUND, PENDING, UNREACHABLE, ask, close_screen, done, done_with, host_with,
+    host_with_net, open_screen, suspend, ui_handing_over, ui_handing_over_a_growing_text,
 };
 
 fn summary_url(word: &str) -> String {
-    format!("https://de.wikipedia.org/api/rest_v1/page/summary/{word} {FETCHED_TOKEN}")
+    format!("https://de.wikipedia.org/api/rest_v1/page/summary/{word} {PROVIDER_REQUEST}")
 }
 
 #[test]
@@ -170,4 +170,31 @@ fn the_end_of_the_request_tells_the_askers() {
     let p = host.load(NATIVE_ENTRY.entry()).unwrap();
     assert_eq!(ask(&p, "Katze", "de").2 & PENDING, PENDING);
     assert!(done(&p, 1, 200, 0), "lookup_ready staged");
+}
+
+/// Closing the summary screen cancels the screen's own request only: the
+/// provider's fetch, which a dictionary panel waits for, goes on (both had one
+/// request token, so the panel was told "failed").
+#[test]
+fn closing_the_summary_screen_leaves_the_providers_request_running() {
+    let (host, log) = host_with_net(200);
+    ui_handing_over(&host, "Hund", String::new());
+    let p = host.load(NATIVE_ENTRY.entry()).unwrap();
+    assert_eq!(ask(&p, "Katze", "de").2 & PENDING, PENDING);
+    assert_eq!(open_screen(&p), 0);
+    assert_eq!(close_screen(&p), 0);
+    let log = log.borrow();
+    let provider = log
+        .iter()
+        .find(|line| line.contains("/Katze "))
+        .and_then(|line| line.rsplit(' ').next())
+        .expect("the provider fetched");
+    assert!(
+        log.iter().any(|line| line.starts_with("cancel ")),
+        "{log:?}"
+    );
+    assert!(
+        !log.contains(&format!("cancel {provider}")),
+        "the provider's request was cancelled: {log:?}"
+    );
 }

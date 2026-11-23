@@ -56,21 +56,26 @@ fn slot(bytes: &[u8]) -> Option<(u32, &[u8])> {
     Some((generation.parse().ok()?, &bytes[..at]))
 }
 
-/// The place's text in a position file's `text`: its newest slot's, or all
+/// The place's bytes in a position file's `data`: its newest slot's, or all
 /// of a file without slots (written by a reader, or by an earlier version).
-fn live(text: &str) -> &str {
-    let bytes = text.as_bytes();
-    if bytes.len() != 2 * SLOT {
-        return text;
+/// Picked on the bytes, as the kernel does: a slot cut off while it was
+/// written may hold anything, and only the slot picked must be text.
+fn live(data: &[u8]) -> &[u8] {
+    if data.len() != 2 * SLOT {
+        return data;
     }
-    let newest = match (slot(&bytes[..SLOT]), slot(&bytes[SLOT..])) {
+    let newest = match (slot(&data[..SLOT]), slot(&data[SLOT..])) {
         // The later generation, also once the count has gone round.
         (Some(a), Some(b)) if matches!(a.0.wrapping_sub(b.0), 1..=0x7fff_ffff) => Some(a),
         (a, b) => b.or(a),
     };
-    newest
-        .and_then(|(_, place)| core::str::from_utf8(place).ok())
-        .unwrap_or(text)
+    newest.map_or(data, |(_, place)| place)
+}
+
+/// The place's text in the position file `data` ([`live`], without a byte
+/// order mark); `None` where it is no UTF-8.
+fn live_text(data: &[u8]) -> Option<&str> {
+    core::str::from_utf8(live(crate::files::without_bom(data))).ok()
 }
 
 /// The folder of the positions (registered as book data by the kernel).
@@ -128,6 +133,7 @@ impl Position {
     /// Read from a position file's text (also a reader's `progress.ini`
     /// of before, whose section is `[progress]`).
     pub fn parse(text: &str) -> Option<Position> {
+        let text = live_text(text.as_bytes()).unwrap_or(text);
         match try_parse(text, None) {
             Ok(position) => position,
             // Where there is no memory the program stops, as it always did.
@@ -179,8 +185,7 @@ pub fn load_for_update(
         Err(StorageError::NotFound) => return Ok(None),
         Err(e) => return Err(e),
     };
-    let text = core::str::from_utf8(crate::files::without_bom(&data))
-        .map_err(|_| StorageError::InvalidData)?;
+    let text = live_text(&data).ok_or(StorageError::InvalidData)?;
     Position::parse(text)
         .map(Some)
         .ok_or(StorageError::InvalidData)
@@ -204,14 +209,15 @@ fn try_file(book: &str) -> Result<String, TryReserveError> {
 /// never cut, and the rest of the position is read.
 pub const XPOINTER_MAX: usize = 1024;
 
-/// [`Position::parse`] with the memory error: the XPointer is the only
-/// thing held, in one fallible reservation of its length (resolved at once,
-/// so that an escaped one is not copied twice). With `limit`, a longer one
-/// (as written) is left out before anything is reserved.
+/// [`Position::parse`] of the place's text (see [`live`]) with the memory
+/// error: the XPointer is the only thing held, in one fallible reservation
+/// of its length (resolved at once, so that an escaped one is not copied
+/// twice). With `limit`, a longer one (as written) is left out before
+/// anything is reserved.
 fn try_parse(text: &str, limit: Option<usize>) -> Result<Option<Position>, Error> {
     let (mut section, mut offset, mut percent) = (None, None, 0.0);
     let mut position = Position::new(Locator::START, 0.0);
-    for entry in crate::config::parse(live(text)).filter_map(Result::ok) {
+    for entry in crate::config::parse(text).filter_map(Result::ok) {
         if entry.section != "position" && entry.section != "progress" {
             continue;
         }
@@ -268,8 +274,7 @@ pub fn try_load(storage: &dyn Storage, book: &str) -> Result<Option<Position>, E
         Err(e) => return Err(e.into()),
     };
     drop(file);
-    let text =
-        core::str::from_utf8(crate::files::without_bom(&data)).map_err(|_| Error::Unreadable)?;
+    let text = live_text(&data).ok_or(Error::Unreadable)?;
     try_parse(text, Some(XPOINTER_MAX))?
         .map(Some)
         .ok_or(Error::Unreadable)
@@ -300,8 +305,7 @@ pub fn save_with_book(
 /// content, where it says.
 pub fn book(storage: &dyn Storage, book: &str) -> Option<Fingerprint> {
     let data = crate::read_file(storage, &file(book), LIMIT).ok()?;
-    let text = core::str::from_utf8(crate::files::without_bom(&data)).ok()?;
-    crate::config::parse(live(text))
+    crate::config::parse(live_text(&data)?)
         .filter_map(Result::ok)
         .find(|entry| entry.section == "position" && entry.key == "book")
         .and_then(|entry| Fingerprint::parse(&entry.value.as_str()))
@@ -330,6 +334,29 @@ mod tests {
         save_with_book(&storage, "books/a.epub", &position, fingerprint.as_ref()).unwrap();
         assert_eq!(load(&storage, "books/a.epub"), Some(position));
         assert_eq!(book(&storage, "books/a.epub"), fingerprint);
+    }
+
+    /// A slot cut off while it was written (here with bytes that are no
+    /// UTF-8) does not hide the whole slot beside it: every read takes that.
+    #[test]
+    fn a_torn_slot_leaves_the_place_of_the_other() {
+        let book = "books/a.epub";
+        let fingerprint = "482133 0b6e8f2a6c1d4e5f8a9b0c1d2e3f4a5b";
+        let text =
+            format!("[position]\nsection = 7\noffset = 12\npercent = 4.5\nbook = {fingerprint}\n");
+        let mut whole = text.into_bytes();
+        whole.extend_from_slice(b"slot = 3");
+        let hash = crate::digest::fnv1a64(&whole);
+        whole.extend_from_slice(format!(" {:08x}\n", (hash ^ (hash >> 32)) as u32).as_bytes());
+        whole.resize(SLOT - 1, b' ');
+        whole.push(b'\n');
+        let mut data = alloc::vec![0xff_u8; SLOT];
+        data.extend_from_slice(&whole);
+        let storage = MemoryStorage::new().with(&file(book), data);
+        let position = Position::new(Locator::new(7, 12), 4.5);
+        assert_eq!(load_for_update(&storage, book), Ok(Some(position.clone())));
+        assert_eq!(try_load(&storage, book), Ok(Some(position)));
+        assert_eq!(super::book(&storage, book), Fingerprint::parse(fingerprint));
     }
 
     /// A reader's `progress.ini` of version 1 reads as a position.

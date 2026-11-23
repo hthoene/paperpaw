@@ -75,6 +75,8 @@ pub struct Store<'a, 'h> {
     pub host: &'a Host<'h>,
     pub files: Option<&'a Files>,
     pub secrets: Option<&'a Secrets>,
+    /// The password typed that the secrets could not keep, preferred.
+    pub typed: Option<&'a Secret>,
     pub extensions: &'a [String],
     /// The library folder below the card's top, without slashes around it.
     pub folder: &'a str,
@@ -239,9 +241,10 @@ impl Backing for Store<'_, '_> {
     }
 
     fn password(&self) -> Result<Option<Secret>, Error> {
-        match self.secrets {
-            Some(secrets) => keep::read(secrets, self.host, keep::PASSWORD),
-            None => Ok(None),
+        match (self.typed, self.secrets) {
+            (Some(typed), _) => Secret::copy(typed.as_str()).map(Some),
+            (None, Some(secrets)) => keep::read(secrets, self.host, keep::PASSWORD),
+            (None, None) => Ok(None),
         }
     }
 

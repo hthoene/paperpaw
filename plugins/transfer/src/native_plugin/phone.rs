@@ -1,6 +1,6 @@
 //! The phone's keyboard screen: the question the host opened it for, its page,
 //! and the text that comes back as the dialog's answer.
-use super::{NativeTransfer, handle, redraw};
+use super::{NativeTransfer, PHONE_SERVER, View, handle};
 use crate::{
     declarations::PHONE,
     native_phone::{self, Dialog, MAX_TEXT, Texts, Words},
@@ -11,7 +11,6 @@ use paperpaw_sdk::{
     Instant,
     native::{
         Error, Host,
-        commands::{CommandSender, RedrawMode},
         net::ServedRequest,
         storage::Root,
         ui::{Answer as UiAnswer, HandoverId, QuestionKind, Ui},
@@ -156,7 +155,9 @@ impl NativeTransfer {
         }
     }
 
-    /// The text from the phone is the keyboard's answer, and the screen closes.
+    /// The text from the phone is the keyboard's answer. The screen says so
+    /// until Back leaves it (a request's callback cannot leave a screen), and
+    /// nothing more is taken from the phone.
     fn give_text(&mut self, host: &Host<'_>, text: String) -> Result<(), Error> {
         let Some(request) = self
             .screens
@@ -177,13 +178,13 @@ impl NativeTransfer {
             Ok(()) | Err(Error::State) => {}
             Err(error) => return Err(error),
         }
-        let mut scratch = [0; 64];
-        CommandSender::new(host, &mut scratch).back()?;
-        if let Some(page) = self.screens.top(PHONE)
-            && let Some(phone) = page.phone.as_mut()
-        {
-            phone.wipe();
+        if let Some(page) = self.screens.top(PHONE) {
+            page.guard = None;
+            if let Some(phone) = page.phone.as_mut() {
+                phone.wipe();
+            }
         }
-        redraw(host, RedrawMode::Partial)
+        self.stop(host, PHONE_SERVER)?;
+        self.show(host, PHONE, View::Typed)
     }
 }

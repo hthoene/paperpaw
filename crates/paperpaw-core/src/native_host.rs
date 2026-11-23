@@ -24,10 +24,6 @@ pub(crate) mod owner_directory;
 pub(crate) mod shrink;
 
 pub(crate) mod device_log;
-#[allow(
-    dead_code,
-    reason = "the dual-boot request of the firmware queue uses it (Core todo 397)"
-)]
 pub(crate) mod dual_boot_ini;
 pub(crate) mod dual_boot_job;
 #[path = "native_host/font_removals.rs"]
@@ -45,10 +41,6 @@ mod work_service;
 #[path = "native_host/firmware_cell.rs"]
 pub(crate) mod firmware_cell;
 #[path = "native_host/firmware_confirm.rs"]
-#[allow(
-    dead_code,
-    reason = "the pump opens it once a shell wires the firmware host; tests do today"
-)]
 pub(crate) mod firmware_confirm;
 #[cfg(any(test, feature = "testing"))]
 #[path = "native_host/firmware_confirm_hook.rs"]
@@ -60,10 +52,6 @@ mod firmware_confirm_hook;
 )]
 pub(crate) mod firmware_driver;
 #[path = "native_host/firmware_events.rs"]
-#[allow(
-    dead_code,
-    reason = "the shell's main loop calls the pump (slice B2a-2 wiring); tests do today"
-)]
 mod firmware_events;
 #[path = "native_host/firmware_install.rs"]
 #[allow(
@@ -87,13 +75,8 @@ pub(crate) mod plugin_check;
 #[path = "native_host/plugin_confirm.rs"]
 pub(crate) mod plugin_confirm;
 #[path = "native_host/plugin_folder.rs"]
-#[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_folder;
 #[path = "native_host/plugin_install.rs"]
-#[allow(
-    dead_code,
-    reason = "the queue's plugin seam wires it; see plugin_check"
-)]
 pub(crate) mod plugin_install;
 #[path = "native_host/plugin_job.rs"]
 #[allow(
@@ -106,22 +89,15 @@ pub use plugin_job::HostCode;
 #[path = "native_host/plugin_jobs.rs"]
 pub(crate) mod plugin_jobs;
 #[path = "native_host/plugin_remove.rs"]
-#[allow(dead_code, reason = "the queue and the start use it; see plugin_check")]
 pub(crate) mod plugin_remove;
 #[path = "native_host/plugin_rules.rs"]
 #[allow(dead_code, reason = "the install job applies it; see plugin_check")]
 pub(crate) mod plugin_rules;
 #[path = "native_host/plugin_start.rs"]
-#[allow(dead_code, reason = "the builder runs it; see plugin_check")]
 pub(crate) mod plugin_start;
 #[path = "native_host/plugin_swap.rs"]
-#[allow(
-    dead_code,
-    reason = "the install job runs it and the start replays it; see plugin_check"
-)]
 pub(crate) mod plugin_swap;
 #[path = "native_host/plugin_trust.rs"]
-#[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_trust;
 #[path = "native_host/plugin_unforgotten.rs"]
 pub(crate) mod plugin_unforgotten;
@@ -133,10 +109,6 @@ pub(crate) mod secrets_file;
 pub(crate) mod secrets_text;
 
 #[path = "native_host/secrets_service.rs"]
-#[allow(
-    dead_code,
-    reason = "the shell wires the sealer and the source; tests do today"
-)]
 pub(crate) mod secrets_service;
 
 #[path = "native_host/host_slot.rs"]
@@ -172,10 +144,6 @@ pub(crate) mod ui_stack_op;
 pub(crate) mod ui_requests;
 
 #[path = "native_host/ui_store.rs"]
-#[allow(
-    dead_code,
-    reason = "consumers are Core's command stage and the core.ui ops"
-)]
 pub(crate) mod ui_store;
 
 #[path = "native_host/ui_compose.rs"]
@@ -200,10 +168,6 @@ pub(crate) mod ui_widget_layout;
 pub(crate) mod ui_widget_ops;
 
 #[path = "native_host/ui_compose_host.rs"]
-#[allow(
-    dead_code,
-    reason = "Core's frame answers Frame::compose with it when the screen stack is wired"
-)]
 pub(crate) mod ui_compose_host;
 
 #[path = "native_host/input_chain.rs"]
@@ -265,11 +229,9 @@ pub(crate) mod doc_reading;
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
 pub(crate) mod event_failures;
-#[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
 pub(crate) mod files_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod fmt_call;
-#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod format_call;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod format_index;
@@ -282,10 +244,6 @@ pub(crate) mod format_scope;
 pub mod formatting;
 pub(crate) mod hint_labels;
 pub(crate) mod host_services;
-#[allow(
-    dead_code,
-    reason = "wired into the shell table; a shell wires its host view"
-)]
 pub(crate) mod hyphen_card;
 pub(crate) mod hyphen_service;
 pub(crate) mod image_pump;
@@ -349,20 +307,12 @@ pub(crate) mod setting_events;
 pub(crate) mod sock_service;
 pub(crate) mod speech;
 mod stack_events;
-#[allow(
-    dead_code,
-    reason = "the native stage.run host (#828) frames its replies with it"
-)]
 pub(crate) mod stage_reply_tail;
 #[allow(
     dead_code,
     reason = "stage broker wiring follows this framing foundation"
 )]
 mod stage_wire;
-#[allow(
-    dead_code,
-    reason = "the NET and SOCK adapters name their staged file by it"
-)]
 pub(crate) mod staged_name;
 mod storage_files;
 #[path = "native_host/storage_slots.rs"]
@@ -423,10 +373,6 @@ mod declarations_input;
 mod declaration_reg_checks;
 
 #[path = "native_host/reg_catalog.rs"]
-#[allow(
-    dead_code,
-    reason = "REG callback attachment follows the catalog ownership implementation"
-)]
 pub(crate) mod reg_catalog;
 
 #[path = "native_host/raw_declarations.rs"]
@@ -495,24 +441,12 @@ mod retained;
 pub(crate) mod item_state;
 
 #[path = "native_host/native_declarations.rs"]
-#[allow(
-    dead_code,
-    reason = "shared declaration producer is attached by the UI admission slice"
-)]
 pub(crate) mod native_declarations;
 
 #[path = "native_host/native_widget.rs"]
-#[allow(
-    dead_code,
-    reason = "Frame::widget_call carries ops 7, 12 and 13 of core.ui"
-)]
 pub(crate) mod native_widget;
 
 #[path = "native_host/native_status.rs"]
-#[allow(
-    dead_code,
-    reason = "Frame hook attachment follows the owner-directed status path"
-)]
 pub(crate) mod native_status;
 
 #[path = "native_host/core_events.rs"]
@@ -520,10 +454,6 @@ pub(crate) mod core_events;
 #[path = "native_host/native_batch.rs"]
 mod native_batch;
 #[path = "native_host/native_call.rs"]
-#[allow(
-    dead_code,
-    reason = "the document and lookup adapters call it through Frame::call_native"
-)]
 pub(crate) mod native_call;
 #[path = "native_host/native_keys.rs"]
 mod native_keys;
@@ -562,17 +492,9 @@ mod owned_texts;
 pub(crate) mod native_screen;
 pub(crate) use native_screen::HIDDEN as SCREEN_HIDDEN;
 
-#[allow(
-    dead_code,
-    reason = "native built-in registry adapter follows these owned values"
-)]
 #[path = "native_host/native_values.rs"]
 mod native_values;
 
-#[allow(
-    dead_code,
-    reason = "native registry publication follows this dispatcher"
-)]
 #[path = "native_host/native_dispatch.rs"]
 mod native_dispatch;
 
@@ -593,10 +515,6 @@ mod parked;
 pub(crate) mod native_instances;
 
 // Static-entry activation uses the shared D1 reader; registry wiring follows.
-#[allow(
-    dead_code,
-    reason = "native built-in registry adapter follows this prerequisite"
-)]
 #[path = "native_host/linked_entry.rs"]
 pub(crate) mod linked_entry;
 #[path = "native_host/linked_install.rs"]

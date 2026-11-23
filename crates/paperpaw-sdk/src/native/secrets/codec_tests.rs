@@ -386,9 +386,10 @@ fn failures_and_short_buffers_do_not_call_or_publish_success() {
             data: &[1],
         }],
     );
+    // A reply of the wrong kind is malformed, not a handle that is not open.
     assert!(matches!(
         secrets.get(&host, "token", &mut input, &mut out),
-        Err(Error::State)
+        Err(Error::Invalid)
     ));
     state.reply.replace(vec![0; 1281]);
     assert!(matches!(

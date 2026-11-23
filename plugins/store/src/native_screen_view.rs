@@ -585,7 +585,7 @@ impl Source<'_> {
 /// The rows of the page shown, made before the draw: a draw reads nothing from
 /// the card (the X4 draws a frame in bands, each a `draw`). A page of rows is
 /// about 1.5 KiB.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Page {
     first: usize,
     max: usize,
@@ -797,6 +797,14 @@ impl View {
     /// from.
     fn stale(&self, ctx: &Ctx<'_>) -> bool {
         self.generation != ctx.loader.generation() || self.stamp != ctx.loader.index().map(stamp)
+    }
+
+    /// The marks of the rows (the files of a download here, *Queued*) are
+    /// made again; whether they changed.
+    fn remark(&mut self, ctx: &Ctx<'_>) -> Result<bool, Error> {
+        let before = self.page.take();
+        self.prepare(ctx)?;
+        Ok(self.page != before)
     }
 
     /// Shows the plugins from `letter` on, from A to Z: the first whose name
@@ -1033,6 +1041,14 @@ impl Screen for View {
             self.pick(ctx)?;
         } else if changed {
             self.page = None;
+        } else if matches!(event, Event::HttpDone(_)) {
+            // A file of a download came, or the page the queue waited for:
+            // the rows are drawn again only where their marks changed.
+            return Ok(if self.remark(ctx)? {
+                Next::Redraw
+            } else {
+                Next::None
+            });
         } else {
             return Ok(Next::None);
         }

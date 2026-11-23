@@ -137,8 +137,10 @@ pub fn list(storage: &dyn Storage, dir: &str, hidden: bool) -> Result<Vec<Entry>
     })?;
     // Compared letter by letter, without a lower-case copy of each name
     // for every comparison; names alike but for case by their letters.
-    // Unstable: a stable sort takes 4 KiB of stack (too much on the X4).
-    paperpaw_sort::sort_by(&mut entries, |a, b| {
+    // Unstable, in place and without memory: the order is total (no two
+    // entries compare equal), so a stable sort would only cost the heap it
+    // takes (4 bytes an entry).
+    paperpaw_sort::sort_unstable_by(&mut entries, |a, b| {
         b.is_dir
             .cmp(&a.is_dir)
             .then_with(|| {
@@ -347,10 +349,10 @@ pub fn load_for_update(
     }
 }
 
-/// [`load_text_for_update`] without an infallible allocation: the text
-/// is read into one fallible reservation of its size, so a heap that
-/// cannot take it is [`Error::OutOfMemory`](crate::data::Error::OutOfMemory)
-/// (not a missing or too large file). `None` where there is no such file.
+/// [`load_text_for_update`] with the memory error told apart: a heap that
+/// cannot take the text (its one reservation is had fallibly) is
+/// [`Error::OutOfMemory`](crate::data::Error::OutOfMemory), not a missing or
+/// too large file. `None` where there is no such file.
 ///
 /// # Errors
 /// A [`StorageError`] as [`load_text_for_update`] (`TooLarge` over `cap`,
@@ -362,35 +364,10 @@ pub fn try_load_text_for_update(
     cap: usize,
 ) -> Result<Option<String>, crate::data::Error> {
     use crate::data::Error;
-    let size = match storage.size(path) {
-        Ok(size) => size,
-        Err(StorageError::NotFound) => return Ok(None),
-        Err(e) => return Err(Error::Storage(e)),
-    };
-    let size = usize::try_from(size).unwrap_or(usize::MAX);
-    if size > cap {
-        return Err(Error::Storage(StorageError::TooLarge));
-    }
-    let mut data: Vec<u8> = Vec::new();
-    data.try_reserve_exact(size)
-        .map_err(|_| Error::OutOfMemory)?;
-    data.resize(size, 0);
-    let mut filled = 0;
-    while filled < size {
-        match storage.read_at(path, filled as u64, &mut data[filled..]) {
-            Ok(0) => break,
-            Ok(n) => filled += n.min(size - filled),
-            Err(StorageError::NotFound) => return Ok(None),
-            Err(e) => return Err(Error::Storage(e)),
-        }
-    }
-    data.truncate(filled);
-    if data.starts_with(BOM) {
-        data.drain(..BOM.len());
-    }
-    String::from_utf8(data)
-        .map(Some)
-        .map_err(|_| Error::Storage(StorageError::InvalidData))
+    load_text_for_update(storage, path, cap).map_err(|e| match e {
+        StorageError::OutOfMemory => Error::OutOfMemory,
+        e => Error::Storage(e),
+    })
 }
 
 /// [`load_for_update`] for a text file:
@@ -417,17 +394,33 @@ pub fn for_each_line(
     path: &str,
     visit: &mut dyn FnMut(&str) -> ControlFlow<()>,
 ) -> Result<(), StorageError> {
+    each_line(storage, path, &mut |line, _| visit(line))
+}
+
+/// [`for_each_line`], telling `visit` too whether the line was cut (it was
+/// longer than [`MAX_LINE`] bytes): who writes the lines back must not
+/// write a cut one, or what was past the cut is lost.
+pub(crate) fn each_line(
+    storage: &dyn Storage,
+    path: &str,
+    visit: &mut dyn FnMut(&str, bool) -> ControlFlow<()>,
+) -> Result<(), StorageError> {
     let mut chunk = [0u8; 512];
     let mut line: Vec<u8> = Vec::new();
+    // How many bytes of the line were left out, and the last of them.
+    let mut left_out = (0_usize, 0_u8);
     let mut at = 0u64;
     let mut first = true;
-    let mut emit = |line: &mut Vec<u8>| {
+    let mut emit = |line: &mut Vec<u8>, left_out: &mut (usize, u8)| {
+        // A `\r` alone left out is the line's break (`\r\n`), not a byte of it.
+        let cut = !matches!(*left_out, (0, _) | (1, b'\r'));
+        *left_out = (0, 0);
         if line.last() == Some(&b'\r') {
             line.pop();
         }
         let text = if first { without_bom(line) } else { &line[..] };
         first = false;
-        let flow = visit(&String::from_utf8_lossy(text));
+        let flow = visit(&String::from_utf8_lossy(text), cut);
         line.clear();
         flow
     };
@@ -443,20 +436,24 @@ pub fn for_each_line(
                 _ => (piece, false),
             };
             let room = MAX_LINE.saturating_sub(line.len());
-            line.extend_from_slice(&text[..text.len().min(room)]);
-            if ends && emit(&mut line).is_break() {
+            let (kept, left) = text.split_at(text.len().min(room));
+            line.extend_from_slice(kept);
+            if let Some(&last) = left.last() {
+                left_out = (left_out.0.saturating_add(left.len()), last);
+            }
+            if ends && emit(&mut line, &mut left_out).is_break() {
                 return Ok(());
             }
         }
     }
     if !line.is_empty() {
-        let _ = emit(&mut line);
+        let _ = emit(&mut line, &mut left_out);
     }
     Ok(())
 }
 
 /// A size as people read it: `820 B`, `14 KB`, `2,3 MB` (with the
-/// decimal mark given, in Latin digits). To show one, see `shown_size`.
+/// decimal mark given, in Latin digits).
 pub fn size(bytes: u64, decimal: &str) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;

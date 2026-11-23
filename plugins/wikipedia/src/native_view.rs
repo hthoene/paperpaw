@@ -2,8 +2,7 @@
 //! word over the lower part of the screen, its summary fetched through
 //! `core.net`, scrolled by button or tap.
 use crate::{
-    declarations::FETCHED_TOKEN,
-    native_model::{self, MAX_BODY, Outcome},
+    native_model::{self, MAX_BODY, Outcome, SCREEN_REQUEST},
     native_page::{Page, Step},
 };
 use alloc::{string::String, vec::Vec};
@@ -107,7 +106,7 @@ impl View {
             self.body = Body::Message("wikipedia.not-found");
             return Ok(());
         }
-        match request_summary(host, net, &self.language, &self.word) {
+        match request_summary(host, net, SCREEN_REQUEST, &self.language, &self.word) {
             Ok(id) => self.request = Some(id),
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => self.body = Body::Message("wikipedia.failed"),
@@ -361,14 +360,17 @@ impl View {
 /// The id of the summary screen (what a provider's entry opens).
 pub const SCREEN: &str = "wikipedia.lookup";
 
-/// Asks `core.net` for the summary of `word`'s article in `language`
-/// (`FETCHED_TOKEN`, at most [`MAX_BODY`]).
+/// Asks `core.net` for the summary of `word`'s article in `language` under the
+/// request token `token` ([`SCREEN_REQUEST`]
+/// or [`PROVIDER_REQUEST`](crate::native_model::PROVIDER_REQUEST)), at most
+/// [`MAX_BODY`].
 ///
 /// # Errors
 /// `NoMemory`; the host's refusals.
 pub fn request_summary(
     host: &Host<'_>,
     net: &Net,
+    token: u32,
     language: &str,
     word: &str,
 ) -> Result<RequestId, Error> {
@@ -377,7 +379,7 @@ pub fn request_summary(
         paperpaw_sdk::native::net::Header::new("User-Agent", "PaperPaw/0.1 (e-reader)")?,
         paperpaw_sdk::native::net::Header::new("Accept", "application/json")?,
     ];
-    let request = Request::get(FETCHED_TOKEN, &url)?
+    let request = Request::get(token, &url)?
         .headers(&headers)?
         .max_body(MAX_BODY as u32);
     let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);

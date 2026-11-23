@@ -46,7 +46,9 @@ impl Plugin for NativeBattery {
                     ..
                 }) = incoming.decode_as::<kinds::ScreenShown>()?
                 {
-                    self.view = Some(NativeView::new(host, self.recorder.reading(host)?)?);
+                    let view = NativeView::new(host, self.recorder.reading(host)?)?;
+                    view.hints(host);
+                    self.view = Some(view);
                 }
                 Ok(())
             }

@@ -336,7 +336,7 @@ impl NativeWeather {
     fn opened(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         let place = setting(host, PLACE)?;
         let has = !setting(host, COORDINATES)?.is_empty();
-        let view = PlaceView::new(host, &place, has)?;
+        let view = PlaceView::new(&place, has)?;
         self.screens.open(instance, view)
     }
 
@@ -486,16 +486,15 @@ impl NativeWeather {
         let call = WidgetCall::decode(payload)?;
         let mut out = buffer(REPLY)?;
         let written = match call {
-            WidgetCall::Measure { instance, width } => {
+            WidgetCall::Measure { instance, .. } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
                 let (token, widget) = (item.token, paperpaw_ui_kit::text::copy(&item.widget)?);
-                let context = self.fetcher.context(host)?;
-                let shown = self.fetcher.shown(&context);
+                // The height follows the widget's settings only: no
+                // forecast, clock or radio is read for it.
                 let mut cx = Cx::open(host, &widget)?;
-                let width = u16::try_from(width).unwrap_or(u16::MAX);
                 let height = match token {
-                    NOW_TOKEN => native_now::height(&mut cx, &shown, width)?,
-                    FORECAST_TOKEN => native_forecast::height(&mut cx, &shown, width)?,
+                    NOW_TOKEN => native_now::height(&mut cx)?,
+                    FORECAST_TOKEN => native_forecast::height(&mut cx)?,
                     _ => return Err(Error::NotFound),
                 };
                 call.reply_size(u32::from(height), u32::from(height), &mut out)?

@@ -6,12 +6,13 @@
     clippy::expect_used,
     reason = "fixture errors fail the tests"
 )]
+use paperpaw_plugin_store::native_download::Failure;
 use paperpaw_plugin_store::native_item::More;
 use paperpaw_plugin_store::native_model::Entry;
 use paperpaw_plugin_store::native_page::{Installed, Kind, Origin, Row};
 use paperpaw_plugin_store::native_screen_page::{
-    Check, Choice, Fact, FactInput, Go, LEAD_BYTES, Note, Value, facts, first_action, go, how_text,
-    lead, note, progress_text, short_key, size_text, title_key, value_of,
+    Check, Choice, Fact, FactInput, Go, LEAD_BYTES, Note, Value, asks_page, facts, first_action,
+    go, how_text, lead, note, progress_text, short_key, size_text, title_key, value_of,
 };
 use paperpaw_plugin_store::native_screens::{Step, Trouble};
 
@@ -271,28 +272,49 @@ fn install_goes_in_the_order_of_beta_3() {
     assert_eq!(go(&code), Go::Notice);
 }
 
+/// #486: the queue's page took the place of a page screen's, which then said
+/// "Loading" for ever: a page the loader let go of is asked for again.
+#[test]
+fn a_page_is_asked_for_where_it_is_not_here_and_not_on_its_way() {
+    // First shown.
+    assert!(asks_page(false, false, false));
+    // Asked: on its way, or how it ended is known.
+    assert!(!asks_page(false, true, true));
+    // Asked, and let go of for another page screen's.
+    assert!(asks_page(false, true, false));
+    // Here.
+    assert!(!asks_page(true, true, true));
+    assert!(!asks_page(true, false, false));
+}
+
 #[test]
 fn the_note_follows_the_job_then_the_others_then_the_restart() {
     let idle = Step::Idle;
     assert_eq!(
-        note(Some(Row::Stop), &idle, Some("Other"), false),
+        note(Some(Row::Stop), &idle, Some("Other")),
         Note::Downloading
     );
     assert_eq!(
-        note(Some(Row::Install), &idle, Some("Other"), false),
+        note(Some(Row::Install), &idle, Some("Other")),
         Note::Busy("Other")
     );
-    assert_eq!(note(Some(Row::Restart), &idle, None, false), Note::Restart);
-    assert_eq!(note(Some(Row::Install), &idle, None, false), Note::Nothing);
+    assert_eq!(note(Some(Row::Restart), &idle, None), Note::Restart);
+    assert_eq!(note(Some(Row::Install), &idle, None), Note::Nothing);
+    // A download that failed says why, as the notice did (#486: a network
+    // that went is no failed install).
     assert_eq!(
-        note(Some(Row::Install), &Step::Failed(13), None, true),
-        Note::Ended("store.refused.no-room-flash")
+        note(Some(Row::Install), &Step::Failed(Failure::Network), None),
+        Note::Ended("store.failed")
     );
     assert_eq!(
-        note(Some(Row::Install), &Step::Failed(2), None, false),
-        Note::Nothing
+        note(Some(Row::Install), &Step::Failed(Failure::Memory), None),
+        Note::Ended("store.failed.memory")
     );
-    assert_eq!(note(None, &Step::Installed, None, false), Note::Nothing);
+    assert_eq!(
+        note(Some(Row::Install), &Step::Failed(Failure::Refused), None),
+        Note::Ended("store.refused.other")
+    );
+    assert_eq!(note(None, &Step::Installed, None), Note::Nothing);
 }
 
 #[test]
@@ -460,8 +482,11 @@ fn the_bytes_of_a_download_do_not_make_the_rows_again() {
         calm(Step::Downloading { done: 1, total: 2 }),
         calm(Step::Installing)
     );
-    assert_ne!(calm(Step::Idle), calm(Step::Failed(5)));
-    assert_eq!(calm(Step::Failed(5)), Step::Failed(5));
+    assert_ne!(calm(Step::Idle), calm(Step::Failed(Failure::Card)));
+    assert_eq!(
+        calm(Step::Failed(Failure::Card)),
+        Step::Failed(Failure::Card)
+    );
 }
 
 #[test]

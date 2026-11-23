@@ -251,6 +251,38 @@ fn a_word_with_no_address_or_in_moved_hot_code_is_refused_when_applied() {
     assert_eq!(moved.apply(0, &mut into_hot), Err(Problem::Relocation));
 }
 
+#[test]
+fn relocation_words_must_be_addresses_in_the_image_by_either_view() {
+    let h = as_five(&chip_header(Chip::Esp32C3, 4096, 0));
+    let file = file(&alloc::vec![0u8; 4096], &[]);
+    let relocator = Relocator5::new(&h, file.as_slice(), LINK_BASE).unwrap();
+    let code = h.base + CODE_OFFSET;
+    // Data addresses and code addresses, the first byte, the last, and the
+    // end (a slice may point there).
+    for inside in [
+        h.base,
+        h.base + h.image_len - 1,
+        h.base + h.image_len,
+        h.base + 100,
+        code,
+        code + h.code_at,
+        code + h.image_len,
+    ] {
+        assert!(relocator.moved(inside).is_some(), "{inside:#x}");
+    }
+    for outside in [
+        h.base - 1,
+        h.base + h.image_len + 1,
+        code - 1,
+        code + h.image_len + 1,
+        0,
+        u32::MAX,
+        h.base + h.image_len + CODE_OFFSET / 2,
+    ] {
+        assert_eq!(relocator.moved(outside), None, "{outside:#x}");
+    }
+}
+
 /// Counts what is read.
 struct Counting<'a> {
     bytes: &'a [u8],
@@ -896,7 +928,8 @@ fn the_packer_made_file_relocates_its_words_to_the_place_and_its_calls_to_the_ho
     // The plugin table's `drop`, the third word of the table, is in the image too.
     // It follows the 88-byte metadata record (`meta_at` 20), and is 24 bytes
     // with the `input` slot.
-    assert!(h.word_in_image(word((h.meta_at + 88) as usize + 8) - base + h.base));
+    let drop = word((h.meta_at + 88) as usize + 8);
+    assert!((base + CODE_OFFSET..base + CODE_OFFSET + h.image_len).contains(&drop));
     // The call of the hot function reaches the arena: auipc + jalr from the
     // call site in `make` give `hot + (table_ok - hot_at)`.
     let mut reached = Vec::new();

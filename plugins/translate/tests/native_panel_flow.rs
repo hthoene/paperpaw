@@ -11,7 +11,7 @@ use paperpaw_core::native_host::registrations::{
     InputAction, Record, ServiceNetAnswer, ServiceNetBytes, ServiceNetStarted, ServiceSecValue,
     ServiceUiRequest, ServiceUiText, record_encode_one, records_decode,
 };
-use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_FULL, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_plugin_translate::{
     NATIVE_ENTRY,
     declarations::{HTTP_TOKEN, PANEL_TOKEN},
@@ -55,11 +55,23 @@ fn world(
     key: Option<&str>,
     unsupported: bool,
 ) -> World {
+    let refusal = if unsupported { ERR_UNSUPPORTED } else { 0 };
+    world_refusing(host, selected, key, refusal)
+}
+
+/// [`world`] whose `core.secrets` refuses keeping the key with `refusal`
+/// (0: kept).
+fn world_refusing(
+    host: &ScriptedHost,
+    selected: &'static str,
+    key: Option<&str>,
+    refusal: i32,
+) -> World {
     let log = Log::default();
     let kept = Rc::new(RefCell::new(key.map(str::to_string)));
     let typed = Rc::new(RefCell::new(String::new()));
     ui_service(host, selected, &log, &typed);
-    secrets_service(host, unsupported, &log, &kept);
+    secrets_service(host, refusal, &log, &kept);
     net_service(host, &log);
     World {
         log,
@@ -104,10 +116,11 @@ fn ui_service(host: &ScriptedHost, selected: &'static str, log: &Log, typed: &Rc
     });
 }
 
-/// The `core.secrets` service: one key; `unsupported` refuses keeping it.
+/// The `core.secrets` service: one key; a non-zero `refusal` refuses keeping
+/// it with that status.
 fn secrets_service(
     host: &ScriptedHost,
-    unsupported: bool,
+    refusal: i32,
     log: &Log,
     kept: &Rc<RefCell<Option<String>>>,
 ) {
@@ -126,8 +139,8 @@ fn secrets_service(
             },
             (3, Some(Record::ServiceSecKeep(keep))) => {
                 l.borrow_mut().push("keep".to_string());
-                if unsupported {
-                    return Err(ERR_UNSUPPORTED);
+                if refusal != 0 {
+                    return Err(refusal);
                 }
                 *k.borrow_mut() = Some(keep.value.to_string());
                 Ok(Vec::new())
@@ -399,6 +412,45 @@ fn a_host_that_cannot_keep_the_key_still_uses_it_this_time() {
     assert!(world.log.borrow().contains(&"keep".to_string()));
     assert!(world.key.borrow().is_none(), "nothing was kept");
     assert_eq!(requests(&world).len(), 1, "used all the same");
+}
+
+/// A key the secrets cannot take (the list full, the card) is used this time
+/// and the reader is told it was not kept, instead of being asked for it again
+/// next time without a word.
+#[test]
+fn a_key_that_could_not_be_kept_is_used_and_said_so() {
+    let host = ScriptedHost::new();
+    host.add_catalogs_in("i18n").unwrap();
+    let world = world_refusing(&host, "Hello", None, ERR_FULL);
+    let p = host.load(NATIVE_ENTRY.entry()).unwrap();
+    opened(&p);
+    shown(&p);
+    action(&p, "core.confirm");
+    *world.typed.borrow_mut() = "abc".to_string();
+    let answered = event(
+        &p,
+        PANEL_TOKEN,
+        Record::EventAnswered(EventAnswered {
+            now_ms: 0,
+            request: KEY_REQUEST,
+            kind: 0,
+            outcome: 0,
+            choice: 0,
+            length: 3,
+            flags: 0,
+        }),
+    );
+    assert_eq!(answered.status, 0);
+    assert!(world.key.borrow().is_none(), "nothing was kept");
+    assert_eq!(requests(&world).len(), 1, "used all the same");
+    let told = b"The DeepL key could not be saved.";
+    assert!(
+        answered
+            .batches
+            .iter()
+            .any(|batch| batch.windows(told.len()).any(|w| w == told)),
+        "the reader is told"
+    );
 }
 
 #[test]

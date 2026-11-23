@@ -506,7 +506,7 @@ fn write_fonts(
 /// has no room for them, as a chapter converted without them would be
 /// kept so.
 pub(crate) fn styles(storage: &dyn Storage, cache: &str) -> Result<css::Rules, DocumentError> {
-    let Some(data) = read_cache(storage, &path(cache, "styles.txt")?, 64 * 1024)? else {
+    let Some(data) = read_cache(storage, &path(cache, "styles.txt")?, MAX_STYLES)? else {
         return Ok(css::Rules::default());
     };
     match String::from_utf8(data) {
@@ -670,6 +670,16 @@ pub(crate) fn read(storage: &dyn Storage, archive: &ZipArchive) -> Result<Packag
     })
 }
 
+/// The metadata of the package document at `opf_path`, as [`read`] finds
+/// it: for a book read otherwise (a fixed-layout book of pictures, `fixed`).
+pub(crate) fn read_book_metadata(
+    storage: &dyn Storage,
+    archive: &ZipArchive,
+    opf_path: &str,
+) -> Result<Metadata, DocumentError> {
+    Ok(read_metadata(storage, archive, opf_path)?.metadata)
+}
+
 /// Whether a package of some book is in the cache: of another book or
 /// version where [`load`] found none.
 pub(crate) fn cached(storage: &dyn Storage, cache: &str) -> bool {
@@ -731,6 +741,9 @@ pub(crate) fn build(
     write_styles(storage, archive, cache, &items.stylesheets, &identifier)?;
     let sections = items.spine.len();
     let cover = items.cover.as_deref();
+    // `package.ini` marks the files appended before it complete: they reach
+    // the card first (see `CachePaths::complete`).
+    storage.sync()?;
     write_ini(storage, cache, &metadata, sections, toc_len, cover, book)?;
     Ok(Package {
         metadata,
@@ -927,19 +940,20 @@ fn write_toc(
     storage.write(&pages_path, &[])?;
     if let Some(nav) = nav {
         let mut pages = String::new();
+        // The first refusal (of room, of the card) ends the list: a list cut
+        // short would be kept as the book's.
+        let mut failed: Option<DocumentError> = None;
         let mut add_page = |label: String, file: &str, fragment: Option<&str>| {
-            let Some(fragment) = fragment else {
+            let (Some(fragment), None) = (fragment, &failed) else {
                 return;
             };
             if let Some(section) = sections.of(file) {
-                let one = |s: &str| s.replace(['\t', '\n'], " ");
-                pages.push_str(&alloc::format!(
-                    "{section}\t{}\t{}\n",
-                    one(fragment),
-                    one(&label)
-                ));
-                if pages.len() >= 1024 {
-                    let _ = storage.append(&pages_path, pages.as_bytes());
+                failed = page_line(&mut pages, section, fragment, &label).err();
+                if failed.is_none() && pages.len() >= 1024 {
+                    failed = storage
+                        .append(&pages_path, pages.as_bytes())
+                        .err()
+                        .map(Into::into);
                     pages.clear();
                 }
             }
@@ -951,7 +965,10 @@ fn write_toc(
             &mut |t, l, f, fr| add(&mut toc, t, l, f, fr),
             &mut add_page,
         );
-        let _ = storage.append(&pages_path, pages.as_bytes());
+        if let Some(e) = failed {
+            return Err(e);
+        }
+        storage.append(&pages_path, pages.as_bytes())?;
         only_out_of_memory(read)?;
     }
     if let Some(ncx) = ncx
@@ -962,6 +979,28 @@ fn write_toc(
         }))?;
     }
     toc.finish()
+}
+
+/// Writes the line of `pages.txt` for a printed page onto `out`: its section,
+/// fragment and label, with tabs and line breaks in them made spaces.
+fn page_line(
+    out: &mut String,
+    section: u32,
+    fragment: &str,
+    label: &str,
+) -> Result<(), DocumentError> {
+    fallible::try_write!(out, "{section}")?;
+    for field in [fragment, label] {
+        // As long as the field: a tab or a line break is one byte, as a space.
+        fallible::reserve_str(out, field.len() + 1)?;
+        out.push('\t');
+        out.extend(
+            field
+                .chars()
+                .map(|c| if matches!(c, '\t' | '\n') { ' ' } else { c }),
+        );
+    }
+    fallible::push_char(out, '\n')
 }
 
 /// Only running out of memory from reading a table of contents: without
@@ -1026,13 +1065,20 @@ fn write_styles(
     Ok(())
 }
 
-/// Writes `rules` to `file` in their cache form, a few lines at a time.
+/// The longest `styles.txt` read, and so written: the book's styles are read
+/// whole, on a heap of a few hundred KiB.
+const MAX_STYLES: usize = 64 * 1024;
+
+/// Writes `rules` to `file` in their cache form, a few lines at a time. The
+/// lines that would make it longer than [`MAX_STYLES`] are left out: a
+/// longer file is not read, and the book would lose all its styles.
 fn write_rules(storage: &dyn Storage, file: &str, rules: &css::Rules) -> Result<(), DocumentError> {
     storage.write(file, &[])?;
     let mut lines = String::new();
+    let mut written = 0;
     let mut failed: Option<DocumentError> = None;
     let encoded = rules.encode_lines(&mut |line| {
-        if failed.is_some() {
+        if failed.is_some() || written + lines.len() + line.len() > MAX_STYLES {
             return;
         }
         if let Err(e) = fallible::push_str(&mut lines, line) {
@@ -1044,6 +1090,7 @@ fn write_rules(storage: &dyn Storage, file: &str, rules: &css::Rules) -> Result<
                 .append(file, lines.as_bytes())
                 .err()
                 .map(DocumentError::Storage);
+            written += lines.len();
             lines.clear();
         }
     });
@@ -1217,6 +1264,27 @@ mod tests {
         }
         assert_eq!(out, "/* \u{fffd} 2010 */ p { a: \u{2014} }");
         assert!(pending.is_empty());
+    }
+
+    /// Rules beyond what `styles.txt` holds are left out; those before
+    /// stay (a longer file is not read: the book would lose them all).
+    #[test]
+    fn the_styles_kept_are_as_many_as_are_read_again() {
+        let mut rules = css::Rules::default();
+        let mut parser = css::Parser::new("").unwrap();
+        let long = "x".repeat(200);
+        let css: String = (0..500)
+            .map(|i| alloc::format!(".c{i}{long} {{ text-align: center }}\n"))
+            .collect();
+        parser.feed(&css, &mut rules);
+        assert_eq!(rules.rules.len(), 500);
+        let storage = paperpaw_sdk::MemoryStorage::new();
+        write_rules(&storage, "cache/styles.txt", &rules).unwrap();
+        let size = storage.size("cache/styles.txt").unwrap();
+        assert!(size <= MAX_STYLES as u64, "{size} bytes");
+        let read = styles(&storage, "cache").unwrap();
+        assert!(read.rules.len() > 250, "{} rules", read.rules.len());
+        assert_eq!(read.rules[..], rules.rules[..read.rules.len()]);
     }
 
     /// `package.ini` is the text `config::set_all` made of its entries

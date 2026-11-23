@@ -21,7 +21,7 @@ use paperpaw_plugin_mail::native_model::browser::{self, Mode};
 use paperpaw_plugin_mail::native_model::job::{Job, Run};
 use paperpaw_plugin_mail::native_model::link::{Net, Notice, Peer};
 use paperpaw_plugin_mail::native_model::mem::{Error, Secret};
-use paperpaw_plugin_mail::native_model::session::{Endpoint, Security};
+use paperpaw_plugin_mail::native_model::session::{Endpoint, Failure, Security, Stage};
 use paperpaw_plugin_mail::native_model::store;
 use paperpaw_sdk::native::sockets::{Reason, SocketKind, Untrusted};
 use paperpaw_sdk::{KeyHash, Storage, Tls};
@@ -293,18 +293,40 @@ fn the_choices_are_fifteen_thirty_and_sixty_minutes_and_the_declared_ones() {
 }
 
 #[test]
-fn a_round_goes_through_the_accounts_in_order_and_a_failure_ends_it() {
+fn a_round_goes_through_the_accounts_in_order() {
     let _one = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
     let mut round = Round::new(&[1, 3]).unwrap();
     assert_eq!(round.front(), Some(1));
     round.pass();
     assert_eq!(round.front(), Some(3));
     assert!(!round.is_over());
-    round.end();
+    round.pass();
     assert!(round.is_over());
     assert_eq!(round.front(), None);
     round.pass();
     assert!(Round::new(&[]).unwrap().is_over());
+}
+
+#[test]
+fn an_account_that_fails_holds_up_none_of_the_others() {
+    let _one = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut round = Round::new(&[1, 2, 3]).unwrap();
+    // A check that still runs keeps its account at the front.
+    assert!(!round.checked(&Run::Working(Stage::Connecting)));
+    assert_eq!(round.front(), Some(1));
+    // A refused password, a server that is not trusted: the next account.
+    assert!(round.checked(&Run::Failed(Failure::Login("no".into()))));
+    assert_eq!(round.front(), Some(2));
+    let untrusted = Run::Untrusted {
+        smtp: false,
+        certificate: [7; 32],
+        key: [9; 32],
+        why: Untrusted::NotPinned,
+    };
+    assert!(round.checked(&untrusted));
+    assert_eq!(round.front(), Some(3));
+    assert!(round.checked(&Run::Done));
+    assert!(round.is_over());
 }
 
 #[test]

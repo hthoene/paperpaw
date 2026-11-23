@@ -52,6 +52,20 @@ pub fn secret_name(n: usize) -> Result<String, Error> {
     format(format_args!("password-{n}"))
 }
 
+/// What a typed password keeps: the password as typed, spaces too (the server
+/// compares them); spaces only take the kept one away (empty).
+#[must_use]
+pub fn password_of(typed: &str) -> &str {
+    if typed.trim().is_empty() { "" } else { typed }
+}
+
+/// Whether the address `new` names the server of `old` (its host and port):
+/// a password typed for one server is never sent to another.
+#[must_use]
+pub fn same_server(old: &str, new: &str) -> bool {
+    paperpaw_sdk::web::host(old).eq_ignore_ascii_case(paperpaw_sdk::web::host(new))
+}
+
 /// The card's folder a setting names: no `/` at either end, empty for none
 /// and for a folder a sync must not touch (the card's root, the plugins and
 /// the reader's own data, a path that leaves the folder).
@@ -127,6 +141,22 @@ mod tests {
         for bad in ["", "/", ".paperpaw", "plugins/x", "A/../B", "a//b", ".."] {
             assert_eq!(folder_of(bad).unwrap(), "", "{bad}");
         }
+    }
+
+    #[test]
+    fn a_password_keeps_its_spaces_and_spaces_alone_take_it_away() {
+        assert_eq!(password_of(" pass word "), " pass word ");
+        assert_eq!(password_of("  "), "");
+        assert_eq!(password_of(""), "");
+    }
+
+    #[test]
+    fn another_host_or_port_is_another_server() {
+        let old = "https://cloud.example.org/remote.php/dav/files/me/";
+        assert!(same_server(old, "https://Cloud.Example.org/dav/other/"));
+        assert!(same_server(old, "http://cloud.example.org/x/"));
+        assert!(!same_server(old, "https://evil.example.net/dav/"));
+        assert!(!same_server(old, "https://cloud.example.org:8443/dav/"));
     }
 
     #[test]

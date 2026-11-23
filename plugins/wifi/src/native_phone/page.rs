@@ -141,7 +141,6 @@ pub fn escape(text: &str) -> Result<String, Error> {
 pub struct Texts<'a> {
     pub language: &'a str,
     pub title: &'a str,
-    pub choose_one: &'a str,
     pub other: &'a str,
     pub password: &'a str,
     pub join: &'a str,
@@ -184,24 +183,25 @@ fn wrap(texts: &Texts<'_>, body: &str) -> Result<String, Error> {
 }
 
 /// The page to choose a network: those found, in the order given (the
-/// strongest first), a field for another one, the password. `again` after a
-/// form without a network.
+/// strongest first), a field for another one, the password. `note` says above
+/// them why the page comes again (a form without a network, a password too
+/// long).
 ///
 /// # Errors
 /// [`Error::NoMemory`].
 pub fn choose_page(
     texts: &Texts<'_>,
     networks: &[Found<'_>],
-    again: bool,
+    note: Option<&str>,
     token: &str,
 ) -> Result<String, Error> {
     let mut body = Out(String::new());
     done(body.write_str("<h1>"))?;
     escape_to(&mut body, texts.title)?;
     done(body.write_str("</h1>"))?;
-    if again {
+    if let Some(note) = note {
         done(body.write_str("<p class=\"note\">"))?;
-        escape_to(&mut body, texts.choose_one)?;
+        escape_to(&mut body, note)?;
         done(body.write_str("</p>"))?;
     }
     done(body.write_str(
@@ -251,13 +251,13 @@ pub const MOST_PAGE: usize = 4_096;
 pub fn choose_page_fit(
     texts: &Texts<'_>,
     networks: &[Found<'_>],
-    again: bool,
+    note: Option<&str>,
     token: &str,
     most: usize,
 ) -> Result<String, Error> {
     let mut count = networks.len();
     loop {
-        let page = choose_page(texts, &networks[..count], again, token)?;
+        let page = choose_page(texts, &networks[..count], note, token)?;
         if page.len() <= most || count == 0 {
             return Ok(page);
         }

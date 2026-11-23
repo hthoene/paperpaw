@@ -15,7 +15,13 @@ struct Fake {
     puts: Vec<(Option<String>, String)>,
     log: Vec<String>,
     fail: Option<Error>,
+    /// Entries of folders read from the card, as the host reads them.
+    read: usize,
 }
+
+/// Entries in one page of a folder the host lists (`docs/abi/files.md` 2.1
+/// holds up to 32): the place of a page is the index of its first entry.
+const FAKE_PAGE: usize = 8;
 
 /// The fixtures and the log are the test's, not the code's allocations.
 fn kept<T>(build: impl FnOnce() -> T) -> T {
@@ -62,13 +68,22 @@ impl Card for Fake {
             .find(|(at, ..)| at.eq_ignore_ascii_case(path))
             .map(|(_, dir, size)| (*dir, *size)))
     }
-    fn list(
-        &mut self,
-        dir: &str,
-        take: &mut dyn FnMut(&str, bool, u64) -> Result<bool, Error>,
-    ) -> Result<(), Error> {
-        for (path, is_dir, size) in &self.entries {
-            if files::parent(path) == dir && !take(files::name(path), *is_dir, *size)? {
+    fn list(&mut self, dir: &str, from: Place, take: &mut Take<'_>) -> Result<(), Error> {
+        let start = usize::try_from(from.page).unwrap();
+        let below = self
+            .entries
+            .iter()
+            .filter(|(path, ..)| files::parent(path) == dir)
+            .enumerate()
+            .skip(start + from.skip);
+        for (at, (path, is_dir, size)) in below {
+            self.read += 1;
+            let page = at - at % FAKE_PAGE;
+            let place = Place {
+                page: page as u64,
+                skip: at - page,
+            };
+            if !take(place, files::name(path), *is_dir, *size)? {
                 break;
             }
         }
@@ -236,19 +251,26 @@ fn the_listing_leaves_out_hidden_names_and_goes_on_in_parts() {
         entries: many,
         ..Fake::default()
     };
-    let (mut from, mut seen) = (0, 0);
+    let (mut from, mut seen, mut parts) = (String::new(), 0, 0);
     loop {
         let target = alloc::format!("/api/list?k=key&from={from}");
         let (list, _) = run(&mut card, "GET", &target);
         let json = json(&list);
         assert!(json.len() <= INLINE, "{}", json.len());
         seen += json.matches("\"name\"").count();
-        match json.split_once("\"next\":") {
-            Some((_, next)) => from = next.trim_end_matches('}').parse().unwrap(),
+        parts += 1;
+        // `next` is the place to go on from, which the page sends back.
+        match json.split_once("\"next\":\"") {
+            Some((_, next)) => from = next.trim_end_matches("\"}").to_string(),
             None => break,
         }
     }
     assert_eq!(seen, 200);
+    // Each part is read from where the one before ended, not from the start
+    // of the folder: every entry is read about once (the one that did not fit
+    // a part again with the next), not once for every part before it.
+    assert!(parts > 4, "{parts}");
+    assert!(card.read <= 200 + parts, "{} entries read", card.read);
 }
 
 #[test]

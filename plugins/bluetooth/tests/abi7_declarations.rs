@@ -78,3 +78,28 @@ fn the_host_admits_every_declaration() {
         "the host admits every record now: {refused:?}"
     );
 }
+
+/// The status item of Beta 3 is declared again (the Bluetooth sign while a
+/// device is connected; a tap opens the page): the host's status stage is
+/// answered now.
+#[test]
+fn the_status_item_is_declared_and_opens_the_page() {
+    let items: Vec<String> = batches!(declarations::navigation)
+        .iter()
+        .flat_map(|batch| {
+            records_decode(batch)
+                .unwrap()
+                .iter()
+                .map(|record| format!("{record:?}"))
+                .collect::<Vec<_>>()
+        })
+        .filter(|record| record.contains("StatusItem"))
+        .collect();
+    assert_eq!(items.len(), 1, "{items:?}");
+    assert!(
+        items[0].contains("bluetooth.status.item")
+            && items[0].contains("tap: \"open\"")
+            && items[0].contains(&format!("token: {}", declarations::STATUS_TOKEN)),
+        "{items:?}"
+    );
+}

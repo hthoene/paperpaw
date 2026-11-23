@@ -5,9 +5,10 @@
 //! order they are shown (UAX #9: right-to-left letters and the numbers
 //! among them), give Arabic letters the form they take where they stand
 //! (joined to the letters around, also across the text's edges), draw
-//! mirrored brackets in right-to-left runs, shape Bengali and Devanagari
-//! syllables (`crate::indic`) and keep combining marks on their letters. Text in one direction with nothing around it draws as
-//! [`draw_text`](crate::draw_text) draws it.
+//! mirrored brackets in right-to-left runs, shape the syllables of the Indic
+//! scripts, Khmer, Lao, Tibetan and Burmese (`crate::indic`) and keep
+//! combining marks on their letters. Text in one direction with nothing
+//! around it draws as [`draw_text`](crate::draw_text) draws it.
 //!
 //! A text of up to [`STACK`] characters is set without the heap; a longer
 //! one takes a buffer of a few bytes per character while it is set.
@@ -210,11 +211,13 @@ fn lay(
     based: bool,
     put: impl FnMut(char, f32, bool, bool),
 ) -> f32 {
-    // Bengali or Devanagari in a line left to right: by syllables.
+    // Indic, Khmer, Lao, Tibetan or Burmese in a line left to right: by
+    // syllables. A zero width space between words does not count, as
+    // line breaking measures these words shaped.
     if indic::has_indic(text)
         && !crate::has_jamo(text)
         && around.base != Direction::Rtl
-        && !bidi::needs_bidi(text)
+        && !bidi::needs_bidi_but_zero_width_spaces(text)
     {
         return lay_indic(font, size, text, around, based, put);
     }
@@ -282,8 +285,8 @@ fn with_shaper<R>(font: &Font, text: &str, f: impl FnOnce(&Shaper<'_, dyn Bytes 
     }
 }
 
-/// [`lay`] for a line left to right with Bengali or Devanagari in it: its
-/// syllables shaped (as wide as their glyphs, not kerned), the other
+/// [`lay`] for a line left to right with a script `crate::indic` shapes in
+/// it: its syllables shaped (as wide as their glyphs, not kerned), the other
 /// characters as they are, kerned among themselves.
 fn lay_indic(
     font: &Font,
@@ -542,6 +545,21 @@ mod tests {
         let latin = font("abc", false);
         assert!(!latin.has_char('\u{1112}'));
         assert_eq!(shown(&latin, nfd, &Around::NONE), nfd);
+    }
+
+    /// A zero width space between Khmer words leaves them shaped by
+    /// syllables (coeng and ro before their consonant), as wide as
+    /// without it: as line breaking measures them.
+    #[test]
+    fn khmer_words_apart_by_a_zero_width_space_are_shaped() {
+        let font = font("ក្រ", false);
+        let (spaced, joined) = ("ក្រ\u{200B}ក", "ក្រក");
+        assert_eq!(shown(&font, joined, &Around::NONE), "្រកក");
+        assert_eq!(shown(&font, spaced, &Around::NONE), "្រកក");
+        assert_eq!(
+            measure_in(&font, 10.0, spaced, &Around::NONE),
+            measure_in(&font, 10.0, joined, &Around::NONE)
+        );
     }
 
     #[test]

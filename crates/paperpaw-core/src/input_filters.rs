@@ -19,7 +19,18 @@ impl Kernel {
     /// cancelled or turned into an action.
     fn native_filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
         use native_host::input_chain::Native;
-        match self.native_input(now, &event) {
+        let verdict = self.native_input(now, &event);
+        // A release or a lift that does not go on ends the press for the
+        // kernel too: followed on, the button would fire a long press of its
+        // own later and swallow its next press (#483).
+        if !matches!(
+            verdict,
+            Native::Pass | Native::Replaced(_) | Native::Cancelled
+        ) && ends_a_press(&event)
+        {
+            self.cancel_input(&event);
+        }
+        match verdict {
             Native::Pass => Ok(event),
             Native::Replaced(other) => Ok(other),
             Native::Taken => Err(self.finish()),
@@ -123,5 +134,14 @@ impl Kernel {
                 None => self.warn_runtime(format!("a filter raised unknown input `{name}`")),
             },
         }
+    }
+}
+
+/// Whether `event` lets a button go or lifts a finger.
+fn ends_a_press(event: &InputEvent) -> bool {
+    match event {
+        InputEvent::Button { state, .. } => *state == ButtonState::Released,
+        InputEvent::Pointer(p) => matches!(p.phase, PointerPhase::Up | PointerPhase::Cancel),
+        _ => false,
     }
 }

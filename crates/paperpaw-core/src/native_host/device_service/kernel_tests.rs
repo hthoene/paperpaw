@@ -1,5 +1,6 @@
-//! `core.device` ops 8, 10, 11 and 12 answered from the kernel's own models
-//! (`kernel_models.rs`), through a frame that has the kernel's `Place`.
+//! `core.device` ops 1 (the time asleep), 8, 10, 11 and 12 answered from the
+//! kernel's own models (`kernel_models.rs`), through a frame that has the
+//! kernel's `Place`.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::tests::{Fake, input_of, records, schema_op};
 use super::*;
@@ -304,4 +305,24 @@ fn the_caps_check_runs_on_the_combined_host() {
     assert!(no_wifi.check_device_host(&Fake::full()).is_err());
     let no_bluetooth = kernel(true, 0);
     assert!(no_bluetooth.check_device_host(&Fake::full()).is_err());
+}
+
+/// The time asleep is the kernel's, which took it from its suspend to its
+/// resume: a shell that keeps no figure of its own (none does) still tells
+/// it, as `Place::slept_for` does for interface 6.
+#[test]
+fn the_time_asleep_is_the_kernels() {
+    let slept = |kernel: &crate::Kernel| {
+        let reply = read(kernel, Fake::full(), "reader", 1).unwrap();
+        let [Record::ServiceDevDevice(device)] = records(&reply)[..] else {
+            panic!("op 1")
+        };
+        (device.slept_ms, device.flags)
+    };
+    let mut kernel = kernel(false, 0);
+    kernel.start(Instant(0));
+    assert_eq!(slept(&kernel), (0, 0), "not asleep yet: unknown");
+    kernel.suspend(Instant(1_000));
+    kernel.resume(Instant(61_000));
+    assert_eq!(slept(&kernel), (60_000, 1));
 }

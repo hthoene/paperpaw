@@ -214,6 +214,21 @@ fn names(storage: &CardStorage<Fake>, dir: &str) -> Vec<String> {
     out
 }
 
+/// Whether a path is a folder is asked of the entry, not by listing the
+/// folder: a big folder costs a call, not all its pages (#486).
+#[test]
+fn a_folder_is_told_by_its_entry_not_its_listing() {
+    let fake = Fake::with(&[], &["d"]);
+    for n in 0..8 {
+        fake.write(&std::format!("d/f{n}"), b"x").unwrap();
+    }
+    let card = CardStorage(fake);
+    assert!(crate::model::path::is_dir(&card, "d"));
+    assert!(!crate::model::path::is_dir(&card, "d/f0"));
+    assert!(!crate::model::path::is_dir(&card, "nope"));
+    assert_eq!(card.0.pages.get(), 0, "nothing was listed");
+}
+
 #[test]
 fn a_folder_longer_than_a_page_is_listed_whole() {
     let files: Vec<_> = (0..8).map(|n| std::format!("d/f{n}")).collect();
@@ -313,10 +328,17 @@ fn a_card_that_cannot_say_has_the_file() {
     assert!(card.exists("a"));
     card.0.stat_fails.set(Some(Error::NotFound));
     assert!(!card.exists("a"), "only not found says free");
-    // The model picks a name the card could not vouch for never.
+    // The model picks a name the card could not vouch for never: it stops
+    // with the card's error at once (#486), where it tried every one of
+    // 65,537 names, each counted as taken.
     card.0.stat_fails.set(Some(Error::Io));
     let free = crate::model::path::free_path(&card, "", "new.txt");
-    assert!(free.as_ref().is_ok_and(|p| p != "new.txt"), "{free:?}");
+    assert_eq!(free, Err(Error::Io));
+    card.0.stat_fails.set(None);
+    assert_eq!(
+        crate::model::path::free_path(&card, "", "a").unwrap(),
+        "a (2)"
+    );
 }
 
 #[test]

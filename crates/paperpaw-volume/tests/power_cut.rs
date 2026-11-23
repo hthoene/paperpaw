@@ -194,3 +194,115 @@ fn growing_a_file_never_shows_more_than_it_has_at_every_cut() {
         );
     }
 }
+
+/// Bytes per cluster, where the first FAT begins and where cluster 2 begins.
+fn layout(image: &[u8]) -> (usize, usize, usize) {
+    let u16_at = |at: usize| usize::from(u16::from_le_bytes([image[at], image[at + 1]]));
+    let (sector, reserved) = (u16_at(11), u16_at(14));
+    let per_fat = u32::from_le_bytes(image[36..40].try_into().unwrap()) as usize;
+    let fats = usize::from(image[16]);
+    (
+        sector * usize::from(image[13]),
+        reserved * sector,
+        (reserved + fats * per_fat) * sector,
+    )
+}
+
+fn fat_entry(image: &[u8], cluster: u32) -> u32 {
+    let at = layout(image).1 + 4 * cluster as usize;
+    u32::from_le_bytes(image[at..at + 4].try_into().unwrap()) & 0x0FFF_FFFF
+}
+
+/// How many clusters the chain from `first` has.
+fn chain_len(image: &[u8], first: u32) -> u32 {
+    let (mut cluster, mut len) = (first, 1);
+    while (2..0x0FFF_FFF7).contains(&fat_entry(image, cluster)) {
+        cluster = fat_entry(image, cluster);
+        len += 1;
+    }
+    len
+}
+
+#[test]
+fn a_folder_that_grows_never_shows_what_its_new_cluster_held_at_every_cut() {
+    let blank = formatted();
+    let (_, written) = recorded(&blank, |fs| {
+        put(fs, "keep.txt", &data(3 * CLUSTER, 7));
+        let dir = fs.root_dir().create_dir("d").unwrap();
+        // With `.` and `..` the folder's one cluster is full (a long and a short name entry for
+        // each file): the next file takes another.
+        for n in 0..7 {
+            dir.create_file(&format!("F{n:02}.TXT")).unwrap();
+        }
+    });
+    let mut base = after(&blank, &written, written.len());
+    let (keep, folder, free) = {
+        let fs = FileSystem::new(
+            StdIoWrapper::new(Cursor::new(base.clone())),
+            FsOptions::new(),
+        )
+        .unwrap();
+        let root = fs.root_dir();
+        let first = |name: &str| {
+            root.iter()
+                .map(Result::unwrap)
+                .find(|e| e.file_name() == name)
+                .and_then(|e| e.first_cluster())
+                .unwrap()
+        };
+        (
+            first("keep.txt"),
+            first("d"),
+            fs.stats().unwrap().free_clusters(),
+        )
+    };
+    assert_eq!(chain_len(&base, folder), 1);
+    // Every free cluster holds what a removed file left: entries that name keep.txt's clusters.
+    let mut stale = [0_u8; 32];
+    stale[..11].copy_from_slice(b"JUNK    BIN");
+    stale[11] = 0x20;
+    stale[20..22].copy_from_slice(&((keep >> 16) as u16).to_le_bytes());
+    stale[26..28].copy_from_slice(&(keep as u16).to_le_bytes());
+    stale[28..32].copy_from_slice(&(3 * CLUSTER as u32).to_le_bytes());
+    let (cluster, _, heap) = layout(&base);
+    let clusters = (base.len() - heap) / cluster;
+    for n in 2..clusters as u32 + 2 {
+        if fat_entry(&base, n) == 0 {
+            let at = heap + (n as usize - 2) * cluster;
+            for slot in base[at..at + cluster].chunks_mut(32) {
+                slot.copy_from_slice(&stale);
+            }
+        }
+    }
+    let (base, writes) = recorded(&base, |fs| {
+        fs.root_dir()
+            .open_dir("d")
+            .unwrap()
+            .create_file("NEW.TXT")
+            .unwrap();
+    });
+    let mut names: Vec<String> = (0..7).map(|n| format!("F{n:02}.TXT")).collect();
+    names.extend([".", "..", "NEW.TXT"].map(String::from));
+    for k in 0..=writes.len() {
+        let image = after(&base, &writes, k);
+        let grown = chain_len(&image, folder) - 1;
+        let fs = FileSystem::new(StdIoWrapper::new(Cursor::new(image)), FsOptions::new())
+            .expect("a cut volume mounts");
+        fs.settle_claim().unwrap();
+        for entry in fs.root_dir().open_dir("d").unwrap().iter() {
+            let name = entry.unwrap().file_name();
+            assert!(
+                names.contains(&name),
+                "cut after {k} of {} writes shows {name} in the folder",
+                writes.len()
+            );
+        }
+        // A cluster taken and not linked yet is freed by the next mount.
+        assert_eq!(
+            fs.stats().unwrap().free_clusters(),
+            free - grown,
+            "cut after {k} of {} writes",
+            writes.len()
+        );
+    }
+}

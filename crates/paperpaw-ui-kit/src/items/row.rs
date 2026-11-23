@@ -21,10 +21,11 @@ pub(super) fn draw_row_as(
     focused: bool,
     cards: Option<bool>,
 ) -> Result<Option<Buttons>, Error> {
-    // Text the page reads out is never chosen, so never drawn chosen: it has
-    // no backdrop, and the ink of a chosen row on the paper did not show
-    // (a list of only such text, such as a message, has the focus on it).
-    let focused = focused && !row.plain;
+    // Only a row to choose is drawn chosen. Text the page reads out has no
+    // backdrop, and the ink of a chosen row on the paper did not show; a
+    // faint row or small print on the bar was faint or no ink at all. A list
+    // or a page of only such rows has the focus on one of them.
+    let focused = focused && to_choose(row);
     let own = looked(style, row);
     let style = own.as_ref().unwrap_or(style);
     if let Some(more) = cards.filter(|_| !row.field || focused) {

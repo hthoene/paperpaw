@@ -6,6 +6,7 @@
     reason = "fixture errors fail the tests"
 )]
 use paperpaw_plugin_store::native_ask::{Say, size_text};
+use paperpaw_plugin_store::native_download::Failure;
 use paperpaw_plugin_store::native_model::Entry;
 use paperpaw_plugin_store::native_screen_fetch::{
     BY, Core, IDS, Kind, Layout, Metrics, Phase, Row, Tally, Why, activate, open_next, progress,
@@ -246,7 +247,7 @@ fn what_did_not_come_is_named_and_can_be_tried_again() {
     going.queue(true);
     let mut core = request("reader");
     going.set("pack-a", Step::Installed);
-    going.set("pack-b", Step::Failed(13));
+    going.set("pack-b", Step::Failed(Failure::Card));
     going.queue(false);
     assert_eq!(core.refresh(&going, Trouble::None), Next::Redraw);
     assert_eq!(core.phase, Phase::Failed(Why::Missing));
@@ -352,7 +353,7 @@ fn the_words_follow_the_phase() {
         format!("<store.fetch.progress percent=12 % done={done} total={total}>")
     );
     going.queue(false);
-    going.set("pack-a", Step::Failed(1));
+    going.set("pack-a", Step::Failed(Failure::Network));
     core.refresh(&going, Trouble::None);
     assert_eq!(
         core.message(&mut say).unwrap(),

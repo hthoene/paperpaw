@@ -76,16 +76,6 @@ impl Filter {
             _ => None,
         }
     }
-
-    /// The filter after this one, the last going back to the first.
-    #[must_use]
-    pub fn next(self) -> Self {
-        let at = FILTERS.iter().position(|f| *f == self).unwrap_or(0);
-        FILTERS
-            .get((at + 1) % FILTERS.len())
-            .copied()
-            .unwrap_or_default()
-    }
 }
 
 /// The order of books (`files.sort`).
@@ -602,15 +592,9 @@ mod tests {
     }
 
     #[test]
-    fn filters_step_through_all_and_end_at_the_shelves() {
-        let mut filter = Filter::All;
-        let mut seen = Vec::new();
-        for _ in 0..5 {
-            seen.push(filter);
-            filter = filter.next();
-        }
-        assert_eq!(seen, FILTERS);
-        assert_eq!(filter, Filter::All);
+    fn filters_end_at_the_shelves() {
+        assert_eq!(FILTERS.first(), Some(&Filter::All));
+        assert_eq!(FILTERS.last(), Some(&Filter::Shelves));
         assert_eq!(Filter::Shelves.show(), None);
         assert_eq!(Filter::Reading.show(), Some(Show::Reading));
         assert!(Filter::All.none_key().is_none());

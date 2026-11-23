@@ -13,16 +13,26 @@ use paperpaw_sdk::native::{
     document::{DocCursor, DocId, DocPosition, Documents, OpenBook, Preparation},
     library::{BookRef, Library},
 };
-use paperpaw_ui_kit::{mem::buffer, text::copy};
+use paperpaw_ui_kit::{
+    mem::{buffer, push},
+    text::copy,
+};
 
 /// The input and the reply a service call needs; 4,096 bytes always suffice.
 const BUFFER: usize = 4096;
+/// Fingerprints kept: the open book's and those of the books left whose
+/// progress may still go out.
+const KEPT_DIGESTS: usize = 6;
 
 /// The two services, opened where the device has them.
 #[derive(Debug, Default)]
 pub struct Backing {
     library: Option<Library>,
     documents: Option<Documents>,
+    /// The fingerprints found, by path, the latest last: the library reads a
+    /// book's from the card (about a dozen reads), once, not at every fetch
+    /// and push.
+    digests: Vec<(String, String)>,
 }
 
 impl Backing {
@@ -41,7 +51,11 @@ impl Backing {
                 return Err(error);
             }
         };
-        Ok(Self { library, documents })
+        Ok(Self {
+            library,
+            documents,
+            digests: Vec::new(),
+        })
     }
 
     /// Whether a position can be sent at all: the library names the book. Nothing
@@ -58,7 +72,10 @@ impl Backing {
     ///
     /// # Errors
     /// `NoMemory`; `Busy` where the host asks to try again.
-    pub fn digest(&self, host: &Host<'_>, path: &str) -> Result<Option<String>, Error> {
+    pub fn digest(&mut self, host: &Host<'_>, path: &str) -> Result<Option<String>, Error> {
+        if let Some((_, digest)) = self.digests.iter().find(|(p, _)| p == path) {
+            return copy(digest).map(Some);
+        }
         let Some(library) = &self.library else {
             return Ok(None);
         };
@@ -66,11 +83,16 @@ impl Backing {
             return Ok(None);
         };
         let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
-        match library.book_key(host, book, &mut input, &mut out) {
-            Ok(key) if key.fingerprint().is_empty() => Ok(None),
-            Ok(key) => copy(key.fingerprint()).map(Some),
-            Err(error) => unavailable(error),
+        let digest = match library.book_key(host, book, &mut input, &mut out) {
+            Ok(key) if key.fingerprint().is_empty() => return Ok(None),
+            Ok(key) => copy(key.fingerprint())?,
+            Err(error) => return unavailable(error),
+        };
+        if self.digests.len() >= KEPT_DIGESTS {
+            self.digests.remove(0);
         }
+        push(&mut self.digests, (copy(path)?, copy(&digest)?))?;
+        Ok(Some(digest))
     }
 
     /// The XPointer of the place `at` (section, offset) of the book at `path`;

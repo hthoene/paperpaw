@@ -45,9 +45,11 @@ default = []
 # for there, the build stops and says so.
 outline = ["dep:skrifa", "dep:read-fonts", "dep:font-types"]
 # What only the kernel and the shells build, never a plugin (ADR 0020):
-# the table of Thai words held while text is broken into lines, a static
-# a native plugin may not have (ADR 0024). Adds no item: without it, Thai
-# breaks only at spaces and U+200B.
+# the table of Thai, Lao, Khmer or Burmese words held while text is broken
+# into lines, a static a native plugin may not have (ADR 0024), and the
+# inflating of built-in packs' deflated bitmaps (`deflated.rs`, #428).
+# Adds no item: without it, these scripts break only at spaces and U+200B,
+# and a pack with deflated bitmaps is refused as of an unknown version.
 kernel = ["dep:miniz_oxide"]
 
 [dev-dependencies]

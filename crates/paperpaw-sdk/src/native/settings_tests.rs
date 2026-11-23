@@ -236,3 +236,26 @@ fn generic_settings_read_refuses_grant_keys_before_calling_the_host() {
     assert!(ctx.keys.borrow().is_empty());
     assert_eq!(scratch, [77; 32]);
 }
+
+#[test]
+fn a_long_text_value_is_encoded_whenever_the_output_holds_it() {
+    // The value is encoded straight into `out`: a text far longer than a
+    // number or a switch fits a buffer of its size, one byte less is NoSpace.
+    let text = "a".repeat(200);
+    let mut out = [0; 512];
+    let encoded = encode_value(SettingValue::Text(&text), &mut out).unwrap();
+    assert_eq!(encoded.len(), SETTINGS_HEADER_BYTES + text.len());
+    assert_eq!(
+        settings_decode(encoded),
+        Ok(wire::SettingValueRef::Text(&text))
+    );
+    let mut short = [0; SETTINGS_HEADER_BYTES + 199];
+    assert_eq!(
+        encode_value(SettingValue::Text(&text), &mut short),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(
+        encode_value(SettingValue::Absent, &mut out),
+        Err(Error::Invalid)
+    );
+}

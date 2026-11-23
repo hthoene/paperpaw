@@ -87,20 +87,11 @@ pub fn facts(host: &Host<'_>, kept: &Kept, statistics: Statistics) -> Result<Tod
     ))
 }
 
-/// A number that changes when what the widget shows does (never 0, which is
-/// "nothing shown"): the minutes, the goal, the mood and the statistics'
-/// state. It needs neither font nor look, so the minute tick opens no drawing
-/// context.
-///
-/// # Errors
-/// The host's refusal of the clock.
-pub fn shows(host: &Host<'_>, kept: &Kept, statistics: Statistics) -> Result<u64, Error> {
-    let today = facts(host, kept, statistics)?;
-    Ok(mark(&today))
-}
-
-/// What the widget shows of `today`, as one number: when it differs from the
-/// one noted at the last draw, the widget is out of date.
+/// What the widget shows of `today`, as one number that changes when it does
+/// (never 0, which is "nothing shown"): the minutes, the goal, the mood and
+/// the statistics' state; when it differs from the one noted at the last
+/// draw, the widget is out of date. It needs neither font nor look, so the
+/// minute tick opens no drawing context.
 pub(crate) fn mark(today: &Today) -> u64 {
     let state = match today.statistics {
         Statistics::Counting => 1,

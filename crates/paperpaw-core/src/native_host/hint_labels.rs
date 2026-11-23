@@ -319,10 +319,6 @@ impl HintLabels {
 
     /// Applies checked sets (see [`Self::reserve`]): a second one for an
     /// action replaces the first, kind 0 removes.
-    #[allow(
-        dead_code,
-        reason = "the command runner (shell_commands) calls it, wired with the shell"
-    )]
     pub(crate) fn apply(&mut self, sets: Vec<HintSet>) {
         for set in sets {
             let Some(at) = self

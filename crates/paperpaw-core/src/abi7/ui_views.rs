@@ -1,8 +1,4 @@
 //! Host-only declaration views shared by frames and UI services.
-#[allow(
-    dead_code,
-    reason = "consumers are the ops 4, 14 and 15 and Core's directory"
-)]
 /// What the registry says about a widget, a status item or a status line
 /// (REG ops 19 and 21), as the owner declared it. The host (Core) answers it
 /// over the registry; it keeps no borrow past the call.
@@ -38,7 +34,6 @@ pub(crate) struct HintView<'a> {
 /// The registry's widget and status directory, read by ops 4, 14 and 15.
 /// Every method answers `ERR_NOT_FOUND` for an id nobody declared (or whose
 /// plugin retired) and `ERR_NO_MEMORY` when it cannot answer.
-#[allow(dead_code, reason = "Core implements it; ops 4, 14 and 15 consume it")]
 pub(crate) trait UiDirectory {
     /// Op 4: the widget `widget` (a base id; a placement `x@2` has been
     /// stripped by the caller) and whether `place` lists it.

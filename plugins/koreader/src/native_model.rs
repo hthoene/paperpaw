@@ -584,6 +584,44 @@ pub fn exchange_file(book: &str) -> Result<String, Error> {
     ])
 }
 
+/// What a book moved from `from` to `to` moves of KOReader's files, in
+/// order: its whole folder, or, where another format of the book shares that
+/// folder (`Book.epub` and `Book.pdf`, [`same_book`]), only the book's own
+/// files in it (into a folder made for them first). The annotations file for
+/// KOReader is named after the book: it takes the new name.
+///
+/// # Errors
+/// `NoMemory` when the names cannot be kept.
+pub fn sidecar_moves(from: &str, to: &str, shared: bool) -> Result<Vec<(String, String)>, Error> {
+    let mut moves = Vec::new();
+    if shared {
+        push(&mut moves, (metadata_file(from)?, metadata_file(to)?))?;
+        push(&mut moves, (exchange_file(from)?, exchange_file(to)?))?;
+    } else {
+        push(&mut moves, (sidecar(from)?, sidecar(to)?))?;
+        let renamed = concat(&[
+            &sidecar(to)?,
+            "/",
+            paperpaw_sdk::files::name(from),
+            ".annotations.lua",
+        ])?;
+        push(&mut moves, (renamed, exchange_file(to)?))?;
+    }
+    moves.retain(|(old, new)| old != new);
+    Ok(moves)
+}
+
+/// Whether `other`, the name of a file beside the book at `book`, is another
+/// format of the same book: its name but for the extension.
+#[must_use]
+pub fn same_book(book: &str, other: &str) -> bool {
+    fn stem(name: &str) -> Option<&str> {
+        name.rsplit_once('.').map(|(stem, _)| stem)
+    }
+    let own = paperpaw_sdk::files::name(book);
+    other != own && stem(own).is_some() && stem(other) == stem(own)
+}
+
 /// What Beta 3 knew of the book with `key`: `<key>.txt` in the plugin's
 /// folder, the lines [`parse_known`] reads (#459). It is moved to `name`,
 /// where Beta 4 keeps it: written there first and only then removed, so

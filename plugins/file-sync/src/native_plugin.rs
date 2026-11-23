@@ -88,6 +88,8 @@ pub struct NativeFileSync {
     queue: Vec<usize>,
     total: Totals,
     problem: &'static str,
+    /// Every pair of the run so far was synced ([`Finish::synced`]).
+    all_synced: bool,
     /// Whether the sync under way was asked for (it says how it ended).
     asked: bool,
     /// What the last sync said, kept for the home screen.
@@ -453,17 +455,20 @@ impl NativeFileSync {
         }
         let policy = Policy::of(&Self::text_setting(host, WHEN)?);
         let now = Self::clock(host).map(|(unix, _)| unix);
-        if due(policy, trigger, self.last_time(host), now) && !pairs::ready(host)?.is_empty() {
+        if due(policy, trigger, self.known_last(host).waits_from(), now)
+            && !pairs::ready(host)?.is_empty()
+        {
             self.begin(host, false)?;
         }
         Ok(())
     }
 
-    fn last_time(&mut self, host: &Host<'_>) -> i64 {
-        if self.last.time == 0 {
+    /// What the last sync said, read where it is not known yet.
+    fn known_last(&mut self, host: &Host<'_>) -> Last {
+        if self.last.waits_from() == 0 {
             self.last = Last::read(&Data(host));
         }
-        self.last.time
+        self.last
     }
 
     /// Syncs on request.
@@ -486,6 +491,7 @@ impl NativeFileSync {
         self.asked = asked;
         self.total = Totals::default();
         self.problem = "";
+        self.all_synced = true;
         self.queue.clear();
         for pair in pairs::ready(host)? {
             self.queue.try_reserve(1).map_err(|_| Error::NoMemory)?;
@@ -497,6 +503,17 @@ impl NativeFileSync {
 
     /// Starts the next pair of the queue, or ends the run.
     fn next_pair(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        match self.start_next(host) {
+            Ok(Some(Step::Quiet)) => self.refresh_home(host),
+            Ok(Some(Step::Ended(finish))) => self.pair_finished(host, &finish),
+            Ok(None) => self.finish_all(host),
+            Err(_) => self.broke_off(host),
+        }
+    }
+
+    /// Starts the next pair of the queue: how it began; `None` where no pair
+    /// is left.
+    fn start_next(&mut self, host: &Host<'_>) -> Result<Option<Step>, Error> {
         while let Some(n) = self.queue.pop() {
             let pair = pairs::read(host, n)?;
             if !pair.ready() {
@@ -510,10 +527,9 @@ impl NativeFileSync {
                 data: Data(host),
                 auth: self.account.as_ref(),
             };
-            let step = self.sync.start(&mut link, job)?;
-            return self.stepped(host, step);
+            return self.sync.start(&mut link, job).map(Some);
         }
-        self.finish_all(host)
+        Ok(None)
     }
 
     /// The job of `pair`; the account's header is made of the user and the
@@ -546,13 +562,6 @@ impl NativeFileSync {
         })
     }
 
-    fn stepped(&mut self, host: &Host<'_>, step: Step) -> Result<(), Error> {
-        match step {
-            Step::Quiet => self.refresh_home(host),
-            Step::Ended(finish) => self.pair_finished(host, &finish),
-        }
-    }
-
     /// The end of a request of the sync.
     fn request_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
         let end = match done.reason() {
@@ -583,8 +592,23 @@ impl NativeFileSync {
             data: Data(host),
             auth: self.account.as_ref(),
         };
-        let step = self.sync.done(&mut link, &done)?;
-        self.stepped(host, step)
+        match self.sync.done(&mut link, &done) {
+            Ok(Step::Quiet) => self.refresh_progress(host),
+            Ok(Step::Ended(finish)) => self.pair_finished(host, &finish),
+            Err(_) => self.broke_off(host),
+        }
+    }
+
+    /// The run cannot go on (memory, the card or the secrets failed): the
+    /// pairs left are dropped, the account's header is wiped and the end is
+    /// said, so the next sync, asked for or automatic, starts anew.
+    fn broke_off(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.queue.clear();
+        self.account = None;
+        self.all_synced = false;
+        // It says why the run ended, before what went wrong in a folder.
+        self.problem = "file-sync.broke-off";
+        self.finish_all(host)
     }
 
     /// A number made of the `ETag` of an answer; 0 for none or where it
@@ -606,6 +630,7 @@ impl NativeFileSync {
     fn pair_finished(&mut self, host: &Host<'_>, finish: &Finish) -> Result<(), Error> {
         self.account = None;
         self.total = self.total.plus(finish.totals);
+        self.all_synced &= finish.synced;
         if self.problem.is_empty() {
             self.problem = finish.problem;
         }
@@ -634,16 +659,10 @@ impl NativeFileSync {
         self.account = None;
         let total = self.total;
         let pending = self.pending(host).unwrap_or(0);
-        let time = Self::clock(host).map_or(self.last.time, |(unix, _)| unix);
-        self.last = Last {
-            time,
-            down: total.down,
-            up: total.up,
-            deleted: total.deleted,
-            conflicts: total.conflicts,
-            errors: total.errors,
-            pending,
-        };
+        let now = Self::clock(host).map(|(unix, _)| unix);
+        self.last = self
+            .known_last(host)
+            .ended(total, pending, now, self.all_synced);
         self.last.write(&Data(host)).ok();
         self.looked = Some(0);
         let mut say = Messages::new()?;

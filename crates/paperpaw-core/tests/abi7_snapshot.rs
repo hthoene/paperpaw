@@ -7,8 +7,16 @@ use paperpaw_core::Place;
 // `src/abi7/snapshot.rs` names the kernel's kit as `crate::kit`.
 use paperpaw_core::kit;
 #[path = "../src/abi7/context.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod context;
 #[path = "../src/abi7/snapshot.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod snapshot;
 #[path = "../src/abi7/snapshot_wire.rs"]
 #[allow(

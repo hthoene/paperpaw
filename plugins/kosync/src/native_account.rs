@@ -10,7 +10,7 @@ use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Error;
 use paperpaw_ui_kit::{mem::push, text::copy};
 
-use crate::native_model::{Secret, normalize_server, password_key};
+use crate::native_model::{Secret, is_web, normalize_server, password_key};
 
 /// A row of the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +71,9 @@ pub enum Message {
     Missing,
     /// Waiting for the server.
     Connecting,
+    /// The address typed names no web server (`http://` or `https://`): it
+    /// was not taken.
+    BadServer,
     /// The server is now this one; the account is gone if there was one.
     ServerSet {
         /// An account was signed out by it.
@@ -225,12 +228,17 @@ impl Account {
 
     /// The server address was typed. `current` is the base URL set now; the
     /// result is the new base URL when it differs (the account, if any, is then
-    /// signed out) and `None` when it is the same.
+    /// signed out) and `None` when it is the same or names no web server
+    /// (said).
     ///
     /// # Errors
     /// `NoMemory`.
     pub fn typed_server(&mut self, text: &str, current: &str) -> Result<Option<String>, Error> {
         let url = normalize_server(text)?;
+        if !is_web(&url) {
+            self.message = Some(Message::BadServer);
+            return Ok(None);
+        }
         if url == current {
             return Ok(None);
         }
@@ -401,6 +409,17 @@ mod tests {
         a.typed_server("third.example", "https://other.example")
             .unwrap();
         assert_eq!(a.message, Some(Message::ServerSet { signed_out: false }));
+    }
+
+    #[test]
+    fn an_address_of_no_web_server_is_not_taken_and_signs_nobody_out() {
+        let mut a = account("anna");
+        let url = a
+            .typed_server("webdavs://sync.example.org", "https://sync.example.org")
+            .unwrap();
+        assert_eq!(url, None);
+        assert_eq!(a.signed_in, "anna");
+        assert_eq!(a.message, Some(Message::BadServer));
     }
 
     #[test]

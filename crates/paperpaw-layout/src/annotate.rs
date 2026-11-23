@@ -3,10 +3,12 @@
 //! its range on the line that has that start ([`Block::annotations`]).
 //!
 //! Every line of a block with annotations gets the same room, so the lines
-//! keep one distance (an annotation without text is that room alone); an annotation that would run into the one before it on
-//! the same side moves on behind it, and what passes the line's measure goes
-//! on at its next line's start (cut on the block's last line). Lines that run right to left, go down a column or need their runs put
-//! in order get none yet.
+//! keep one distance (an annotation without text is that room alone); an
+//! annotation that would run into the one before it on the same side moves
+//! on behind it, and what passes the line's measure goes on at its next
+//! line's start (cut on the block's last line, and on the page's last: a
+//! gloss does not go on over a page break). Lines that run right to left, go
+//! down a column or need their runs put in order get none yet.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -110,15 +112,23 @@ const MOST_PENDING: usize = 8;
 
 /// The annotations of `block` on its line of `range` (its text's bytes), set
 /// at `x` with `word_spacing` as the line is: first the rests `carried` from
-/// the line before, from the line's start, then those that start on it, each
-/// where its range starts; above with their baselines at the bottom of the
+/// the line before, from the line's start, then those that start on it from
+/// byte `first` on, each where its range starts (`first` is before `range`
+/// where a drop capital is beside the line: those of the capital's word go
+/// from the line's start); above with their baselines at the bottom of the
 /// room that ends at `above`, below in the room that starts at `below`. What
 /// does not fit goes on as `carried` to the next line, at whole words; on the
-/// block's `last` line it is cut.
+/// `last` line of the block on its page it is cut.
 pub(crate) fn place(
     cx: &LayoutContext<'_>,
     rooms: Option<&Rooms>,
-    (block, range, runs, bidi): (&Block, core::ops::Range<usize>, &[LineRun], LineBidi),
+    (block, first, range, runs, bidi): (
+        &Block,
+        usize,
+        core::ops::Range<usize>,
+        &[LineRun],
+        LineBidi,
+    ),
     (x, word_spacing): (f32, f32),
     (above, below): (f32, f32),
     (carried, last): (&mut Vec<Pending>, bool),
@@ -137,7 +147,7 @@ pub(crate) fn place(
     };
     let starting = block.annotations.iter().take(MOST).filter(|note| {
         let start = note.start as usize;
-        range.contains(&start) && note.end > note.start && !note.text.is_empty()
+        (first..range.end).contains(&start) && note.end > note.start && !note.text.is_empty()
     });
     let mut set = Setter {
         cx,
@@ -156,7 +166,7 @@ pub(crate) fn place(
             cx,
             text,
             runs,
-            note.start as usize - range.start,
+            (note.start as usize).saturating_sub(range.start),
             word_spacing,
         );
         set.one(&note.text, (note.kind, note.size), at);
@@ -170,7 +180,7 @@ struct Setter<'s, 'c> {
     block: &'s Block,
     rooms: &'s Rooms,
     /// The line's left edge, the bottom of its room above, the top of its
-    /// room below, and whether it is its block's last.
+    /// room below, and whether it is its block's last on the page.
     line: (f32, f32, f32, bool),
     /// Where the last annotation on each side ends: above, below.
     ends: [f32; 2],

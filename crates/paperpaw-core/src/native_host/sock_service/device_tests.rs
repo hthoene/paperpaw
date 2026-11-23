@@ -518,3 +518,51 @@ fn a_plugin_that_is_off_or_offline_creates_no_demand_and_it_ends_with_the_last_s
         "idle after the last socket"
     );
 }
+
+/// A stopped plugin's id is let go once its sockets are cleaned up: kept, it
+/// grew the list at every restart of a plugin that used sockets, and the
+/// stopped owner's id still let its network out (#483).
+#[test]
+fn a_stopped_plugins_id_is_let_go_after_its_cleanup() {
+    let f = fixture(false);
+    open(&f);
+    assert_eq!(f.device.power_end(OWNER, false), None, "known: let out");
+    f.device.paths.owners().withdraw(OWNER);
+    table::owner_stopped(&f.device, OWNER).unwrap();
+    assert_eq!(
+        f.device.power_end(OWNER, false).map(|end| end.reason),
+        Some(reason::NETWORK_OFF),
+        "not known any more: the safe answer"
+    );
+}
+
+/// A socket opened in the callback of a screen the quick panel covers is
+/// still that screen's: it ends when the screen closes, not only at the
+/// idle timeout (`sockets.md` 1, #483).
+#[test]
+fn a_socket_of_a_covered_screens_callback_ends_with_that_screen() {
+    use crate::native_host::stack_rows::{HOST, OVERLAY, StackRow, StackRows};
+    let f = fixture(false);
+    let rows = alloc::rc::Rc::new(StackRows::default());
+    rows.update([
+        StackRow {
+            instance: 5,
+            owner: OWNER,
+            flags: 0,
+        },
+        StackRow {
+            instance: 6,
+            owner: 0,
+            flags: OVERLAY | HOST,
+        },
+    ]);
+    f.device.paths.owners().attach_screens(&rows);
+    let id = {
+        let _call = rows.enter_callback(OWNER, 5);
+        connect(&f, 0).unwrap()
+    };
+    connected(&f.device, id).unwrap();
+    drain(&f);
+    table::screen_closed(&f.device, OWNER, 5).unwrap();
+    assert_eq!(drain(&f), [(kind::CLOSED, reason::SCREEN_CLOSED)]);
+}

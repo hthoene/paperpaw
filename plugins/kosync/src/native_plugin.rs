@@ -29,8 +29,8 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{
-    ACCOUNT, BOOK_CLOSED, BOOK_OPENED, HTTP_DONE, PAGE_TURNED, PUSH_WORK, RESUME, SETTING_CHANGED,
-    STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE, WORK_REFUSED,
+    ACCOUNT, BOOK_CLOSED, BOOK_OPENED, HTTP_DONE, PAGE_TURNED, POWER_CHANGED, PUSH_WORK, RESUME,
+    SETTING_CHANGED, STARTED, SUSPEND, SYNC_NOW, WORK_ALLOWED, WORK_DUE, WORK_REFUSED,
 };
 use crate::native_account::{Account, Field, Message, Row, Todo};
 use crate::native_backing::Backing;
@@ -111,6 +111,9 @@ pub struct NativeKosync {
     /// back: the offer to go online for it, once until the reader chooses it
     /// again (as Beta 3's account screen did).
     online: online::Offer<bool>,
+    /// Whether the power mode lets the network be used (not Offline), as the
+    /// device said last; read again once the mode changed.
+    permitted: Option<bool>,
     /// The server the account belongs to; another one signs out.
     server: Option<String>,
     push_work: PushWork,
@@ -167,8 +170,14 @@ impl Plugin for NativeKosync {
                 self.push_work = PushWork::Idle;
                 Ok(())
             }
+            Event::PowerChanged(_) if token == POWER_CHANGED => {
+                self.permitted = None;
+                Ok(())
+            }
             Event::WorkAllowed { now_ms, .. } if token == WORK_ALLOWED => {
                 self.push_work = PushWork::Idle;
+                // The network is allowed again (Offline mode ended).
+                self.permitted = None;
                 self.with_engine(host, now_ms, |engine, ctx, out| engine.allowed(ctx, out))
             }
             Event::ActionRun { now_ms, .. } if token == SYNC_NOW => self.sync_now(host, now_ms),
@@ -292,18 +301,21 @@ impl NativeKosync {
         if self.key_read {
             return Ok(());
         }
-        self.key_read = true;
-        if let Some(secrets) = &self.secrets {
-            self.key = match store::read_key(secrets, host) {
-                Ok(key) => key,
-                Err(Error::NoMemory) => {
-                    self.key_read = false;
-                    return Err(Error::NoMemory);
-                }
-                Err(_) => None,
-            };
+        let Some(secrets) = &self.secrets else {
+            self.key_read = true;
+            return Ok(());
+        };
+        match store::read_key(secrets, host) {
+            Ok(key) => {
+                self.key = key;
+                self.key_read = true;
+                Ok(())
+            }
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            // Not readable now (busy, the card): read again the next time, so
+            // it signs nobody out.
+            Err(_) => Ok(()),
         }
-        Ok(())
     }
 
     /// What the host knows now, for the engine.
@@ -315,6 +327,7 @@ impl NativeKosync {
         ctx.network = self.net.is_some();
         ctx.auto = Self::auto(host)?;
         ctx.signed_in = signed_in;
+        ctx.online = ctx.active() && self.network_permitted(host);
         ctx.radio_on_anyway = ctx.active()
             && self
                 .engine
@@ -322,6 +335,27 @@ impl NativeKosync {
                 .is_none_or(|engine| engine.push_due(now_ms))
             && self.radio_on_anyway(host);
         Ok(ctx)
+    }
+
+    /// Whether the power mode lets the network be used now (not Offline),
+    /// asked of the device once after each change of the mode; where that is
+    /// not known, it does (a request the host holds back comes back as not
+    /// sent).
+    fn network_permitted(&mut self, host: &Host<'_>) -> bool {
+        if let Some(permitted) = self.permitted {
+            return permitted;
+        }
+        let Some(device) = &self.device else {
+            return true;
+        };
+        let (Ok(mut input), Ok(mut out)) = (buffer(SERVICE_BUFFER), buffer(SERVICE_BUFFER)) else {
+            return true;
+        };
+        let permitted = device
+            .power(host, 0, &mut input, &mut out)
+            .map_or(true, |power| power.online());
+        self.permitted = Some(permitted);
+        permitted
     }
 
     /// Whether the device is in a network already (sending turns on no radio);
@@ -542,6 +576,7 @@ impl NativeKosync {
             path: copy(path)?,
             local,
             manual,
+            sent: None,
         };
         self.start(host, &call, pending)?;
         Ok(true)
@@ -551,13 +586,22 @@ impl NativeKosync {
         self.push_work = PushWork::Idle;
         match self.start_send(host, position) {
             Ok(true) => Ok(()),
-            Ok(false) | Err(Error::Busy | Error::NoMemory) => {
+            Ok(false) => {
                 if let Some(engine) = &mut self.engine {
                     engine.not_sent();
                 }
                 Ok(())
             }
+            Err(Error::Busy | Error::NoMemory) => self.send_failed(position.try_clone()?),
             Err(error) => Err(error),
+        }
+    }
+
+    /// Sending `position` failed: it goes again later.
+    fn send_failed(&mut self, position: Position) -> Result<(), Error> {
+        match &mut self.engine {
+            Some(engine) => engine.send_failed(position),
+            None => Ok(()),
         }
     }
 
@@ -594,6 +638,7 @@ impl NativeKosync {
             path: String::new(),
             local: 0.0,
             manual: false,
+            sent: Some(position.try_clone()?),
         };
         self.start(host, &call, pending)?;
         Ok(true)
@@ -687,14 +732,10 @@ impl NativeKosync {
         let now = done.now_ms();
         match pending.purpose {
             Purpose::Pull => self.pulled(host, now, &pending, done, status),
-            Purpose::Push => {
-                if status != 200
-                    && let Some(engine) = &mut self.engine
-                {
-                    engine.not_sent();
-                }
-                Ok(())
-            }
+            Purpose::Push => match pending.sent {
+                Some(position) if status != 200 => self.send_failed(position),
+                _ => Ok(()),
+            },
             Purpose::Authorize | Purpose::Create if done.reason() == Reason::Offline => {
                 self.held_back(host, pending.purpose == Purpose::Create)
             }
@@ -883,12 +924,18 @@ impl NativeKosync {
         let stay = answered && answer.choice() == 0;
         let went = if go {
             match self.go_there(host, &offer) {
-                Ok(went) => went,
+                Ok(true) => true,
                 Err(Error::Busy | Error::Full) => {
                     self.engine(host, now_ms)?.retry_offer(&offer.path)?;
                     return self.notice_key(host, "kosync.book-busy", 0);
                 }
-                Err(error) => return Err(error),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                // The place not found, or the book not opened there: said,
+                // and as if the offer was closed.
+                Ok(false) | Err(_) => {
+                    self.notice_key(host, "kosync.not-there", 0)?;
+                    false
+                }
             }
         } else {
             false
@@ -1034,6 +1081,7 @@ impl NativeKosync {
                 }],
             ),
             Some(Message::Taken) => say.copy(host, "kosync.taken"),
+            Some(Message::BadServer) => say.copy(host, "kosync.bad-server"),
             Some(Message::Failed(status)) => say.format(
                 host,
                 failure(status),
@@ -1220,18 +1268,16 @@ impl NativeKosync {
             path: String::new(),
             local: 0.0,
             manual: false,
+            sent: None,
         };
-        match self.start(host, &call, pending) {
-            Ok(()) => Ok(()),
-            // Not started: said as an answer that never came.
-            Err(Error::Busy | Error::NoMemory | Error::Unsupported) => {
-                if let Some(view) = self.screens.top(token) {
-                    view.account.answered(create, 0)?;
-                }
-                Ok(())
-            }
-            Err(error) => Err(error),
+        // Not started (busy, no memory, an address the network refuses):
+        // said as an answer that never came, so the screen waits no longer.
+        if self.start(host, &call, pending).is_err()
+            && let Some(view) = self.screens.top(token)
+        {
+            view.account.answered(create, 0)?;
         }
+        Ok(())
     }
 
     /// Offline mode held *Sign in* or *Create account* back: the first time
@@ -1335,8 +1381,15 @@ impl NativeKosync {
     }
 
     fn clear_account(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if let Some(secrets) = &self.secrets {
-            best_effort(store::remove_key(secrets, host));
+        let removed = match &self.secrets {
+            Some(secrets) => store::remove_key(secrets, host),
+            None => Ok(()),
+        };
+        match removed {
+            Ok(()) => {}
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            // Signed out all the same; the key is still among the secrets.
+            Err(_) => self.notice_key(host, "kosync.key-kept", 0)?,
         }
         self.key = None;
         let mut scratch = [0; 64];

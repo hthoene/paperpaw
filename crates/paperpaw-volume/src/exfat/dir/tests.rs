@@ -3,7 +3,7 @@
 //! hold each file whole (as before the operation or as after it), name no
 //! cluster twice or one marked free, and take further writes.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::io::{self, SeekFrom as StdSeek};
 use std::rc::Rc;
@@ -15,15 +15,17 @@ use crate::io::StdIoWrapper;
 
 type Log = Rc<RefCell<Vec<(u64, Vec<u8>)>>>;
 
-/// A disk in memory that remembers every write.
+/// A disk in memory that remembers every write and counts the reads.
 struct Rec {
     data: Rc<RefCell<Vec<u8>>>,
     pos: u64,
     log: Log,
+    reads: Rc<Cell<u64>>,
 }
 
 impl io::Read for Rec {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.reads.set(self.reads.get() + 1);
         let data = self.data.borrow();
         let at = (self.pos as usize).min(data.len());
         let n = buf.len().min(data.len() - at);
@@ -67,6 +69,7 @@ type Fs = ExFat<Disk>;
 struct Card {
     data: Rc<RefCell<Vec<u8>>>,
     log: Log,
+    reads: Rc<Cell<u64>>,
 }
 
 impl Card {
@@ -81,6 +84,7 @@ impl Card {
         Self {
             data: Rc::new(RefCell::new(image)),
             log: Rc::default(),
+            reads: Rc::default(),
         }
     }
 
@@ -89,6 +93,7 @@ impl Card {
             data: self.data.clone(),
             pos: 0,
             log: self.log.clone(),
+            reads: self.reads.clone(),
         })
     }
 
@@ -503,6 +508,33 @@ fn folders_grow_at_every_cut() {
 }
 
 #[test]
+fn a_folder_whose_size_is_not_whole_clusters_is_damaged_and_left_alone() {
+    let card = filled(512);
+    for len in [32, 512 + 32] {
+        let fs = card.mount();
+        let root = fs.root_dir();
+        let books = root.find("books").unwrap().unwrap();
+        fs.update(&books.loc, |set| {
+            set_stream(set, books.first, len, len, books.contiguous);
+        })
+        .unwrap();
+        fs.flush().unwrap();
+        let before = card.image();
+        let dir = root.find("books").unwrap().unwrap().to_dir();
+        assert!(
+            matches!(dir.iter().next(), Some(Err(Error::CorruptedFileSystem))),
+            "{len}"
+        );
+        assert!(
+            matches!(dir.create_file("more.txt"), Err(Error::CorruptedFileSystem)),
+            "{len}"
+        );
+        fs.flush().unwrap();
+        assert!(card.image() == before, "{len}: the card was written");
+    }
+}
+
+#[test]
 fn a_file_cut_short_is_old_or_new() {
     let card = filled(512);
     every_cut(
@@ -608,6 +640,107 @@ fn a_set_with_a_wrong_checksum_is_left_alone() {
 }
 
 #[test]
+fn a_set_that_runs_past_the_folder_end_is_left_alone() {
+    let card = filled(512);
+    let fs = card.mount();
+    // The root's last cluster, its free slots taken by entries not in use, and in its last slot
+    // a file entry that counts two entries more: past the end of the root's chain.
+    let mut last = fs.root();
+    while let Some(next) = fs.fat_next(last).unwrap() {
+        last = next;
+    }
+    let base = fs.cluster_offset(last).unwrap();
+    let slot = base + fs.cluster_size() - ENTRY as u64;
+    for at in (base..slot).step_by(ENTRY) {
+        let mut kind = [0u8; 1];
+        fs.read_at(at, &mut kind).unwrap();
+        if kind[0] == 0 {
+            fs.write_at(at, &[ENTRY_UNUSED]).unwrap();
+        }
+    }
+    fs.write_at(slot, &[ENTRY_FILE, 2]).unwrap();
+    fs.flush().unwrap();
+    let before = card.image();
+    let files = tree(&fs);
+    assert_eq!(files["first.txt"], data(700, 1));
+    assert_eq!(files.len(), 5);
+    let root = fs.root_dir();
+    write(&root, "another.txt", &data(50, 1));
+    fs.flush().unwrap();
+    let at = slot as usize;
+    assert_eq!(card.image()[at..at + ENTRY], before[at..at + ENTRY]);
+    assert_eq!(tree(&fs)["another.txt"], data(50, 1));
+    // In a folder of one cluster (its size says where it ends), a whole set whose file entry is
+    // its last slot and whose other entries are the next cluster's first bytes (another file's).
+    let books = root.find("books").unwrap().unwrap();
+    assert!(books.contiguous);
+    let base = fs.cluster_offset(books.first).unwrap();
+    let slot = base + fs.cluster_size() - ENTRY as u64;
+    for at in (base..slot).step_by(ENTRY) {
+        let mut kind = [0u8; 1];
+        fs.read_at(at, &mut kind).unwrap();
+        if kind[0] == 0 {
+            fs.write_at(at, &[ENTRY_UNUSED]).unwrap();
+        }
+    }
+    let (units, hash) = encode::<io::Error>("hidden.txt").unwrap();
+    let set = build(&units, hash, &Fresh::empty(ATTR_ARCHIVE));
+    fs.write_at(slot, &set.used()[..ENTRY]).unwrap();
+    fs.write_at(slot + ENTRY as u64, &set.used()[ENTRY..])
+        .unwrap();
+    fs.flush().unwrap();
+    let names: Vec<String> = books
+        .to_dir()
+        .iter()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["inside.txt"]);
+}
+
+#[test]
+fn the_bitmap_is_looked_for_and_walked_only_as_far_as_the_volume_needs() {
+    // A bitmap entry whose length is far past what the volume's clusters need: the clusters
+    // that hold their bits are walked, no more.
+    let card = filled(4096);
+    let root_slots = |fs: &Fs| {
+        let base = fs.cluster_offset(fs.root()).unwrap();
+        (base..base + fs.cluster_size()).step_by(ENTRY)
+    };
+    let kind_at = |fs: &Fs, at: u64| {
+        let mut kind = [0u8; 1];
+        fs.read_at(at, &mut kind).unwrap();
+        kind[0]
+    };
+    {
+        let fs = card.mount();
+        let at = root_slots(&fs)
+            .find(|&at| kind_at(&fs, at) == layout::ENTRY_BITMAP)
+            .unwrap();
+        fs.write_at(at + 24, &u64::MAX.to_le_bytes()).unwrap();
+        fs.flush().unwrap();
+    }
+    assert_eq!(tree(&card.mount())["first.txt"], data(700, 1));
+    // A root with no bitmap entry and no end, whose FAT runs in a loop: read as far as the
+    // bound, not through every cluster of the volume.
+    {
+        let fs = card.mount();
+        for at in root_slots(&fs) {
+            if matches!(kind_at(&fs, at), 0 | layout::ENTRY_BITMAP) {
+                fs.write_at(at, &[ENTRY_UNUSED]).unwrap();
+            }
+        }
+        fs.fat_set(fs.root(), fs.root()).unwrap();
+        fs.flush().unwrap();
+    }
+    card.reads.set(0);
+    assert!(matches!(
+        ExFat::mount(card.disk()),
+        Err(Error::CorruptedFileSystem)
+    ));
+    assert!(card.reads.get() < 9_000, "{} reads", card.reads.get());
+}
+
+#[test]
 fn the_card_is_marked_in_use_only_while_it_is() {
     let card = filled(512);
     let flags = |card: &Card| u16_at(&card.image(), 106) & layout::VOLUME_DIRTY;
@@ -623,6 +756,32 @@ fn the_card_is_marked_in_use_only_while_it_is() {
     write(&fs.root_dir(), "y", &[1]);
     fs.flush().unwrap();
     assert_ne!(flags(&card), 0);
+}
+
+#[test]
+fn a_volume_dropped_is_marked_no_longer_in_use() {
+    let card = filled(512);
+    let flags = |card: &Card| u16_at(&card.image(), 106) & layout::VOLUME_DIRTY;
+    {
+        let fs = card.mount();
+        write(&fs.root_dir(), "x", &[1]);
+        assert_ne!(flags(&card), 0);
+    }
+    assert_eq!(flags(&card), 0);
+    assert_eq!(tree(&card.mount())["x"], [1]);
+    // A mount that fails (here: no bitmap) writes nothing as it goes.
+    {
+        let fs = card.mount();
+        let base = fs.cluster_offset(fs.root()).unwrap();
+        let mut kind = [0u8; 1];
+        fs.read_at(base, &mut kind).unwrap();
+        assert_eq!(kind[0], layout::ENTRY_BITMAP);
+        fs.write_at(base, &[ENTRY_UNUSED]).unwrap();
+        fs.write_at(base + ENTRY as u64, &[0]).unwrap();
+    }
+    card.log.borrow_mut().clear();
+    assert!(ExFat::mount(card.disk()).is_err());
+    assert!(card.log.borrow().is_empty());
 }
 
 #[test]

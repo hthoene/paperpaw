@@ -229,8 +229,9 @@ pub(crate) fn bar(canvas: &mut Canvas<'_>, look: &Look, area: Rect, permille: u1
     cut.fill_round(inner, radius.saturating_sub(u32::from(inset)), ink);
 }
 
-/// A button at `area` saying `label`: framed, or filled black with white
-/// words where it has the focus.
+/// A button at `area` saying `label`: framed, and where it has the focus a
+/// ring round it as thick as the frame and as far off it, as the kit's
+/// buttons have (`paperpaw_ui_kit::parts::button_ring`).
 pub(crate) fn button(
     canvas: &mut Canvas<'_>,
     font: Option<&FontHandle<'_>>,
@@ -241,13 +242,17 @@ pub(crate) fn button(
 ) {
     canvas.describe(Role::Button, label, area);
     let radius = look.corner.min(u32::from(area.height) / 2);
-    let ink = if focused {
-        canvas.fill_round(area, radius, Color::BLACK);
-        Color::WHITE
-    } else {
-        canvas.stroke_round(area, look.border(), radius, Color::BLACK);
-        Color::BLACK
-    };
+    let border = look.border();
+    canvas.stroke_round(area, border, radius, Color::BLACK);
+    if focused {
+        let off = u16::try_from(border * 2).unwrap_or(u16::MAX);
+        canvas.stroke_round(
+            area.grow(off),
+            border,
+            radius + u32::from(off),
+            Color::BLACK,
+        );
+    }
     if let Some(font) = font {
         let inner = area.inset(look.gap.min(area.width / 4), 0);
         let fitted = fit(font, look.small, label, f32::from(inner.width));
@@ -259,7 +264,7 @@ pub(crate) fn button(
             x,
             baseline(font, look.small, area),
             &fitted,
-            ink,
+            Color::BLACK,
         );
     }
 }

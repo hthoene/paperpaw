@@ -5,9 +5,11 @@
 //! reader is asked with a confirm question (`core.ui` `ask`, the answer is
 //! `event.answered`) before anything is written. *Back* closes the screen and
 //! ends the permission, and so does a time without a request (an exact timer
-//! of `core.work`). A `respond` the host cannot take yet (`Busy`) is kept and
-//! tried again on the next callback or the retry timer.
-use super::{NativeTransfer, SERVE_OUT, failed, handle, reason_word, redraw, word};
+//! of `core.work`): the screen then says so until Back leaves it or the
+//! computer speaks again (a timer cannot leave a screen). A `respond` the host
+//! cannot take yet (`Busy`) is kept and tried again on the next callback or
+//! the retry timer.
+use super::{NativeTransfer, SERVE_OUT, error_key, failed, handle, reason_key, redraw};
 use crate::{
     declarations::{CABLE, SERVED_REQUEST, SERVER_EVENT, WORK},
     native_cable::{
@@ -20,7 +22,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         callbacks::{DrawFrame, Input},
-        commands::{CommandSender, RedrawMode},
+        commands::RedrawMode,
         device::{DeviceOutcome, InstallKind},
         events::{AnswerOutcome, Answered, Event, InstallDone},
         formatting::Arg,
@@ -71,6 +73,9 @@ pub(super) struct CableScreen {
     /// Whether the cable's server runs, and whether a computer has spoken.
     running: bool,
     spoken: bool,
+    /// The permission ended for a time without a request; until the
+    /// computer speaks again.
+    ended: bool,
     /// Why the server did not start or stopped, in the reader's words.
     failed: Option<String>,
     pending: Vec<Pending>,
@@ -141,6 +146,7 @@ impl NativeTransfer {
             started: false,
             running: false,
             spoken: false,
+            ended: false,
             failed: None,
             pending: Vec::new(),
             clock: 0,
@@ -157,6 +163,8 @@ impl NativeTransfer {
             return Ok(());
         }
         screen.started = true;
+        // Only Back does something here: the question is a dialog of its own.
+        Self::only_back(host);
         let started = (|| {
             let server = Server::cable(CABLE_SERVER).max_body(MAX_SERVED_BODY)?;
             let (mut input, mut out) = (buffer(64)?, buffer(SERVE_OUT)?);
@@ -166,7 +174,7 @@ impl NativeTransfer {
             Ok(()) => Ok(()),
             Err(Error::NoMemory) => Err(Error::NoMemory),
             Err(error) => {
-                let words = failed(host, "transfer.failed", word(error))?;
+                let words = failed(host, "transfer.failed", error_key(error))?;
                 self.cable_failed(host, words)
             }
         }
@@ -263,12 +271,12 @@ impl NativeTransfer {
             }
             ServerState::Failed { reason } => {
                 screen.running = false;
-                let words = failed(host, "transfer.failed", reason_word(reason))?;
+                let words = failed(host, "transfer.failed", reason_key(reason))?;
                 self.cable_failed(host, words)
             }
             ServerState::Stopped { reason } if screen.running => {
                 screen.running = false;
-                let words = failed(host, "transfer.stopped", reason_word(reason))?;
+                let words = failed(host, "transfer.stopped", reason_key(reason))?;
                 self.cable_failed(host, words)
             }
             _ => Ok(()),
@@ -300,6 +308,7 @@ impl NativeTransfer {
         };
         screen.clock = request.now_ms();
         screen.spoken = true;
+        let ended = core::mem::take(&mut screen.ended);
         self.arm(host, IDLE_KEY, request.now_ms().saturating_add(IDLE_MS))?;
         // What the host refused as busy goes first.
         self.flush(host)?;
@@ -324,7 +333,7 @@ impl NativeTransfer {
             self.deliver(host, request.request(), reply)?;
         }
         let after = self.cable.as_ref().map(|s| s.state.shown());
-        if before != after {
+        if before != after || ended {
             redraw(host, RedrawMode::Fast)?;
         }
         Ok(())
@@ -403,10 +412,17 @@ impl NativeTransfer {
                 // time counts again from when it was answered.
                 self.arm(host, IDLE_KEY, now_ms.saturating_add(IDLE_MS))
             }
+            // Left alone: the permission ends, and the screen says so (a timer
+            // cannot leave a screen; Back does).
             IDLE_KEY => {
-                let instance = screen.instance;
-                let mut scratch = [0; 64];
-                CommandSender::new(host, &mut scratch).close(instance)
+                self.with_cable(host, |cable, hc| {
+                    cable.close(hc);
+                    Ok(())
+                })?;
+                if let Some(screen) = self.cable.as_mut() {
+                    screen.ended = true;
+                }
+                redraw(host, RedrawMode::Partial)
             }
             RETRY_KEY => self.flush(host),
             _ => Ok(()),
@@ -558,6 +574,12 @@ impl CableScreen {
             return Ok((
                 messages.copy(host, "transfer.failed.title")?,
                 paperpaw_ui_kit::text::copy(words)?,
+            ));
+        }
+        if self.ended {
+            return Ok((
+                messages.copy(host, "transfer.cable.ended.title")?,
+                messages.copy(host, "transfer.cable.ended")?,
             ));
         }
         let (head, text) = match self.state.permission() {

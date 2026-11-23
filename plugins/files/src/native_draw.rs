@@ -416,24 +416,31 @@ fn draw_empty(
 ) -> Result<(), Error> {
     let room = f32::from(area.width.saturating_sub(4 * style.margin)).max(1.0);
     let lines = text::wrap_with(|l| font.measure_text(style.small, l), said.text, room, 6)?;
+    // A filter's words stand alone and may be a sentence or two: wrapped, as
+    // in Beta 3, not cut.
+    let titles = text::wrap_with(|l| font.measure_text(style.title, l), said.title, room, 4)?;
     let head = paperpaw_ui_kit::geometry::line_px(font, style.title)?;
     let small = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
-    let total = u32::from(head) + u32::from(style.gap) + u32::from(small) * lines.len() as u32;
+    let total = u32::from(head) * titles.len() as u32
+        + u32::from(style.gap)
+        + u32::from(small) * lines.len() as u32;
     let total = u16::try_from(total).unwrap_or(u16::MAX);
     let mut y = area.y.saturating_add(area.height.saturating_sub(total) / 2);
-    let title = text::fit(font, style.title, said.title, room)?;
-    let x = (f32::from(area.width) - font.measure_text(style.title, &title)?).max(0.0) / 2.0;
-    text::label(
-        out,
-        font,
-        &title,
-        style.title,
-        x,
-        Rect::new(0, y, area.width, head),
-        style.ink,
-        None,
-    )?;
-    y = y.saturating_add(head).saturating_add(style.gap);
+    for title in &titles {
+        let x = (f32::from(area.width) - font.measure_text(style.title, title)?).max(0.0) / 2.0;
+        text::label(
+            out,
+            font,
+            title,
+            style.title,
+            x,
+            Rect::new(0, y, area.width, head),
+            style.ink,
+            None,
+        )?;
+        y = y.saturating_add(head);
+    }
+    y = y.saturating_add(style.gap);
     for line in &lines {
         let x = (f32::from(area.width) - font.measure_text(style.small, line)?).max(0.0) / 2.0;
         text::label(

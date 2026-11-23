@@ -25,15 +25,19 @@
 //! `paperpaw.ini`, a setting's id and its value a line; the settings of
 //! its kind that it leaves out go back to their defaults when it is
 //! applied ([`Preset::changes`]).
-//!
-//! `Staging::add_presets`: crate::Staging::add_presets
-//! `Staging::add_preset`: crate::Staging::add_preset
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
 
 use crate::id::Id;
-use crate::settings::{SettingValue, Settings};
+use crate::settings::{SettingSpec, SettingValue, Settings};
+
+/// Whether a preset never changes setting `id` of `spec`, whatever it says:
+/// a secret, and a grant (`core.grant.*`), which only the reader gives. The
+/// kernel applies presets so (its walk of a preset leaves them out).
+fn untouchable(id: &str, spec: &SettingSpec) -> bool {
+    spec.extra().secret || id.starts_with("core.grant.")
+}
 
 /// A ready-made set of setting values.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,16 +115,24 @@ impl Preset {
     /// each with the value it gives it, `None` (the default) where it
     /// leaves a covered one out. Settings not known here and values that
     /// do not fit their setting are left out, so a preset made for
-    /// plugins this device lacks still applies the rest.
+    /// plugins this device lacks still applies the rest; so are secrets and
+    /// grants, which no preset changes.
     pub fn changes(&self, settings: &Settings, covered: &[Id]) -> Vec<(Id, Option<SettingValue>)> {
-        let known = |id: &str| settings.with_spec(id, |_| ()) == Ok(Some(()));
+        let known =
+            |id: &str| settings.with_spec(id, |spec| !untouchable(id, spec)) == Ok(Some(true));
         let mut out: Vec<(Id, Option<SettingValue>)> = covered
             .iter()
             .filter(|id| known(id.as_str()))
             .map(|id| (id.clone(), None))
             .collect();
         for (id, text) in self.values() {
-            let parsed = settings.with_spec(id, |spec| spec.kind.parse(text));
+            let parsed = settings.with_spec(id, |spec| {
+                if untouchable(id, spec) {
+                    None
+                } else {
+                    spec.kind.parse(text)
+                }
+            });
             let Ok(Some(Some(value))) = parsed else {
                 continue;
             };
@@ -146,8 +158,9 @@ pub const THEME: &str = "core.theme";
 /// The settings a theme covers: those of the appearance group
 /// ([`groups::LOOK`](crate::builtin::groups::LOOK)) but what the reader
 /// needs to read the interface at all, which a theme never changes (the
-/// size of its text, its contrast, the logo), and the frame of all
-/// widgets, which a widget look covers ([`widget_look_settings`]).
+/// size of its text, its contrast, the logo), the frame of all widgets,
+/// which a widget look covers ([`widget_look_settings`]), and secrets and
+/// grants, which no preset changes.
 pub fn theme_settings(settings: &Settings) -> Vec<Id> {
     use crate::builtin::settings::{UI_CONTRAST, UI_SIZE, WIDGET_FRAME};
     let kept = [
@@ -160,6 +173,7 @@ pub fn theme_settings(settings: &Settings) -> Vec<Id> {
     let walked = settings.each_spec(crate::settings::Pick::All, |spec| {
         if settings.group_of(spec) == crate::builtin::groups::LOOK
             && !kept.contains(&spec.id.as_str())
+            && !untouchable(spec.id.as_str(), spec)
         {
             covered.push(spec.id.clone());
         }
@@ -191,7 +205,8 @@ pub const WIDGET_LOOK: &str = "core.widget-look";
 /// padding, size, alignment, colours and shape (`<widget>.frame` …, of
 /// each id `is_widget` says is a widget's), and those of all and the gap between widgets
 /// ([`WIDGET_FRAME`](crate::builtin::settings::WIDGET_FRAME) …); not the
-/// settings of other things that end so (the status lines' size).
+/// settings of other things that end so (the status lines' size), nor a
+/// secret or a grant, which no preset changes.
 pub fn widget_look_settings(settings: &Settings, is_widget: &dyn Fn(&str) -> bool) -> Vec<Id> {
     use crate::builtin::settings as s;
     const PARTS: [&str; 9] = [
@@ -222,7 +237,8 @@ pub fn widget_look_settings(settings: &Settings, is_widget: &dyn Fn(&str) -> boo
     };
     let mut covered = Vec::new();
     let walked = settings.each_spec(crate::settings::Pick::All, |spec| {
-        if all.contains(&spec.id.as_str()) || of_widget(spec.id.as_str()) {
+        let id = spec.id.as_str();
+        if (all.contains(&id) || of_widget(id)) && !untouchable(id, spec) {
             covered.push(spec.id.clone());
         }
     });
@@ -449,5 +465,52 @@ mod tests {
         assert!(applied(&s, &back));
         // A value that does not fit is left out.
         assert!(PRESETS[1].changes(&s, &[]).is_empty());
+    }
+
+    /// A preset never changes a secret or a grant, whatever it says or
+    /// covers, as the kernel applies it.
+    #[test]
+    fn a_preset_changes_no_secret_and_no_grant() {
+        static SECRET: crate::settings::SettingExtra =
+            crate::settings::SettingExtra::new().secret();
+        let mut s = settings();
+        for (id, kind, default) in [
+            (
+                "a.key",
+                SettingKind::Text,
+                SettingValue::Text(Cow::Borrowed("")),
+            ),
+            (
+                "core.grant.style",
+                SettingKind::Bool,
+                SettingValue::Bool(false),
+            ),
+        ] {
+            let spec = SettingSpec::new(
+                Id::new_static(id),
+                id,
+                kind,
+                default,
+                crate::builtin::groups::OTHER,
+            );
+            s.define(if id == "a.key" {
+                spec.with_extra(&SECRET)
+            } else {
+                spec
+            })
+            .unwrap();
+        }
+        let preset = Preset::new(
+            Id::new_static("c.sly"),
+            Id::new_static("a.layout"),
+            "",
+            "",
+            "a.key = stolen\ncore.grant.style = true\na.size = 2",
+        );
+        let covered = [Id::new_static("a.key"), Id::new_static("core.grant.style")];
+        assert_eq!(
+            preset.changes(&s, &covered),
+            [(Id::new_static("a.size"), Some(SettingValue::Int(2)))]
+        );
     }
 }

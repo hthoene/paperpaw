@@ -39,6 +39,11 @@ pub const DEPTH: usize = 256;
 /// Most entries read finding the working folder again in one call.
 pub(super) const DESCENT: u32 = 3 * DEPTH as u32;
 const SLOT: u64 = 32;
+/// Longest path the walk keeps for a folder, in bytes; below a longer one it
+/// goes on by place alone. Kept equal to the longest paths PaperPaw builds:
+/// the core's joined paths (`MAX_JOINED`, `docs/abi/files.md` 5) and the
+/// private `PATH` of `paperpaw_platform::storage::remove_listed_by_path`.
+const MAX_PATH: usize = 640;
 
 /// What a call read from the folders.
 #[derive(Clone, Copy, Debug, Default)]
@@ -113,7 +118,7 @@ enum Outcome {
 
 fn child_path(parent: &Option<String>, name: &str) -> Option<String> {
     let path = child(parent.as_deref()?, name);
-    (path.len() <= 640 && check(&path).is_ok()).then_some(path)
+    (path.len() <= MAX_PATH && check(&path).is_ok()).then_some(path)
 }
 
 impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {

@@ -7,8 +7,11 @@ the texts (`i18n/`) and "How it works" (`how/`) are unchanged.
 
 - Declares the per-book folder `koreader` (`book_data`, user data: what both sides
   had at the last exchange; moved and removed with the book by the host) and
-  subscribes to the book-opened and library-changed events
+  subscribes to the book-opened, library-changed and book-moved events
   (`declarations.rs`, generated into `native/metadata*` by `tools/abi-metadata.py`).
+- A book moved takes KOReader's folder beside it (`Book.sdr`) along with `core.files`,
+  or only the book's own files in it where another format of the book shares it
+  (`model::sidecar_moves`, as Beta 3's `moved_book`); one that cannot be moved is said.
 - A book opened, or a change of its annotations (library_changed with the
   annotations bit; the plugin's own change is ignored once), starts an exchange:
   KOReader's file beside the book is read (`native_model.rs`, a fallible Lua reader
@@ -16,7 +19,8 @@ the texts (`i18n/`) and "How it works" (`how/`) are unchanged.
   `Library::annotations`/`anchors`, positions go through `Documents::xpointer` and
   `locate`, and the rules of `native_exchange.rs` (host free, unit tested) say what
   is taken over, offered, kept aside or removed. Changes to the library's
-  annotations are one edit transaction (`Library::edit_*`); what is left for KOReader
+  annotations are edit transactions (`Library::edit_*`) of at most 128 edits each,
+  the X4's cap, one after the other; what is left for KOReader
   is written to `<name>.annotations.lua` with `core.files`.
 - Where KOReader's file, seen with annotations before, has none any more, the reader
   is asked in the book (`Ui::ask`, once per book and run).

@@ -143,6 +143,26 @@ impl StackRows {
         self.uncovered(owner, at)
     }
 
+    /// The screen instance whose callback runs for `owner`, shown or covered:
+    /// on the snapshot, the owner's own non-host row (`sockets.md` 1: a socket
+    /// opened in a screen's callback ends when that screen closes, also one
+    /// opened while the quick panel covered it). `None` elsewhere, also for a
+    /// stale, missing or overflowed snapshot. No allocation.
+    pub(crate) fn calling_screen(&self, owner: u64) -> Option<u64> {
+        let (running_owner, instance) = self.running.get();
+        if owner == 0
+            || running_owner != owner
+            || instance == 0
+            || !self.valid(self.generation.get())
+        {
+            return None;
+        }
+        (0..self.len())
+            .filter_map(|index| self.row(index))
+            .find(|row| row.instance == instance && row.owner == owner && !row.host)
+            .map(|row| u64::from(row.instance))
+    }
+
     /// The topmost screen of `owner`, if it is showing: the owner's own
     /// non-host, non-overlay row nearest the top (its own dialogs above it do
     /// not hide it) with nothing covering it, by the rules of
@@ -489,6 +509,29 @@ mod tests {
         assert_eq!(rows.showing_screen(0), None);
         drop(guard);
         assert_eq!(rows.showing_screen(9), None, "the guard ended the callback");
+    }
+
+    /// A covered screen's callback is still that screen's: what it opens
+    /// ends with it (#483).
+    #[test]
+    fn a_calling_screen_is_the_running_one_shown_or_covered() {
+        let rows = StackRows::default();
+        rows.update([row(1, 9, 0), row(2, 0, OVERLAY | HOST), row(3, 8, 0)]);
+        assert_eq!(rows.calling_screen(9), None, "no callback runs");
+        {
+            let _call = rows.enter_callback(9, 1);
+            assert_eq!(rows.showing_screen(9), None, "covered");
+            assert_eq!(rows.calling_screen(9), Some(1));
+            assert_eq!(rows.calling_screen(8), None, "another owner's");
+        }
+        {
+            let _call = rows.enter_callback(9, 7);
+            assert_eq!(rows.calling_screen(9), None, "not on the stack");
+        }
+        {
+            let _call = rows.enter_callback(0, 2);
+            assert_eq!(rows.calling_screen(0), None, "a host row");
+        }
     }
 
     #[test]

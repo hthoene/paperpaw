@@ -9,13 +9,14 @@ use paperpaw_sdk::native::{
     document::{DocCursor, DocId, Documents},
     settings::{self, SettingValue},
 };
+use paperpaw_ui_kit::font_sizes;
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
 /// Most entries of the table looked at (as the contents screen lists).
 pub const MAX_ENTRIES: usize = 500;
 
-/// The smallest and the largest reading size, in points (the setting's range;
-/// a font pack may allow less, which the host applies).
+/// The smallest and the largest reading size, in points (the host's range of
+/// `core.font-size`; a font pack may allow less, which the host applies).
 pub const SIZES: (i64, i64) = (6, 40);
 
 /// The size after `step` points, kept to what the setting allows.
@@ -31,19 +32,25 @@ pub const fn stepped(size: i64, step: i64) -> i64 {
     }
 }
 
-/// Asks the host to make the reading size `step` points larger or smaller.
+/// Asks the host to make the reading size a step larger or smaller (`step`
+/// is the sign): to the next size the reading font draws differently, as
+/// Beta 3's `shown_step` and the settings' own steps do; nothing where no
+/// size that way looks different.
 ///
 /// # Errors
 /// The host's refusals.
 pub fn font_step(host: &Host<'_>, step: i64) -> Result<(), Error> {
+    const KEY: &str = "core.font-size";
     let mut bytes = [0; 32];
-    let SettingValue::Int(size) = settings::read_setting(host, "core.font-size", &mut bytes)?
-    else {
+    let SettingValue::Int(size) = settings::read_setting(host, KEY, &mut bytes)? else {
         return Err(Error::Invalid);
     };
+    let next = font_sizes::step(host, KEY, (size, stepped(size, step)), SIZES)?;
+    if next == size {
+        return Ok(());
+    }
     let mut scratch = [0; 128];
-    CommandSender::new(host, &mut scratch)
-        .set_setting("core.font-size", SettingValue::Int(stepped(size, step)))
+    CommandSender::new(host, &mut scratch).set_setting(KEY, SettingValue::Int(next))
 }
 
 /// Asks the host to switch the justification.

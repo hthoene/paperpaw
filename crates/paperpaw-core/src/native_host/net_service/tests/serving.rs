@@ -605,6 +605,23 @@ fn a_transport_that_cannot_answer_ends_the_request_with_its_error() {
     assert_eq!(respond(&fake, OWNER, &[answer(r, 200)]), Err(ERR_NOT_FOUND));
 }
 
+/// A transport without room for the answer now (the cable's answers wait
+/// to be sent) leaves the request open: the plugin answers again, and the
+/// body it was sent stays (`network.md` 5.2, #483).
+#[test]
+fn a_transport_without_room_now_leaves_the_request_open() {
+    let fake = Fake::servers(8);
+    serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
+    let r = arrive(&fake, key_of(&fake), "/", 0);
+    drain(&fake, OWNER);
+    fake.reply_fails.set(Some(ERR_BUSY));
+    assert_eq!(respond(&fake, OWNER, &[answer(r, 200)]), Err(ERR_BUSY));
+    assert!(fake.removed.borrow().is_empty(), "the body stays");
+    fake.reply_fails.set(None);
+    respond(&fake, OWNER, &[answer(r, 200)]).unwrap();
+    assert_eq!(fake.replies.borrow().len(), 1);
+}
+
 #[test]
 fn stopping_a_server_ends_its_requests_and_removes_their_bodies_nothing_stays() {
     let fake = Fake::servers(8);

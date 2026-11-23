@@ -71,3 +71,17 @@ fn a_server_on_the_network_puts_a_timed_sleep_off_and_the_cables_does_not() {
     // A server is no request: the sleep it was asked for does not wait.
     assert!(!kernel.holds_sleep());
 }
+
+/// The cable's server asks for no network: the network manager is not told
+/// of a demand, so it neither brings Wi-Fi up nor keeps it for it (#483).
+#[test]
+fn the_cables_server_wants_no_network_and_one_on_the_network_does() {
+    let fake = Rc::new(Fake::x4());
+    let _kernel = kernel_with(&fake);
+    *fake.listen_result.borrow_mut() = Some(Ok(""));
+    serve_on(&fake, 1, 0);
+    assert!(fake.demand.borrow().is_empty(), "the cable's server");
+    *fake.listen_result.borrow_mut() = None;
+    serve_on(&fake, 2, 8080);
+    assert_eq!(*fake.demand.borrow(), [true]);
+}

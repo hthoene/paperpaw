@@ -30,21 +30,25 @@ pub struct Radio {
     pub busy: bool,
 }
 
+/// The room for a `core.device` reply: the schema's capacity, as the host
+/// refuses a smaller reply buffer (`NoSpace`, `docs/abi/device.md` 6.1).
+const REPLY: usize = 4096;
+
 fn with_device<T>(
     host: &Host<'_>,
-    f: impl FnOnce(&Device, &mut [u8; 64], &mut [u8; 1024]) -> Result<T, Error>,
+    f: impl FnOnce(&Device, &mut [u8; 64], &mut [u8; REPLY]) -> Result<T, Error>,
 ) -> Result<T, Error> {
     // The buffers are on the heap, not in this frame: the device reads would
     // otherwise cost the X4's stack more than a kilobyte each.
     let mut buffer = Vec::new();
     buffer
-        .try_reserve_exact(64 + 1024)
+        .try_reserve_exact(64 + REPLY)
         .map_err(|_| Error::NoMemory)?;
-    buffer.resize(64 + 1024, 0);
+    buffer.resize(64 + REPLY, 0);
     let (input, out) = buffer.split_at_mut(64);
     let (Ok(input), Ok(out)) = (
         <&mut [u8; 64]>::try_from(input),
-        <&mut [u8; 1024]>::try_from(out),
+        <&mut [u8; REPLY]>::try_from(out),
     ) else {
         return Err(Error::State);
     };

@@ -28,7 +28,7 @@ use paperpaw_ui_kit::{Paint, geometry, paint, text};
 
 /// What the ring shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Numbers {
+pub(crate) struct Numbers {
     today: u64,
     /// Days in a row the goal was reached (any reading without a goal).
     streak: u32,
@@ -169,13 +169,15 @@ pub fn draw(
     cx: &mut Cx<'_>,
     out: &mut Vec<Paint>,
     area: Rect,
-    _slot: &crate::native_widgets::Slot,
+    slot: &crate::native_widgets::Slot,
 ) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
     let goal = goal(cx.host)?;
-    let Some(numbers) = numbers(cx, goal)? else {
+    let key = (crate::native_widgets::stamp(cx.host)?, goal);
+    if !slot.ring.refresh(key, || numbers(cx, goal))? {
         return crate::native_widgets::message(cx, out, &look, "stats.no-clock");
-    };
+    }
+    let numbers = *slot.ring.value().ok_or(Error::State)?;
     body(cx, out, &look, numbers, goal)
 }
 

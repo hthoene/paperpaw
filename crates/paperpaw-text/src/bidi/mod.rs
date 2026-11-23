@@ -293,29 +293,40 @@ fn is_removed(ch: char) -> bool {
 #[must_use]
 pub fn needs_bidi(text: &str) -> bool {
     // Nothing below U+0590 counts: most labels are told at once.
-    if text.is_ascii() {
-        return false;
-    }
-    text.chars().any(|ch| {
-        u32::from(ch) >= 0x0590
-            && matches!(
-                class(ch),
-                Class::R
-                    | Class::AL
-                    | Class::AN
-                    | Class::LRE
-                    | Class::LRO
-                    | Class::RLE
-                    | Class::RLO
-                    | Class::PDF
-                    | Class::LRI
-                    | Class::RLI
-                    | Class::FSI
-                    | Class::PDI
-            )
-            || matches!(ch, '\u{200B}' | '\u{200E}' | '\u{200F}')
-            || matches!(ch, '\u{E31}' | '\u{E34}'..='\u{E3A}' | '\u{E47}'..='\u{E4E}')
-    })
+    !text.is_ascii()
+        && text
+            .chars()
+            .any(|ch| ch == '\u{200B}' || char_needs_bidi(ch))
+}
+
+/// [`needs_bidi`] with the zero width space left out: text shaped by
+/// syllables (`crate::indic`) skips it itself, and Khmer, Lao and Burmese
+/// put one between their words often.
+pub(crate) fn needs_bidi_but_zero_width_spaces(text: &str) -> bool {
+    !text.is_ascii() && text.chars().any(char_needs_bidi)
+}
+
+/// Whether `ch` makes [`needs_bidi`] answer `true`, the zero width space
+/// left out.
+fn char_needs_bidi(ch: char) -> bool {
+    u32::from(ch) >= 0x0590
+        && matches!(
+            class(ch),
+            Class::R
+                | Class::AL
+                | Class::AN
+                | Class::LRE
+                | Class::LRO
+                | Class::RLE
+                | Class::RLO
+                | Class::PDF
+                | Class::LRI
+                | Class::RLI
+                | Class::FSI
+                | Class::PDI
+        )
+        || matches!(ch, '\u{200E}' | '\u{200F}')
+        || matches!(ch, '\u{E31}' | '\u{E34}'..='\u{E3A}' | '\u{E47}'..='\u{E4E}')
 }
 
 /// Rule L1 for one line: segment and paragraph separators, and the

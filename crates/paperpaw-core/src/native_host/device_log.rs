@@ -17,7 +17,6 @@ pub(crate) const LINE_MAX: usize = 120;
 /// One line for `frame`: `args` are rendered only when the frame has a sink
 /// ([`Frame::log`]). For the services of the host (todo 390): at most one
 /// line per call site per sync or job, plugin ids and numbers only.
-#[allow(dead_code, reason = "the document service logs through it (todo 390)")]
 pub(crate) fn frame_line(frame: &dyn Frame, args: fmt::Arguments<'_>) {
     frame.log(args);
 }

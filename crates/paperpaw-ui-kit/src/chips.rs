@@ -148,7 +148,7 @@ impl Chips {
             labels,
             sizes: (style.text, style.small),
             gap: style.gap,
-            border: style.line.max(2),
+            border: crate::parts::button_border(style.line),
             corner: style.corner,
             pill: style.pill,
             rtl: style.rtl,
@@ -393,16 +393,7 @@ impl Chips {
                 )?;
             }
             if focus == Some(i) {
-                let out = self.border.saturating_mul(2);
-                paint::push(
-                    paint,
-                    Paint::Focus(
-                        cell.grow(out),
-                        radius.saturating_add(u32::from(out)),
-                        Some(border),
-                        self.ink,
-                    ),
-                )?;
+                crate::parts::button_ring(paint, *cell, radius, self.border, self.ink)?;
             }
         }
         Ok(())

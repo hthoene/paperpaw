@@ -1,8 +1,8 @@
 //! The list of feeds, a screen (one at a time): *Fetch the news* first, the
 //! feeds, then *Add a feed*; before there is a feed only *Add a feed*, and what
 //! feeds are. A tap opens a feed's book (or fetches the feed that has none), a
-//! hold offers to open, fetch or remove it, *Add a feed* asks for its address
-//! on the keyboard.
+//! hold (or Select held, or the menu button) offers to open, fetch or remove
+//! it, *Add a feed* asks for its address on the keyboard.
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::Handled;
@@ -16,8 +16,7 @@ use paperpaw_sdk::native::{
     ui::{Open, Param, Question, TextMode},
 };
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages,
-    files::read_all_on,
+    Footer, Item, ItemList, ItemStep, Messages, files,
     mem::{SERVICE_BUFFER, buffer, push},
     text, uitext,
 };
@@ -26,7 +25,7 @@ use crate::declarations::SCREEN;
 use crate::native_books::{BOOKS_CAP, BOOKS_FILE, find};
 use crate::native_fetch::{load, save};
 use crate::native_news::{Feed, Mark};
-use crate::native_plugin::{DataVolume, News, notice};
+use crate::native_plugin::{News, notice};
 use crate::native_shelf::FOLDER;
 
 /// The longest address typed.
@@ -72,6 +71,9 @@ pub(crate) struct View {
     targets: Vec<Target>,
     /// What an empty list says: its title and its text.
     empty: (String, String),
+    /// What the list says below the feeds: how to reach what can be done
+    /// with one.
+    hint: String,
 }
 
 /// The rows for `feeds`, and what each does: *Fetch the news*, the feeds, *Add
@@ -106,6 +108,19 @@ pub(crate) fn is_address(typed: &str) -> bool {
     (typed.starts_with("http://") || typed.starts_with("https://")) && typed.len() >= 10
 }
 
+/// Whether `input` is Select held or the menu button: they offer what can
+/// be done with the row in focus, as a long press on it does (the list takes
+/// neither).
+fn holds_focus(input: &Input<'_>) -> bool {
+    matches!(
+        input,
+        Input::Action {
+            action: "core.menu" | "core.long-confirm",
+            ..
+        }
+    )
+}
+
 fn redraw(host: &Host<'_>) -> Result<(), Error> {
     let mut scratch = [0; 64];
     CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
@@ -133,7 +148,7 @@ impl News {
     /// Reads the feeds again and makes the rows of `view` from them; the focus
     /// stays where it was, or on the last row.
     fn build(host: &Host<'_>, view: &mut View) -> Result<(), Error> {
-        let (feeds, readable) = match load(&DataVolume(host)) {
+        let (feeds, readable) = match load(&files::volume(host, Root::Data)) {
             Ok(feeds) => (feeds, true),
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => (Vec::new(), false),
@@ -152,6 +167,8 @@ impl News {
                 say.copy(host, "news.empty.title")?,
                 say.copy(host, "news.empty")?,
             );
+        } else if view.hint.is_empty() {
+            view.hint = Messages::new()?.copy(host, "news.hint")?;
         }
         Ok(())
     }
@@ -201,7 +218,7 @@ impl News {
                 text: &view.empty.1,
             }
         } else {
-            Footer::None
+            Footer::Note(&view.hint)
         };
         view.list.draw_with(host, &mut frame, &title, true, footer)
     }
@@ -215,7 +232,11 @@ impl News {
         let Some(view) = self.screens.top(SCREEN) else {
             return Ok(Handled::No);
         };
-        let step = view.list.input(host, input)?;
+        let step = if holds_focus(input) {
+            ItemStep::Held(view.list.focus())
+        } else {
+            view.list.input(host, input)?
+        };
         match step {
             ItemStep::Chosen(row) => {
                 let target = view.targets.get(row).copied();
@@ -247,7 +268,7 @@ impl News {
             return Ok(());
         };
         let mark = Mark::of(&feed.url);
-        let kept = match read_all_on(&DataVolume(host), BOOKS_FILE, BOOKS_CAP) {
+        let kept = match files::read_all(host, Root::Data, BOOKS_FILE, BOOKS_CAP) {
             Ok(kept) => kept,
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => None,
@@ -375,7 +396,7 @@ impl News {
                 // A card that does not take the list does not get the feed:
                 // a fetch of a feed the list does not hold would ask for a
                 // book that is not there.
-                if save(&DataVolume(host), &view.feeds).is_err() {
+                if save(&files::volume(host, Root::Data), &view.feeds).is_err() {
                     view.feeds.pop();
                     return notice(host, "news.unsaved");
                 }
@@ -398,7 +419,7 @@ impl News {
         }
         if index < view.feeds.len() {
             view.feeds.remove(index);
-            save(&DataVolume(host), &view.feeds).ok();
+            save(&files::volume(host, Root::Data), &view.feeds).ok();
         }
         self.refresh(host)
     }
@@ -453,6 +474,15 @@ mod tests {
             .collect();
         // A feed with no name yet shows its host without `www.`.
         assert_eq!(titles, ["Fetch the news", "A", "b.example", "Add a feed"]);
+    }
+
+    #[test]
+    fn select_held_and_the_menu_button_hold_the_row_in_focus() {
+        let action = |action| Input::Action { now_ms: 0, action };
+        assert!(holds_focus(&action("core.long-confirm")));
+        assert!(holds_focus(&action("core.menu")));
+        assert!(!holds_focus(&action("core.confirm")));
+        assert!(!holds_focus(&action("core.right")));
     }
 
     #[test]

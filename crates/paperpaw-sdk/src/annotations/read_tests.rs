@@ -106,6 +106,48 @@ fn a_file_of_version_1_has_no_times_or_conversions() {
     assert_eq!(try_head(&stored(v1), BOOK).unwrap().version, 1);
 }
 
+/// A byte order mark and `\r\n` breaks, as editors on Windows leave them,
+/// read as the plain readers take them: the mark gone from the first line,
+/// no `\r` at the end of the last field.
+#[test]
+fn a_byte_order_mark_and_crlf_breaks_are_no_part_of_the_rows() {
+    let v1 = "\u{feff}h\t1\t0\t1\t4\t10\tshown\tnoted\r\nh\t2\t0\t2\t4\t20\tsecond\tn\r\n";
+    let got = rows(&stored(v1), &wide()).unwrap();
+    assert_eq!(
+        got.iter().map(|r| (r.id, &*r.note.0)).collect::<Vec<_>>(),
+        [(1, "noted"), (2, "n")]
+    );
+    assert_eq!((got[0].note.1, got[1].note.1), (5, 1));
+    let v2 = "\u{feff}# format 2\r\n# generation 5\r\nh\t1\t0\t1\t4\t10\t0\t0\t?\t\t\tt\tn\r\n";
+    assert_eq!(try_head(&stored(v2), BOOK).unwrap().version, 2);
+    assert_eq!(
+        rows(&stored(v2), &wide()).unwrap()[0].note,
+        ("n".to_string(), 1)
+    );
+    // A `\r` inside a line stays.
+    let inside = "h\t1\t0\t1\t4\t10\tshown\ta\rb\n";
+    assert_eq!(rows(&stored(inside), &wide()).unwrap()[0].note.0, "a\rb");
+}
+
+/// The version is the first line's, as the plain readers take it: a mark
+/// further down, or after an empty first line, says nothing.
+#[test]
+fn only_the_first_line_says_the_version() {
+    for text in ["\n# format 2\n", "# book 5 abc\n# format 2\n", "\n"] {
+        assert_eq!(
+            try_head(&stored(text), BOOK).unwrap().version,
+            1,
+            "{text:?}"
+        );
+    }
+    assert_eq!(
+        try_head(&stored("# format 2\n# format 3\n"), BOOK)
+            .unwrap()
+            .version,
+        2
+    );
+}
+
 #[test]
 fn a_file_of_version_3_has_ids_keys_and_a_generation() {
     let v3 = "# format 3\n# book 5 abc\n# next-id 9\n# generation 7\n\
@@ -155,6 +197,26 @@ fn a_long_note_is_read_in_pieces_cut_at_a_character_with_its_whole_length() {
     let got = rows(&storage, &tail).unwrap();
     assert_eq!(got[0].note.0, "€".repeat(233 - 170));
     assert_eq!(got[0].text, (String::new(), 1));
+}
+
+/// A window that starts inside a character starts at the next one.
+#[test]
+fn a_window_from_inside_a_character_starts_at_the_next() {
+    let storage = stored("h\t1\t0\t1\t4\t10\tt\t\u{e4}bc\u{20ac}d\n");
+    for (from, read) in [
+        (1, "bc\u{20ac}d"),
+        (4, "\u{20ac}d"),
+        (5, "d"),
+        (6, "d"),
+        (8, ""),
+    ] {
+        let windows = Windows {
+            note: Window::new(from, 16),
+            ..Windows::default()
+        };
+        let got = rows(&storage, &windows).unwrap();
+        assert_eq!(got[0].note, (read.to_string(), 8), "from {from}");
+    }
 }
 
 #[test]

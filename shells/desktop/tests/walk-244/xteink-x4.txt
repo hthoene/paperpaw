@@ -172,8 +172,7 @@ Text "<key>"
 Text "Open this address in a browser on a phone or" at 51,586 377x29
 Text "computer in the same Wi-Fi, or scan the code." at 50,614 380x29
 Text "The transfer runs while this page is open." at 69,642 342x29
-Text "Back" at 39,758 97x42
-Text "Select" at 154,758 115x42
+Text "Back" at 39,758 432x42
 Heading "Plugin store" at 0,0 480x58
 Row "Search" (focused) at 0,75 480x61
 Row "New" at 0,136 480x61

@@ -35,7 +35,7 @@ use crate::native_glue::{self, Reply as Typed};
 use crate::native_install::Installer;
 use crate::native_installs::{Activity, HostInstalls, Snapshot};
 use crate::native_load::{Loader, Wire as _};
-use crate::native_screens::{Ctx, LoaderView, Reply as ScreenReply, StoreView, ids};
+use crate::native_screens::{Ctx, LoaderView, Next, Reply as ScreenReply, StoreView, ids};
 use crate::native_wire::{Handles, HostWire};
 
 mod image {
@@ -78,10 +78,6 @@ pub struct NativeStore {
     /// What the device has installed, read while a screen is open.
     pub(crate) snapshot: Option<Snapshot>,
     pub(crate) activity: Activity,
-    /// The plugin whose page is awaited to install it.
-    pub(crate) want: Option<String>,
-    /// Whether the page the queue waits for was asked for again.
-    pub(crate) want_retried: bool,
     /// The removal the host was asked for: its request and the plugin's name.
     pub(crate) removing: Option<(u32, String)>,
     /// What the install under way needs of the page it comes from (on the heap:
@@ -240,6 +236,7 @@ impl NativeStore {
             self.activity.read_facts(host, &storage, Some(&snapshot))?;
             self.activity.origins = crate::native_sources::Origins::read(&storage)?;
             self.activity.listed = self.handles.trust();
+            self.activity.reads = self.activity.reads.wrapping_add(1);
             self.snapshot = Some(snapshot);
         }
         Ok(())
@@ -261,13 +258,6 @@ impl NativeStore {
         self.snapshot = None;
     }
 
-    /// Whether a plugin's page is on a screen that is open.
-    pub(crate) fn has_page_screen(&mut self) -> bool {
-        self.screens
-            .all()
-            .any(|slot| matches!(slot.view, StoreView::Plugin(_)))
-    }
-
     pub(crate) fn screens_empty(&self) -> bool {
         self.screens.is_empty()
     }
@@ -282,7 +272,7 @@ impl NativeStore {
     }
 
     /// Runs `f` on the screen `instance` with what it may read.
-    fn call<R>(
+    pub(crate) fn call<R>(
         &mut self,
         host: &Host<'_>,
         instance: Instance,
@@ -395,7 +385,13 @@ impl NativeStore {
                 view.resume(ctx)
             }
         })?;
-        self.carry(host, instance, next)
+        self.carry(host, instance, next)?;
+        if first && token == Some(LIST_SCREEN) {
+            // The store is opened: what waited in the queue since the last
+            // visit (a restart, no connection) goes on, as in Beta 3.
+            self.go_on(host)?;
+        }
+        Ok(())
     }
 
     /// The screen token of an open instance.
@@ -414,16 +410,22 @@ impl NativeStore {
         })
     }
 
+    /// Screen `instance` closed: what it does when it is left (the first-run
+    /// offer adds the plugins chosen) is carried out, and what it holds goes.
     #[inline(never)]
     fn closed(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         let was_page = self
             .screens
             .get(instance)
             .is_some_and(|slot| matches!(slot.view, StoreView::Plugin(_)));
-        let result = if self.screens.get(instance).is_some() {
-            self.call(host, instance, |view, ctx| view.closed(ctx))
+        let left = if self.screens.get(instance).is_some() {
+            self.call(host, instance, |view, ctx| {
+                let next = view.closing(ctx);
+                view.closed(ctx)?;
+                next
+            })
         } else {
-            Ok(())
+            Ok(Next::None)
         };
         self.screens.close(instance);
         if was_page
@@ -434,7 +436,8 @@ impl NativeStore {
         {
             // The page held for the screen is let go when the last page screen
             // is left.
-            self.loader.forget_page();
+            let mut wire = HostWire::new(host, &mut self.handles);
+            self.loader.forget_page(&mut wire);
         }
         if self.top == Some(instance) {
             self.top = None;
@@ -442,6 +445,7 @@ impl NativeStore {
         if self.asking.as_ref().is_some_and(|a| a.instance == instance) {
             self.asking = None;
         }
+        let result = left.and_then(|next| self.carry(host, instance, next));
         // Nothing of the device is kept while no screen is open.
         self.release_idle();
         // The store is left: PaperPaw's library is listed the next time.
@@ -476,13 +480,17 @@ impl NativeStore {
         self.carry(host, instance, next)
     }
 
-    /// The reader answered a question a screen asked.
+    /// The reader answered a question a screen asked. Once its dialog is
+    /// closed the question is over, whether the answer could be read or not.
     fn answered(
         &mut self,
         host: &Host<'_>,
         answer: &paperpaw_sdk::native::events::Answered,
     ) -> Result<(), Error> {
-        let Some(asking) = &self.asking else {
+        let Some(asking) = self
+            .asking
+            .take_if(|asking| asking.request == answer.request())
+        else {
             return Ok(());
         };
         let (request, text, instance, tag) =
@@ -492,15 +500,18 @@ impl NativeStore {
             native_glue::reply(host, ui, request, text, answer)?
         };
         let reply = match &typed {
-            Typed::Wait => return Ok(()),
-            Typed::Cancelled => {
-                self.asking = None;
+            Typed::Wait => {
+                // Still being typed: the question goes on.
+                self.asking = Some(asking);
                 return Ok(());
+            }
+            Typed::Cancelled => return Ok(()),
+            Typed::TooLong => {
+                return self.carry(host, instance, Next::Notify("store.typed.too-long"));
             }
             Typed::Choice(n) => ScreenReply::Choice(*n),
             Typed::Text(text) => ScreenReply::Text(text.as_str()),
         };
-        self.asking = None;
         let next = self.call(host, instance, |view, ctx| view.answered(ctx, tag, reply))?;
         self.carry(host, instance, next)
     }

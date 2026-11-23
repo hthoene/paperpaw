@@ -433,3 +433,46 @@ fn a_book_in_a_language_without_a_table_is_set_whole() {
     let on = broken(book, false, (true, 0, 0), 13);
     assert_eq!(off, on, "a page was broken without a table");
 }
+
+/// Select opens the menu on the reading screen, and the key bar names it so
+/// (as in Beta 3), not *Select* (#480).
+#[test]
+fn the_key_bar_names_select_menu_on_the_reading_screen() {
+    let card = card("hint-menu", "alice-in-wonderland.epub", "");
+    let path = paperpaw_core::sdk::json::string(&card.display().to_string());
+    let emu = std::env::var("PP_EMU").unwrap_or_else(|_| env!("CARGO_BIN_EXE_paperpaw-emu").into());
+    let mut child = Command::new(emu)
+        .arg("--stdio")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    // A press of a button below the screen shows the key bar (Right turns
+    // the page).
+    let lines = format!(
+        "{{\"op\": \"start\", \"profile\": \"xteink-x4\", \"library\": {path}}}\n\
+         {{\"op\": \"wait\", \"ms\": 2500}}\n\
+         {{\"op\": \"button\", \"name\": \"right\", \"pressed\": true}}\n\
+         {{\"op\": \"button\", \"name\": \"right\", \"pressed\": false}}\n\
+         {{\"op\": \"wait\", \"ms\": 500}}\n\
+         {{\"op\": \"describe\"}}\n\
+         {{\"op\": \"quit\"}}\n"
+    );
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(lines.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "the emulator failed");
+    let out = String::from_utf8_lossy(&out.stdout);
+    let described = out
+        .lines()
+        .find(|line| line.contains("\"described\""))
+        .expect("no description");
+    assert!(described.contains("reader.screen"), "{described}");
+    assert!(described.contains("\"Menu\""), "{described}");
+    assert!(!described.contains("\"Select\""), "{described}");
+}

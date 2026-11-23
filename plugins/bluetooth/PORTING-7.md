@@ -19,15 +19,18 @@ senders and event 98 of the SDK (PR #363).
   and choosing it switches its keys (`bt_keys`); a sensor has one row per plugin
   that uses Bluetooth (read from the registry's needs, only while a sensor is
   bonded) and choosing it gives the sensor to the plugin or takes it back; a
-  long press or the menu button forgets a device (`bt_forget`, with a notice);
-  *Add a device* opens the search; *Remotes* steps through by hand, while
-  reading, always (setting `bluetooth.remotes`). The rows are read again on
-  every Bluetooth event and when a setting changes, the focus kept.
+  long press, Select held or the menu button forgets a device (`bt_forget`,
+  with a notice; the key bar names *Forget* for the menu button on a device, as
+  in Beta 3); *Add a device* opens the search; *Remotes* steps through by hand,
+  while reading, always (setting `bluetooth.remotes`). The rows are read again
+  on every Bluetooth event and when `bluetooth.remotes` changes, the focus kept.
 - **Adding** (`bluetooth.search`): opening starts a scan (`bt_scan`, 30 s); found
   devices strongest first, each once; choosing one stops the scan, connects and
   then pairs (the kernel asks the reader to confirm); on *paired* a remote's or
-  keyboard's keys go to the key maps, the device is disconnected, a notice says
-  so and the screen goes back; a declined pairing, a failed link and a failed
+  keyboard's keys go to the key maps, the device is disconnected and a notice says
+  so; the search stays (an event's callback cannot leave a screen, #456). Back
+  stops a scan that runs and lets go of a device still being added (`bt_stop_scan`,
+  `bt_disconnect`); a declined pairing, a failed link and a failed
   scan say why (*Not paired*, *It did not answer*, *Bluetooth is off*). Event 98 has no
   bonded flag, so *paired* beside a found device comes from comparing its id with the
   bonded list (read when the search opens and on every *changed* or *paired*). The
@@ -37,6 +40,11 @@ senders and event 98 of the SDK (PR #363).
   connects by itself and the remotes switched on are wanted again; while
   reading the remotes connect while a book is open; always at start and on
   waking. Nothing is read or drawn on an event while neither screen is open.
+- **Status item** `bluetooth.status` (as in Beta 3): the Bluetooth sign while a
+  bonded device is connected, a tap opens the page. The host asks the owner
+  through the stage `core.status`; the answer is a drawn value
+  (`StatusAnswer::drawn`), the sign drawn as the Wi-Fi plugin draws its own
+  (`src/native_plugin/status_icon.rs`), no text hides the item.
 - **Slot** `core.bluetooth` is offered for `bluetooth.page`: the plugin bound to
   it sees `given` in device op 11 and gets event 98 (no subscription; Kernel
   ruled the same for `event.answered`).
@@ -45,12 +53,6 @@ senders and event 98 of the SDK (PR #363).
 
 ## Not ported yet (named, tests ignored)
 
-- **Status item** (the Bluetooth sign while a device is connected, tapping it
-  opens the page): the host asks the owner through the stage `core.status` and
-  the plugin trait has no stage callback yet; drawing the sign needs the native
-  widget toolkit (`status-item-stage-callback`,
-  `status-item-drawn-icon-widget-toolkit`). The item is not declared until it
-  can answer.
 - **How it works** text (`how/*.txt`) stays in the package; the registry cannot
   read it (`plugin-how-text-read`).
 - Menu place, icons, menu needs and the slot offer are refused by the host until

@@ -143,6 +143,45 @@ fn tables_are_used_and_built() {
 }
 
 #[test]
+fn a_moved_book_takes_its_folder_and_the_files_named_after_it_along() {
+    let moves = |from, to, shared| native::sidecar_moves(from, to, shared).unwrap();
+    let pair = |a: &str, b: &str| (String::from(a), String::from(b));
+    assert_eq!(
+        moves("Books/a.epub", "Books/x/b.epub", false),
+        [
+            pair("Books/a.sdr", "Books/x/b.sdr"),
+            pair(
+                "Books/x/b.sdr/a.epub.annotations.lua",
+                "Books/x/b.sdr/b.epub.annotations.lua"
+            ),
+        ]
+    );
+    // Only to another folder: the name stays.
+    assert_eq!(
+        moves("Books/a.epub", "Books/x/a.epub", false),
+        [pair("Books/a.sdr", "Books/x/a.sdr")]
+    );
+    // Shared with `a.pdf`: only the files of the EPUB go.
+    assert_eq!(
+        moves("Books/a.epub", "Books/x/b.epub", true),
+        [
+            pair(
+                "Books/a.sdr/metadata.epub.lua",
+                "Books/x/b.sdr/metadata.epub.lua"
+            ),
+            pair(
+                "Books/a.sdr/a.epub.annotations.lua",
+                "Books/x/b.sdr/b.epub.annotations.lua"
+            ),
+        ]
+    );
+    assert!(native::same_book("Books/a.epub", "a.pdf"));
+    for other in ["a.epub", "ab.pdf", "a", "b.epub"] {
+        assert!(!native::same_book("Books/a.epub", other), "{other}");
+    }
+}
+
+#[test]
 fn the_names_beside_a_book() {
     let name = |book: &str| {
         (

@@ -20,14 +20,17 @@ use paperpaw_ui_kit::{
     text,
 };
 
-/// The no-network screen: the status icon and explanation above a bottom button.
+/// The no-network screen: the status icon and the text `note` (a catalog
+/// key), above the button *Without a router* where `router` (the place of the
+/// button is returned).
 ///
 /// # Errors
 /// Host, font and allocation failures.
 pub fn draw_no_network(
     host: &Host<'_>,
     frame: &mut DrawFrame<'_>,
-    managed: bool,
+    note: &str,
+    router: bool,
 ) -> Result<Option<Rect>, Error> {
     let display = snapshot::capture_snapshot(host)?;
     let font = Font::acquire_role(host, FontRole::Ui)?;
@@ -36,7 +39,7 @@ pub fn draw_no_network(
     let height = u16::try_from(frame.rect.height).unwrap_or(u16::MAX);
     let button_height =
         paperpaw_ui_kit::Chips::height(&style, paperpaw_ui_kit::Chips::finger(&display));
-    let button = managed.then(|| {
+    let button = router.then(|| {
         Rect::new(
             style.margin,
             height.saturating_sub(style.margin + button_height),
@@ -46,14 +49,7 @@ pub fn draw_no_network(
     });
     let mut messages = Messages::new()?;
     let title = messages.copy(host, "transfer.no-network.title")?;
-    let note = messages.copy(
-        host,
-        if managed {
-            "transfer.no-network"
-        } else {
-            "transfer.no-network.system"
-        },
-    )?;
+    let note = messages.copy(host, note)?;
     let inner = width.saturating_sub(2 * style.margin);
     let room = f32::from(width.saturating_sub(4 * style.margin)).max(1.0);
     let head = line_px(&font, style.title)?;
@@ -139,14 +135,12 @@ fn draw_router_button(
         ),
     )?;
     if focused {
-        paint::push(
+        paperpaw_ui_kit::parts::button_ring(
             ops,
-            Paint::Focus(
-                rect.inset(4, 4),
-                u32::from(rect.height / 2),
-                Some(u32::from(style.line)),
-                style.ink,
-            ),
+            rect,
+            u32::from(rect.height / 2),
+            paperpaw_ui_kit::parts::button_border(style.line),
+            style.ink,
         )?;
     }
     paint::describe_named(

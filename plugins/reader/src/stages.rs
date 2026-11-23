@@ -892,8 +892,7 @@ pub mod reader_decorations_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written.
         pub fn finish(self) -> Result<usize, i32> {
             let count = u8::try_from(self.rows).map_err(|_| -2)?;
             let first = self.out.first_mut().ok_or(-3)?;
@@ -957,8 +956,8 @@ pub mod reader_decorations_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written; -2 for a batch of no
+        /// record: an input carries one at least.
         pub fn finish(self) -> Result<usize, i32> {
             if self.rows == 0 {
                 return Err(-2);
@@ -1649,8 +1648,7 @@ pub mod reader_filter_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written.
         pub fn finish(self) -> Result<usize, i32> {
             let count = u8::try_from(self.rows).map_err(|_| -2)?;
             let first = self.out.first_mut().ok_or(-3)?;
@@ -1714,8 +1712,8 @@ pub mod reader_filter_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written; -2 for a batch of no
+        /// record: an input carries one at least.
         pub fn finish(self) -> Result<usize, i32> {
             if self.rows == 0 {
                 return Err(-2);
@@ -3029,8 +3027,7 @@ pub mod reader_layer_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written.
         pub fn finish(self) -> Result<usize, i32> {
             let count = u8::try_from(self.rows).map_err(|_| -2)?;
             let first = self.out.first_mut().ok_or(-3)?;
@@ -3094,8 +3091,8 @@ pub mod reader_layer_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written; -2 for a batch of no
+        /// record: an input carries one at least.
         pub fn finish(self) -> Result<usize, i32> {
             if self.rows == 0 {
                 return Err(-2);
@@ -3875,8 +3872,7 @@ pub mod reader_notes_exported_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written.
         pub fn finish(self) -> Result<usize, i32> {
             let count = u8::try_from(self.rows).map_err(|_| -2)?;
             let first = self.out.first_mut().ok_or(-3)?;
@@ -3940,8 +3936,8 @@ pub mod reader_notes_exported_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written; -2 for a batch of no
+        /// record: an input carries one at least.
         pub fn finish(self) -> Result<usize, i32> {
             if self.rows == 0 {
                 return Err(-2);
@@ -4754,8 +4750,7 @@ pub mod reader_text_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written.
         pub fn finish(self) -> Result<usize, i32> {
             let count = u8::try_from(self.rows).map_err(|_| -2)?;
             let first = self.out.first_mut().ok_or(-3)?;
@@ -4819,8 +4814,8 @@ pub mod reader_text_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written; -2 for a batch of no
+        /// record: an input carries one at least.
         pub fn finish(self) -> Result<usize, i32> {
             if self.rows == 0 {
                 return Err(-2);
@@ -5562,8 +5557,7 @@ pub mod reader_word_looked_up_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written.
         pub fn finish(self) -> Result<usize, i32> {
             let count = u8::try_from(self.rows).map_err(|_| -2)?;
             let first = self.out.first_mut().ok_or(-3)?;
@@ -5627,8 +5621,8 @@ pub mod reader_word_looked_up_v1 {
             self.rows += 1;
             Ok(())
         }
-        /// The batch's length in `out`, its count written; -2 for an input
-        /// batch of no record.
+        /// The batch's length in `out`, its count written; -2 for a batch of no
+        /// record: an input carries one at least.
         pub fn finish(self) -> Result<usize, i32> {
             if self.rows == 0 {
                 return Err(-2);

@@ -213,6 +213,8 @@ impl Link {
 #[derive(Debug)]
 struct Editing {
     row: usize,
+    /// Its setting: the row is found again by it when the page is made anew.
+    key: String,
     before: i64,
     now: i64,
 }
@@ -446,10 +448,11 @@ impl Plugin for NativeSettings {
             View::Secrets(v) => {
                 let title = messages.copy(host, "settings.secrets")?;
                 let none = messages.copy(host, "settings.secrets.none")?;
+                // A sentence, wrapped: as a title it would be cut to a line.
                 let footer = if v.kept.is_empty() {
                     Footer::Empty {
-                        title: &none,
-                        text: "",
+                        title: "",
+                        text: &none,
                     }
                 } else {
                     Footer::None
@@ -499,12 +502,18 @@ impl Plugin for NativeSettings {
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
-        // A number being changed with the buttons takes them.
+        // A number being changed with the buttons takes them; a tap elsewhere
+        // leaves it as it was kept (Beta 3's `leave_editing`) and goes on to
+        // what it hit.
         if let View::Group(v) = view
             && v.editing.is_some()
-            && let Some(handled) = Self::edit_input(host, v, &input)?
         {
-            return Ok(handled);
+            if let Some(handled) = Self::edit_input(host, v, &input)? {
+                return Ok(handled);
+            }
+            if matches!(input, Input::Gesture { .. } | Input::Pointer { .. }) {
+                Self::leave_editing(host, v)?;
+            }
         }
         let step = view.list().input(host, &input)?;
         let confirm = matches!(
@@ -1027,6 +1036,7 @@ impl NativeSettings {
             Self::redraw(host)?;
             v.editing = Some(Editing {
                 row: index,
+                key: copy(&entry.setting.key)?,
                 before,
                 now,
             });
@@ -1113,8 +1123,9 @@ impl NativeSettings {
             return Ok(None);
         };
         let (row, before, now) = (editing.row, editing.before, editing.now);
-        let Some(entry) = v.entry(row) else {
-            v.editing = None;
+        let Some(entry) = v.entry(row).filter(|e| e.setting.key == editing.key) else {
+            // Its row went: the value kept stays, and the key goes on.
+            Self::leave_editing(host, v)?;
             return Ok(None);
         };
         let key = copy(&entry.setting.key)?;
@@ -1154,6 +1165,18 @@ impl NativeSettings {
         Ok(Some(Handled::Yes))
     }
 
+    /// Stops changing a number without keeping what was shown: the preview
+    /// ends, the keys get their names back, the rows show the values kept.
+    fn leave_editing(host: &Host<'_>, v: &mut GroupView) -> Result<(), Error> {
+        let items = v.items_for(host, (&v.rows, &v.entries), None)?;
+        CommandSender::new(host, &mut [0; 64]).end_preview()?;
+        Self::redraw(host)?;
+        v.editing = None;
+        edit_hints(host, false);
+        v.list.replace(items);
+        Ok(())
+    }
+
     fn choose_chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
         let Some(View::Choose(v)) = self.screens.top(token) else {
             return Ok(());
@@ -1184,11 +1207,36 @@ impl NativeSettings {
         let mut scratch = buffer(1024)?;
         let mut commands = CommandSender::new(host, &mut scratch);
         if id.is_empty() {
-            // None: the appearance as PaperPaw comes.
+            // None: the appearance as PaperPaw comes. Where resetting every
+            // covered setting would not go in one callback (many widgets'
+            // looks), only those not at their default are reset; more than
+            // that is said, as *Reset* does, not dropped by the host unseen.
             let mut reader = Reader::open(host)?;
-            let keys = look_settings(&mut reader, look);
-            for key in reader.finish(keys)? {
-                commands.reset_setting(ResetTarget::Setting(&key))?;
+            let found = look_settings(&mut reader, look).and_then(|covered| {
+                if model::reset_fits(&covered) {
+                    return Ok(covered);
+                }
+                let mut keys: Vec<String> = Vec::new();
+                reader.each_setting(
+                    "",
+                    Fields::Light,
+                    |row| covered.iter().any(|key| key == row.key()),
+                    |_, s| {
+                        if s.is_default && !s.in_scope {
+                            Ok(())
+                        } else {
+                            push(&mut keys, s.key)
+                        }
+                    },
+                )?;
+                Ok(keys)
+            });
+            let keys = reader.finish(found)?;
+            if !model::reset_fits(&keys) {
+                return Self::notify(host, "settings.reset-too-many");
+            }
+            for key in &keys {
+                commands.reset_setting(ResetTarget::Setting(key))?;
             }
         } else {
             commands.apply_preset(&id, paperpaw_sdk::native::commands::PresetMode::Apply)?;

@@ -10,33 +10,9 @@ use paperpaw_sdk::native::declare::{
 /// The slot that chooses a folder for a setting.
 const CHOOSE_FOLDER: &str = "core.choose-folder";
 
-pub const FRAMES: &[&str] = &[
-    "core.frame.none",
-    "core.frame.line",
-    "core.frame.card",
-    "core.frame.dark",
-];
-pub const SIZES: &[&str] = &[
-    "core.size.small",
-    "core.size.medium",
-    "core.size.large",
-    "core.size.fit",
-];
-pub const PADDINGS: &[&str] = &[
-    "core.padding.auto",
-    "core.padding.none",
-    "core.padding.small",
-    "core.padding.normal",
-    "core.padding.large",
-];
-pub const ALIGNMENTS: &[&str] = &["core.align.left", "core.align.center", "core.align.right"];
-pub const PAPERS: &[&str] = &[
-    "core.plate.normal",
-    "core.plate.inverted",
-    "core.plate.light-gray",
-    "core.plate.dark-gray",
-    "core.plate.none",
-];
+// The frames, sizes, paddings, alignments and papers of the look, offered
+// here as well.
+pub use super::look::{ALIGNMENTS, FRAMES, PADDINGS, PAPERS, SIZES};
 pub const INKS: &[&str] = &["core.ink.auto", "core.tone.black", "core.tone.white"];
 pub const CORNERS: &[&str] = &[
     "core.corners.auto",

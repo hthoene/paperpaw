@@ -165,10 +165,6 @@ impl<T> Handles<T> {
     }
 
     /// Whether `owner` holds any handle.
-    #[allow(
-        dead_code,
-        reason = "parked plugins (#2638); unused by tests/abi7_teardown.rs"
-    )]
     pub(crate) fn holds(&self, owner: u64) -> bool {
         self.slots.iter().any(|slot| {
             slot.entry
@@ -187,10 +183,6 @@ impl<T> Handles<T> {
     }
 
     /// Whether `owner` holds a handle of `kind`.
-    #[allow(
-        dead_code,
-        reason = "parked plugins (#248, D3); unused by tests/abi7_teardown.rs"
-    )]
     pub(crate) fn holds_kind(&self, owner: u64, kind: Kind) -> bool {
         self.slots.iter().any(|slot| {
             slot.entry

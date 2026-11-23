@@ -2,14 +2,15 @@
 //! driven by the scripted host: a page answered `pending` makes the panel wait
 //! and start the timer that ends the wait (work `dictionary.answers`, its reply
 //! buffer the op's 64 bytes), and the provider's `event.lookup_ready` makes it
-//! look the word up again, without waiting any longer.
+//! look the word up again, without waiting any longer. A provider that fails
+//! hides none of those after it.
 #![cfg(feature = "linked")]
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use paperpaw_core::native_host::registrations::{
     EventLookupReady, EventScreenOpened, EventWorkDue, Record, ServiceEnd, ServiceLookupEntry,
     ServiceUiHandle, ServiceUiParam, record_encode_one, records_decode,
 };
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_IO, ERR_NOT_FOUND};
 use paperpaw_plugin_dictionary::{
     NATIVE_ENTRY,
     declarations::{ANSWERS_KEY, POPUP_TOKEN, WORK_TOKEN},
@@ -37,6 +38,8 @@ struct Seen {
     declared: usize,
     /// The provider kept its answer.
     ready: bool,
+    /// The first provider fails, a second one answers.
+    first_fails: bool,
 }
 
 fn setup(seen: &Rc<RefCell<Seen>>) -> ScriptedHost {
@@ -75,10 +78,12 @@ fn setup(seen: &Rc<RefCell<Seen>>) -> ScriptedHost {
         }
         let mut seen = lookups.borrow_mut();
         seen.asks.push(ask.cursor);
-        let (text, flags) = match (ask.cursor, seen.ready) {
+        let (text, flags) = match (ask.cursor, seen.ready, seen.first_fails) {
+            (0, _, true) => return Err(ERR_IO),
+            (1, _, true) => ("A bird of the night.", 0),
             // Bit 1: pending, the provider fetches.
-            (0, false) => ("", 2),
-            (0, true) => ("A bird of the night.", 0),
+            (0, false, false) => ("", 2),
+            (0, true, false) => ("A bird of the night.", 0),
             _ => return Err(ERR_NOT_FOUND),
         };
         Ok(stream(&[Record::ServiceLookupEntry(ServiceLookupEntry {
@@ -102,12 +107,9 @@ fn setup(seen: &Rc<RefCell<Seen>>) -> ScriptedHost {
     host
 }
 
-#[test]
-fn a_later_answer_is_waited_for_and_looked_up_again_when_it_is_kept() {
-    let seen = Rc::new(RefCell::new(Seen::default()));
-    let host = setup(&seen);
-    let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
-    let opened = event_batch(&Record::EventScreenOpened(EventScreenOpened {
+/// The panel opened for the word the caller gave.
+fn opened() -> Vec<u8> {
+    event_batch(&Record::EventScreenOpened(EventScreenOpened {
         now_ms: 0,
         screen: "dictionary.popup",
         instance: 1,
@@ -117,8 +119,27 @@ fn a_later_answer_is_waited_for_and_looked_up_again_when_it_is_kept() {
         params: 0,
         text_bytes: 0,
     }))
-    .unwrap();
-    assert_eq!(plugin.event(POPUP_TOKEN, &opened).unwrap().status, 0);
+    .unwrap()
+}
+
+#[test]
+fn a_provider_that_fails_hides_none_after_it() {
+    let seen = Rc::new(RefCell::new(Seen {
+        first_fails: true,
+        ..Seen::default()
+    }));
+    let host = setup(&seen);
+    let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
+    assert_eq!(plugin.event(POPUP_TOKEN, &opened()).unwrap().status, 0);
+    assert_eq!(seen.borrow().asks, [0, 1, 2], "every provider, then none");
+}
+
+#[test]
+fn a_later_answer_is_waited_for_and_looked_up_again_when_it_is_kept() {
+    let seen = Rc::new(RefCell::new(Seen::default()));
+    let host = setup(&seen);
+    let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
+    assert_eq!(plugin.event(POPUP_TOKEN, &opened()).unwrap().status, 0);
     assert_eq!(seen.borrow().asks, [0, 1], "the provider's page, then none");
     assert_eq!(seen.borrow().declared, 1, "the wait's timer is declared");
     // The provider kept its answer: the word is asked again, from the start.

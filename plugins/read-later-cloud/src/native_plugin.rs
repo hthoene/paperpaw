@@ -658,6 +658,7 @@ impl NativeReadLaterCloud {
             Ended::Stopped(Stop::BadToken) => self.finish_key(host, "read-later-cloud.bad-token"),
             Ended::Stopped(Stop::Wait) => self.finish_key(host, "read-later-cloud.wait"),
             Ended::Stopped(Stop::TooBig) => self.finish_key(host, "read-later-cloud.too-big"),
+            Ended::Stopped(Stop::TimeUp) => self.finish_key(host, "read-later-cloud.time-up"),
             Ended::Finished {
                 fetched,
                 archived,

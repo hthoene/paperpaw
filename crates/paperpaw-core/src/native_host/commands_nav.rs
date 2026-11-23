@@ -7,9 +7,10 @@
 //! `ShowHints`, `Input`). A command whose effect is nothing (the root
 //! screen, a `back_to` with nothing open above) is `OK` and stages nothing.
 //!
-//! Only a screen callback (`input`, an action, a gesture) has the stack: the
-//! callback of an event or a service event stages without it, so these
-//! commands are `ERR_UNSUPPORTED` there. The kernel's mirror of the stack
+//! Only a screen callback (`input`, an action, a gesture) and an answer's
+//! navigate: the callback of another event or a service event has the stack
+//! to judge its screen policies by, and these five commands are
+//! `ERR_UNSUPPORTED` there. The kernel's mirror of the stack
 //! ([`StackRows`]) holds 16 rows; a stack deeper than that judges nothing
 //! (the rows past it read as the host's own guard: `close` is `ERR_STATE`,
 //! `raise_input` `ERR_DENIED`, nothing is applied).
@@ -19,8 +20,12 @@
 //! screens it closes with `back_to`); every other plugin's are held below
 //! the guard as the stage judged.
 //!
-//! `screen_policy` (1563) is checked here and staged apart from the commands:
-//! the host applies it first ([`Kernel::native_screen_policies`](crate::Kernel)).
+//! `screen_policy` (1563) and `screen_ready` (1557) are checked here and
+//! staged apart from the commands: the host applies them first
+//! ([`Kernel::native_screen_policies`](crate::Kernel)). Every callback with a
+//! stage may send them (`ui.md` 1.2): a plugin sets its screen's policy where
+//! it learns of the change, in `event.screen_shown` or
+//! `event.setting_changed` too (#483).
 use super::{CommandBatch, CommandStage, WireCommand, ui};
 use crate::Ask;
 use crate::native_host::{
@@ -52,6 +57,9 @@ const INPUT_MAX: usize = 64;
 pub(super) struct NavStack<'a> {
     pub(super) rows: &'a StackRows,
     pub(super) owner: u64,
+    /// The callback may navigate (`close` ... `raise_input`); without it only
+    /// the screen policies are judged.
+    pub(super) navigates: bool,
 }
 
 /// Whether `command` is one of the navigation commands of this module.
@@ -74,11 +82,21 @@ fn input_byte(byte: u8) -> bool {
 }
 
 impl CommandStage<'_> {
+    /// The stack, for a callback that may navigate.
     fn nav(&self) -> Result<NavStack<'_>, i32> {
-        self.ui
-            .as_ref()
-            .and_then(|ui| ui.stack())
+        self.stack()
+            .filter(|nav| nav.navigates)
             .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
+    /// The stack, for the screen policies of any callback that has it.
+    fn policy_stack(&self) -> Result<NavStack<'_>, i32> {
+        self.stack()
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
+    fn stack(&self) -> Option<NavStack<'_>> {
+        self.ui.as_ref().and_then(|ui| ui.stack())
     }
 
     /// The index on the stack of the topmost instance of `target` (a screen
@@ -114,6 +132,18 @@ impl CommandStage<'_> {
     /// Check one navigation command against the stack as it is now; the bytes
     /// it will copy.
     pub(super) fn validate_nav(&self, command: WireCommand<'_>) -> Result<usize, i32> {
+        match command {
+            WireCommand::ScreenPolicy { instance, flags } => {
+                let nav = self.policy_stack()?;
+                return self.policy_change(&nav, instance, flags).map(|_| 0);
+            }
+            // The submitter's own top instance, else `ERR_STATE`.
+            WireCommand::ScreenReady {} => {
+                self.policy_stack()?;
+                return self.own_top().map(|_| 0);
+            }
+            _ => {}
+        }
         let nav = self.nav()?;
         let hop = self.ui.as_ref().map_or(0, |ui| ui.hop());
         match command {
@@ -148,11 +178,6 @@ impl CommandStage<'_> {
                 ui_guard::raise_allowed(nav.rows, nav.owner)?;
                 Ok(input.len())
             }
-            WireCommand::ScreenPolicy { instance, flags } => {
-                self.policy_change(&nav, instance, flags).map(|_| 0)
-            }
-            // The submitter's own top instance, else `ERR_STATE`.
-            WireCommand::ScreenReady {} => self.own_top().map(|_| 0),
             _ => Err(paperpaw_native::host_glue::ERR_UNSUPPORTED),
         }
     }
@@ -203,7 +228,7 @@ impl CommandStage<'_> {
     /// Stages the checked changes of a batch (room was reserved).
     #[inline(never)]
     pub(super) fn stage_policy(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
-        let nav = self.nav()?;
+        let nav = self.policy_stack()?;
         let change = match *command {
             WireCommand::ScreenPolicy { instance, flags } => {
                 self.policy_change(&nav, instance, flags)?
@@ -222,10 +247,6 @@ impl CommandStage<'_> {
     /// The checked policy changes, in order, for the host to apply before the
     /// callback's other commands ([`Kernel::native_screen_policies`]).
     #[must_use]
-    #[allow(
-        dead_code,
-        reason = "the command runner (shell_commands) calls it, wired with the shell"
-    )]
     pub(crate) fn take_policies(&mut self) -> Vec<PolicyChange> {
         core::mem::take(&mut self.staged_policies)
     }

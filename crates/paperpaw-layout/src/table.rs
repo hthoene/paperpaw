@@ -48,8 +48,10 @@ pub(crate) enum RowSet {
 }
 
 /// Sets the row `block` on `page` from `y` down, in columns where it can be
-/// (see the module), and moves `y` below it: the book's space above it where it
-/// starts a table (`after_row` is false) on a page that has something.
+/// (see the module), and moves `y` below it: the book's space and a rule
+/// above it where it starts a table (it is the table's first row, or does not
+/// come right after a row set in columns: `after_row`), the space only on a
+/// page that has something.
 pub(crate) fn set_row(
     cx: &LayoutContext<'_>,
     block: &Block,
@@ -58,7 +60,8 @@ pub(crate) fn set_row(
     (section, after_row): (u32, bool),
 ) -> RowSet {
     let style = cx.style;
-    let space = match page.is_past_end() || after_row {
+    let starts = !after_row || block.table.as_ref().is_some_and(|table| table.first);
+    let space = match page.is_past_end() || !starts {
         true => 0.0,
         false => block
             .space
@@ -68,7 +71,7 @@ pub(crate) fn set_row(
             }),
     };
     let top = *y + space;
-    let Some(row) = row(cx, block, section, top, !after_row) else {
+    let Some(row) = row(cx, block, section, top, starts) else {
         return RowSet::Paragraph;
     };
     match top + row.height <= height {
@@ -290,7 +293,8 @@ fn cell_text(text: &str, mut range: Range<usize>) -> Option<Range<usize>> {
 /// cells span. `None` for a row without cells or of too many columns.
 fn grid(table: &TableRow) -> Option<Vec<f32>> {
     let spans: usize = table.cells.iter().map(|c| usize::from(c.span.max(1))).sum();
-    if spans == 0 {
+    // Told before the weights are made, so that they are never longer.
+    if spans == 0 || spans > MAX_GRID || table.columns.len() > MAX_GRID {
         return None;
     }
     let weights = match spans <= table.columns.len() {
@@ -301,7 +305,7 @@ fn grid(table: &TableRow) -> Option<Vec<f32>> {
             .collect(),
         false => vec![1.0; spans],
     };
-    (spans <= MAX_GRID && table.columns.len() <= MAX_GRID).then_some(weights)
+    Some(weights)
 }
 
 /// The widths of columns of `weights` sharing `room`, each at least

@@ -176,7 +176,7 @@ pub fn named(name: &str) -> Option<&'static [RangeInclusive<char>]> {
 
 /// The names of the character sets: `latin`, `ligatures`, `cyrillic`,
 /// `greek`, `vietnamese`, `arabic`, `hebrew`, `hangul`, `hangul-jamo`,
-/// `kana`, `cjk-punctuation`, `fullwidth`.
+/// `kana`, `cjk-punctuation`, `fullwidth`, `bengali`, `devanagari`.
 pub fn names() -> impl Iterator<Item = &'static str> {
     SETS.iter().map(|(name, _)| *name)
 }

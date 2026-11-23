@@ -159,9 +159,19 @@ pub fn format_message(
     args: &[Arg<'_>],
     buffers: &mut FormatBuffers<'_, '_>,
 ) -> Result<usize, Error> {
+    format_message_str(host, key.as_ref(), args, buffers)
+}
+
+/// [`format_message`] for `&str` only: one copy of the host call in the
+/// image, however many key types and crates format.
+fn format_message_str(
+    host: &Host<'_>,
+    key: &str,
+    args: &[Arg<'_>],
+    buffers: &mut FormatBuffers<'_, '_>,
+) -> Result<usize, Error> {
     let scratch = &mut *buffers.scratch;
     let out = &mut *buffers.out;
-    let key = key.as_ref();
     if key.len() > MAX_KEY_BYTES {
         return Err(Error::NoSpace);
     }
@@ -218,7 +228,12 @@ pub(crate) fn encode_args(args: &[Arg<'_>], scratch: &mut [u8]) -> Result<usize,
 /// # Errors
 /// Returns NoSpace for overlong input or the host's refusal.
 pub fn digits(host: &Host<'_>, text: impl AsRef<str>, out: &mut [u8]) -> Result<usize, Error> {
-    let text = text.as_ref();
+    digits_str(host, text.as_ref(), out)
+}
+
+/// [`digits`] for `&str` only: one copy of the host call in the image,
+/// however many text types and crates convert.
+fn digits_str(host: &Host<'_>, text: &str, out: &mut [u8]) -> Result<usize, Error> {
     if text.len() > MAX_DIGIT_BYTES {
         return Err(Error::NoSpace);
     }

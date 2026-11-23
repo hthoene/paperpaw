@@ -60,6 +60,14 @@ fn segment(title: &str) -> Result<String, Error> {
     Ok(out)
 }
 
+/// The request token of the summary screen's request, echoed in its
+/// `event.http_done` (which comes to `FETCHED_TOKEN` for both): closing the
+/// screen cancels only this one.
+pub const SCREEN_REQUEST: u32 = 1;
+/// The request token of the provider's request: a panel waits for its answer
+/// whether or not a summary screen is open.
+pub const PROVIDER_REQUEST: u32 = 2;
+
 /// The address of the summary of `word`'s article.
 ///
 /// # Errors

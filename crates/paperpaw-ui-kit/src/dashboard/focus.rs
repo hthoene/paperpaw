@@ -169,10 +169,12 @@ fn vertical(targets: &[Target], from: usize, down: bool, round: bool) -> Option<
             })
             .map(|(i, _)| i)
     };
+    // The rects come from the plugin unchecked: their ends in `u32`, where a
+    // sum of two `u16`s cannot overflow.
     let next = if down {
-        nearest(&|r| r.y >= at.y + at.height, i32::from(at.y))
+        nearest(&|r| u32::from(r.y) >= at.bottom(), i32::from(at.y))
     } else {
-        nearest(&|r| r.y + r.height <= at.y, i32::from(at.y))
+        nearest(&|r| r.bottom() <= u32::from(at.y), i32::from(at.y))
     };
     if next.is_some() || !round {
         return next;
@@ -246,6 +248,22 @@ mod tests {
         assert_eq!(focus.press(Press::Down, &t, false), Step::Held);
         assert_eq!(focus.at(), 4);
         assert_eq!(focus.press(Press::Up, &t, false), Step::Moved(3));
+    }
+
+    #[test]
+    fn targets_that_reach_past_the_largest_coordinate_move_no_panic() {
+        // A widget's targets as a plugin gives them, unchecked: past u16::MAX.
+        let far = |n: usize, y: u16| Target {
+            rect: Rect::new(0, y, 100, u16::MAX),
+            owner: Owner::Tool(n),
+        };
+        let t = [far(0, 10), far(1, 20)];
+        let mut focus = Focus::default();
+        focus.show(true);
+        // The first ends far below the second's top: nothing is below it.
+        assert_eq!(focus.press(Press::Down, &t, false), Step::Held);
+        focus.at = 1;
+        assert_eq!(focus.press(Press::Up, &t, false), Step::Held);
     }
 
     #[test]

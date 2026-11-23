@@ -1,6 +1,10 @@
 //! Scoped frame cleanup while an owner context remains pinned.
 use paperpaw_core::Place;
 #[path = "../src/abi7/context.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod context;
 #[path = "../src/abi7/snapshot_wire.rs"]
 #[allow(

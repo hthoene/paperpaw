@@ -9,9 +9,10 @@
 //! the network, the kernel's trust list; a stand-in in tests.
 //!
 //! **Differences from interface 6, on purpose:**
-//! - There is one request of each kind at a time, so "another screen took the
-//!   same answer first" cannot happen; a list that is no list leaves the index
-//!   there is.
+//! - There is one request of each kind at a time (the page a screen shows
+//!   and the one the queue installs from are two kinds), so "another screen
+//!   took the same answer first" cannot happen; a list that is no list leaves
+//!   the index there is.
 //! - The revocations of the list go to the host as they are, for the plugins
 //!   that are here (`Hooks::host_checks`): the host checks them against the
 //!   keys it pinned (`device.md` 5.2).
@@ -44,10 +45,13 @@ use crate::native_sources::{
 
 /// The plugin's own number of the request for the list, in its `http_done`.
 pub const LIST_TOKEN: u32 = 0x5301;
-/// The plugin's own number of the request for a plugin's page.
+/// The plugin's own number of the request for the page a screen shows.
 pub const PAGE_TOKEN: u32 = 0x5302;
 /// The plugin's own number of the request for a community source's signature.
 pub const SIGNATURE_TOKEN: u32 = 0x5303;
+/// The plugin's own number of the request for the page the queue installs
+/// from.
+pub const QUEUE_PAGE_TOKEN: u32 = 0x5304;
 /// Where the list is fetched to, in the data folder.
 pub const LIST_PART: &str = "list.part";
 /// The longest page of a plugin read (bytes).
@@ -94,7 +98,8 @@ pub enum Details {
     Here,
     /// No answer at all.
     Offline,
-    /// An answer that is no page of this plugin.
+    /// An answer that is no page of this plugin, or none can be asked for
+    /// (a name that is none, a library that does not know the device).
     Failed,
 }
 
@@ -196,8 +201,11 @@ pub enum Ended {
     ListChanged,
     /// The list is as it was ([`Loader::trouble`] says why there is none).
     ListUnchanged,
-    /// The page asked for is here or is not ([`Loader::details`]).
+    /// The page a screen asked for is here or is not ([`Loader::details`]).
     Page,
+    /// The page the queue asked for is here or is not
+    /// ([`Loader::queue_details`]).
+    QueuePage,
 }
 
 /// The list and the page the store holds.
@@ -212,7 +220,12 @@ pub struct Loader {
     signature: Option<RequestId>,
     signature_url: String,
     index: Option<Index>,
+    /// The page a screen shows.
     page: Option<PageSlot>,
+    /// The page the queue installs from: apart from the screens', so neither
+    /// takes the other's place. It is let go once its install started (on
+    /// the heap: no room is kept for it while the queue asks for nothing).
+    queued: Option<Box<PageSlot>>,
 }
 
 /// The page of one plugin and how far it is.
@@ -258,22 +271,28 @@ impl Loader {
         self.index.as_ref()
     }
 
-    /// How far the page of the plugin last asked for is, and whose it is.
+    /// How far the page a screen last asked for is, and whose it is.
     #[must_use]
     pub fn details(&self) -> (Option<&str>, Details) {
-        match &self.page {
-            Some(slot) => (Some(slot.id.as_str()), slot.details),
-            None => (None, Details::None),
-        }
+        details_of(self.page.as_ref())
     }
 
-    /// The page of plugin `id`, where it is here.
+    /// How far the page the queue last asked for is, and whose it is.
+    #[must_use]
+    pub fn queue_details(&self) -> (Option<&str>, Details) {
+        details_of(self.queued.as_deref())
+    }
+
+    /// The page of plugin `id` a screen asked for, where it is here.
     #[must_use]
     pub fn page(&self, id: &str) -> Option<&Page> {
-        self.page
-            .as_ref()
-            .filter(|slot| slot.id == id)
-            .and_then(|slot| slot.plugin.as_deref())
+        page_of(self.page.as_ref(), id)
+    }
+
+    /// The page of plugin `id` the queue asked for, where it is here.
+    #[must_use]
+    pub fn queue_page(&self, id: &str) -> Option<&Page> {
+        page_of(self.queued.as_deref(), id)
     }
 
     /// Lets go of the list: another source is listed from now on. A fetch
@@ -296,9 +315,32 @@ impl Loader {
         let _ = storage.remove(native_index::HEAD);
     }
 
-    /// Lets go of the page held (the screen of the plugin is left).
-    pub fn forget_page(&mut self) {
-        self.page = None;
+    /// Lets go of the page a screen asked for (the last screen of a plugin
+    /// is left): a request under way is ended and its part goes.
+    pub fn forget_page(&mut self, wire: &mut dyn Wire) {
+        if let Some(slot) = self.page.take() {
+            slot.give_up(wire, PAGE_TOKEN);
+        }
+    }
+
+    /// Lets go of the page the queue asked for: a request under way is
+    /// ended and its part goes.
+    pub fn forget_queue_page(&mut self, wire: &mut dyn Wire) {
+        if let Some(slot) = self.queued.take().map(|slot| *slot) {
+            slot.give_up(wire, QUEUE_PAGE_TOKEN);
+        }
+    }
+
+    /// Lets go of the queue's page of plugin `id` once its install took what
+    /// it needs of it (one asked for another plugin since stays).
+    pub fn release_queue_page(&mut self, id: &str) {
+        if self
+            .queued
+            .as_ref()
+            .is_some_and(|slot| slot.id == id && slot.request.is_none())
+        {
+            self.queued = None;
+        }
     }
 
     /// Fetches the list anew: in the library's fair order, with what it picks
@@ -353,56 +395,29 @@ impl Loader {
         }
     }
 
-    /// Fetches the page of plugin `id`; the one under way, of another plugin or
-    /// this, is given up.
+    /// Fetches the page of plugin `id` for a screen; the one a screen asked
+    /// for before, of another plugin or this, is let go.
     ///
     /// # Errors
     /// `NoMemory` and the host's refusals of the facts.
-    #[inline(never)]
     pub fn start_page(&mut self, wire: &mut dyn Wire, id: &str) -> Result<(), Error> {
-        wire.cancel(PAGE_TOKEN);
-        let mut slot = PageSlot {
-            id: copy(id)?,
-            url: String::new(),
-            request: None,
-            details: Details::Failed,
-            plugin: None,
-        };
-        let facts = match wire.facts() {
-            Ok(facts) => facts.filter(|_| is_plugin_name(id)),
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(_) => None,
-        };
-        if let Some(facts) = facts {
-            let (catalog, community) = wire.catalog()?;
-            let url = plugin_url(
-                &catalog,
-                facts.name(),
-                facts.language(),
-                id,
-                community,
-                None,
-            );
-            slot.details = match url {
-                Ok(url) => {
-                    let file = part_of(id)?;
-                    let asked = wire.get(&url, &file, PAGE_TOKEN, MAX_PAGE_FILE);
-                    slot.url = url;
-                    match asked {
-                        Ok(request) => {
-                            slot.request = Some(request);
-                            Details::Asked
-                        }
-                        Err(Error::NoMemory) => return Err(Error::NoMemory),
-                        Err(Error::Unsupported | Error::Denied) => Details::Offline,
-                        Err(_) => Details::Failed,
-                    }
-                }
-                Err(Error::NoMemory) => return Err(Error::NoMemory),
-                Err(_) => Details::Failed,
-            };
-        }
-        self.page = Some(slot);
+        self.forget_page(wire);
+        self.page = Some(ask_page(wire, id, PAGE_TOKEN)?);
+        Ok(())
+    }
+
+    /// Fetches the page of plugin `id` for the queue; the one the queue
+    /// asked for before is let go, a screen's is not.
+    ///
+    /// # Errors
+    /// `NoMemory` and the host's refusals of the facts.
+    pub fn start_queue_page(&mut self, wire: &mut dyn Wire, id: &str) -> Result<(), Error> {
+        self.forget_queue_page(wire);
+        self.queued = Some(paperpaw_ui_kit::mem::boxed(ask_page(
+            wire,
+            id,
+            QUEUE_PAGE_TOKEN,
+        )?)?);
         Ok(())
     }
 
@@ -423,18 +438,18 @@ impl Loader {
                 let ended = self.signature_ended(wire, done);
                 self.settle(wire, ended)
             }
-            PAGE_TOKEN
-                if self
-                    .page
-                    .as_ref()
-                    .is_some_and(|slot| slot.request == Some(done.id)) =>
-            {
-                let ended = self.page_ended(wire, done);
-                if let (Err(_), Some(slot)) = (&ended, self.page.as_mut()) {
-                    slot.details = Details::Failed;
+            PAGE_TOKEN => match self.page.as_mut() {
+                Some(slot) if slot.request == Some(done.id) => {
+                    slot.ended(wire, done).map(|()| Ended::Page)
                 }
-                ended
-            }
+                _ => Ok(Ended::Ignored),
+            },
+            QUEUE_PAGE_TOKEN => match self.queued.as_mut() {
+                Some(slot) if slot.request == Some(done.id) => {
+                    slot.ended(wire, done).map(|()| Ended::QueuePage)
+                }
+                _ => Ok(Ended::Ignored),
+            },
             _ => Ok(Ended::Ignored),
         }
     }
@@ -585,18 +600,30 @@ impl Loader {
             }
         }
     }
+}
 
+impl PageSlot {
+    /// The request of this page ended: the page is read, or why not is kept.
+    /// Its part goes either way.
+    ///
+    /// # Errors
+    /// `NoMemory`: the page counts as failed.
     #[inline(never)]
-    fn page_ended(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<Ended, Error> {
-        let Some(slot) = self.page.as_mut() else {
-            return Ok(Ended::Ignored);
-        };
-        slot.request = None;
-        let file = part_of(&slot.id)?;
+    fn ended(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<(), Error> {
+        let read = self.read(wire, done);
+        if read.is_err() {
+            self.details = Details::Failed;
+        }
+        read
+    }
+
+    fn read(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<(), Error> {
+        self.request = None;
+        let file = part_of(&self.id, done.token)?;
         let outcome = if done.saved() {
             let address = wire.final_url(done.id);
-            let base = address.as_deref().unwrap_or(&slot.url);
-            read_page(wire, &file, base).map(|page| page.filter(|page| page.entry.id == slot.id))
+            let base = address.as_deref().unwrap_or(&self.url);
+            read_page(wire, &file, base).map(|page| page.filter(|page| page.entry.id == self.id))
         } else {
             Ok(None)
         };
@@ -610,12 +637,12 @@ impl Loader {
                             && shot.size <= SMALL_SHOT_BYTES
                     });
                 }
-                slot.plugin = Some(Box::new(page));
-                slot.details = Details::Here;
+                self.plugin = Some(Box::new(page));
+                self.details = Details::Here;
             }
             Ok(None) | Err(Error::Io) => {
                 // No answer at all is no connection (the lists say so too).
-                slot.details = if done.status == 0 {
+                self.details = if done.status == 0 {
                     Details::Offline
                 } else {
                     Details::Failed
@@ -623,14 +650,95 @@ impl Loader {
             }
             Err(error) => return Err(error),
         }
-        Ok(Ended::Page)
+        Ok(())
+    }
+
+    /// The page is let go: its request under way (asked with `token`) is
+    /// ended and its part goes.
+    fn give_up(self, wire: &mut dyn Wire, token: u32) {
+        if self.request.is_some() {
+            wire.cancel(token);
+            if let Ok(file) = part_of(&self.id, token) {
+                let _ = wire.storage().remove(&file);
+            }
+        }
     }
 }
 
-/// Where the page of `id` is fetched to: a file of its own, so that pages fetched
-/// at once do not write into each other.
-fn part_of(id: &str) -> Result<String, Error> {
-    concat(&["plugin-", id, ".part"])
+/// How far the page of `slot` is, and whose it is.
+fn details_of(slot: Option<&PageSlot>) -> (Option<&str>, Details) {
+    match slot {
+        Some(slot) => (Some(slot.id.as_str()), slot.details),
+        None => (None, Details::None),
+    }
+}
+
+/// The page of `slot`, where it is plugin `id`'s and here.
+fn page_of<'a>(slot: Option<&'a PageSlot>, id: &str) -> Option<&'a Page> {
+    slot.filter(|slot| slot.id == id)
+        .and_then(|slot| slot.plugin.as_deref())
+}
+
+/// Asks for the page of plugin `id` with `token`. A request the host refuses is no connection (no network
+/// service, or too many requests at once: opened again, the page may come);
+/// a name that is none, a library that does not know the device or an
+/// address that cannot be made is a page that is not there.
+///
+/// # Errors
+/// `NoMemory` and the host's refusals of the facts.
+#[inline(never)]
+fn ask_page(wire: &mut dyn Wire, id: &str, token: u32) -> Result<PageSlot, Error> {
+    let mut slot = PageSlot {
+        id: copy(id)?,
+        url: String::new(),
+        request: None,
+        details: Details::Failed,
+        plugin: None,
+    };
+    let facts = match wire.facts() {
+        Ok(facts) => facts.filter(|_| is_plugin_name(id)),
+        Err(Error::NoMemory) => return Err(Error::NoMemory),
+        Err(_) => None,
+    };
+    let Some(facts) = facts else {
+        return Ok(slot);
+    };
+    let (catalog, community) = wire.catalog()?;
+    let url = match plugin_url(
+        &catalog,
+        facts.name(),
+        facts.language(),
+        id,
+        community,
+        None,
+    ) {
+        Ok(url) => url,
+        Err(Error::NoMemory) => return Err(Error::NoMemory),
+        Err(_) => return Ok(slot),
+    };
+    let asked = wire.get(&url, &part_of(id, token)?, token, MAX_PAGE_FILE);
+    slot.url = url;
+    slot.details = match asked {
+        Ok(request) => {
+            slot.request = Some(request);
+            Details::Asked
+        }
+        Err(Error::NoMemory) => return Err(Error::NoMemory),
+        Err(_) => Details::Offline,
+    };
+    Ok(slot)
+}
+
+/// Where the page of `id` asked with `token` is fetched to: a file of its own,
+/// so that pages fetched at once (a screen's and the queue's) do not write
+/// into each other.
+fn part_of(id: &str, token: u32) -> Result<String, Error> {
+    let prefix = if token == QUEUE_PAGE_TOKEN {
+        "queue-"
+    } else {
+        "plugin-"
+    };
+    concat(&[prefix, id, ".part"])
 }
 
 /// Reads the page fetched to `file`, its files and pictures made absolute with

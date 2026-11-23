@@ -1,4 +1,5 @@
 use super::{Error, FormatCall, FormatOp, schema};
+use crate::native::ui::navigation::full_id;
 
 /// Preparation outcome for an open or prepare reply.
 #[derive(Clone, Copy, Debug)]
@@ -148,7 +149,7 @@ impl FormatCall<'_> {
         out: &mut [u8],
     ) -> Result<usize, Error> {
         self.require(&[FormatOp::Open, FormatOp::Prepare])?;
-        validate_id(format)?;
+        full_id(format)?;
         schema::FmtState::new(
             self.document(),
             state.state,
@@ -215,21 +216,4 @@ impl FormatCall<'_> {
             .encode(out)
             .map_err(Error::from_status)
     }
-}
-
-pub(super) fn validate_id(id: &str) -> Result<(), Error> {
-    if id.len() > 128 {
-        return Err(Error::NoSpace);
-    }
-    if !id.contains('.')
-        || id.split('.').any(|part| {
-            part.is_empty()
-                || !part
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-        })
-    {
-        return Err(Error::Invalid);
-    }
-    Ok(())
 }

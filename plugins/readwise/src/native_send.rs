@@ -411,7 +411,7 @@ impl Sender {
             failed: 0,
         });
         match wire.network() {
-            Ok(()) => self.next(wire),
+            Ok(()) => Ok(self.next(wire)),
             Err(Error::Unsupported | Error::Denied) => Ok(self.end(wire, Tell::NoNetwork)),
             Err(error) => {
                 self.end(wire, Tell::Failed);
@@ -432,13 +432,13 @@ impl Sender {
     }
 
     /// Sends the next notes file's highlights, or says how it went.
-    fn next(&mut self, wire: &mut dyn Wire) -> Result<Step, Error> {
+    fn next(&mut self, wire: &mut dyn Wire) -> Step {
         loop {
             let Some(run) = self.run.as_mut() else {
-                return Ok(Step::Quiet);
+                return Step::Quiet;
             };
             if run.queue.is_empty() {
-                return Ok(self.finish(wire));
+                return self.finish(wire);
             }
             let path = run.queue.remove(0);
             if let Err(Error::NotFound) = wire.notes().size(&path) {
@@ -453,31 +453,25 @@ impl Sender {
                 Ok(count) => {
                     let sent = match self.run.as_ref() {
                         Some(run) => wire.post(&run.token),
-                        None => return Ok(Step::Quiet),
+                        None => return Step::Quiet,
                     };
                     match sent {
                         Ok(id) => {
                             if let Some(run) = self.run.as_mut() {
                                 run.flight = Some(Flight { id, path, count });
                             }
-                            return Ok(Step::Quiet);
+                            return Step::Quiet;
                         }
                         // Kept waiting, as if Readwise had failed; no network
                         // ends it all.
                         Err(Error::Unsupported | Error::Denied) => {
-                            return Ok(self.end(wire, Tell::NoNetwork));
+                            return self.end(wire, Tell::NoNetwork);
                         }
-                        Err(Error::NoMemory) => {
-                            self.end(wire, Tell::Failed);
-                            return Err(Error::NoMemory);
-                        }
+                        Err(Error::NoMemory) => self.too_large(wire, &path),
                         Err(_) => self.fail_one(),
                     }
                 }
-                Err(Error::NoMemory) => {
-                    self.end(wire, Tell::Failed);
-                    return Err(Error::NoMemory);
-                }
+                Err(Error::NoMemory) => self.too_large(wire, &path),
                 // Kept waiting, as if Readwise had failed.
                 Err(_) => self.fail_one(),
             }
@@ -490,44 +484,47 @@ impl Sender {
         }
     }
 
+    /// The notes file `path` did not fit in the heap: it counts as failed and
+    /// waits behind the others, so that it holds up none of them, at this
+    /// sending or the next.
+    fn too_large(&mut self, wire: &mut dyn Wire, path: &str) {
+        // A list that cannot be written keeps it where it is: tried again.
+        let _ = add_waiting(wire.data(), path);
+        self.fail_one();
+    }
+
     /// Readwise answered (or the request failed): the next file, or the end.
-    ///
-    /// # Errors
-    /// `NoMemory` (the sending ends, the files keep waiting).
-    pub fn done(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<Step, Error> {
+    /// A notes file that does not fit in the heap counts as failed, and the
+    /// next one goes.
+    pub fn done(&mut self, wire: &mut dyn Wire, done: &Done) -> Step {
         if done.token != REQUEST_TOKEN {
-            return Ok(Step::Quiet);
+            return Step::Quiet;
         }
         let Some(run) = self.run.as_mut() else {
-            return Ok(Step::Quiet);
+            return Step::Quiet;
         };
         if run.flight.as_ref().map(|f| f.id) != Some(done.id) {
-            return Ok(Step::Quiet);
+            return Step::Quiet;
         }
         let Some(flight) = run.flight.take() else {
-            return Ok(Step::Quiet);
+            return Step::Quiet;
         };
         match done.reason {
             // By this plugin or by a newer request: nothing to learn.
             Reason::Cancelled | Reason::Replaced => {
                 self.run = None;
                 let _ = wire.data().remove(BODY);
-                Ok(Step::Quiet)
+                Step::Quiet
             }
             // The run's 10 minutes are over: no request is to follow outside it.
-            Reason::WorkEnded => Ok(self.end(wire, Tell::Unreachable)),
+            Reason::WorkEnded => self.end(wire, Tell::Unreachable),
             Reason::Ok => self.answered(wire, flight, done.status),
             // No answer came (interface 6: status 0).
-            _ => Ok(self.end(wire, Tell::Unreachable)),
+            _ => self.end(wire, Tell::Unreachable),
         }
     }
 
-    fn answered(
-        &mut self,
-        wire: &mut dyn Wire,
-        flight: Flight,
-        status: u32,
-    ) -> Result<Step, Error> {
+    fn answered(&mut self, wire: &mut dyn Wire, flight: Flight, status: u32) -> Step {
         match status {
             200..=299 => {
                 // A list that cannot be written keeps the file: it is sent
@@ -543,15 +540,15 @@ impl Sender {
                 // Readwise may refuse it only for a while.
                 let _ = wire.data().remove(BODY);
                 let Some(run) = self.run.take() else {
-                    return Ok(Step::Quiet);
+                    return Step::Quiet;
                 };
                 let quiet = run.quiet;
                 self.refused = Some(run.token);
-                Ok(if quiet {
+                if quiet {
                     Step::Quiet
                 } else {
                     Step::Told(Tell::BadToken)
-                })
+                }
             }
             _ => {
                 self.fail_one();

@@ -23,6 +23,8 @@ struct Double {
     came: Vec<u8>,
     tls: Option<Error>,
     peer: Option<Peer>,
+    /// Where in memory each piece taken was.
+    addresses: Vec<usize>,
 }
 
 impl Net for Double {
@@ -55,6 +57,7 @@ impl Net for Double {
         }
         self.room -= piece.len();
         self.taken.extend_from_slice(piece);
+        self.addresses.push(piece.as_ptr() as usize);
         Ok(())
     }
     fn read_bytes(&mut self, max: u32) -> Result<(), Error> {
@@ -170,6 +173,26 @@ fn a_message_is_sent_whole_in_order() {
     link.send_message(b"Subject: x\r\n\r\nbody\r\n.\r\n".to_vec())
         .unwrap();
     assert_eq!(link.net().taken, b"Subject: x\r\n\r\nbody\r\n.\r\n");
+}
+
+#[test]
+fn a_message_is_sent_from_its_own_bytes_not_from_a_copy() {
+    let mut state = LinkState::default();
+    let mut link = Link::new(&mut state, double());
+    let message = vec![b'x'; PIECE * 2];
+    let start = message.as_ptr() as usize;
+    link.send_message(message).unwrap();
+    assert_eq!(link.net().addresses, [start, start + PIECE]);
+    // Behind bytes that wait, it follows them in order.
+    let net = link.net();
+    net.room = 3;
+    link.send(b"abcdef").unwrap();
+    link.send_message(b"ghi".to_vec()).unwrap();
+    let net = link.net();
+    net.room = usize::MAX;
+    link.notice(notice(SocketKind::Sent, 0), |_, _| true)
+        .unwrap();
+    assert!(link.net().taken.ends_with(b"abcdefghi"));
 }
 
 #[test]

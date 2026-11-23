@@ -2531,6 +2531,7 @@ native WidgetPlace home | WidgetPlace(WidgetPlace { name: "pages", title: "home.
 native WidgetPlace picture-home | WidgetPlace(WidgetPlace { name: "pages", title: "picture-home.title", list_keys: "picture-home.page-1\npicture-home.page-2\npicture-home.page-3\npicture-home.page-4", layout: 0, shown_if_key: "", shown_if_value: "" })
 native WidgetPlace sleep | WidgetPlace(WidgetPlace { name: "widgets", title: "sleep.title", list_keys: "sleep.widgets", layout: 1, shown_if_key: "sleep.show", shown_if_value: "sleep.show.widgets" })
 native WidgetPlace sleep | WidgetPlace(WidgetPlace { name: "overlay", title: "sleep.title", list_keys: "sleep.overlay-widget", layout: 1, shown_if_key: "sleep.show", shown_if_value: "sleep.show.overlay" })
+native StatusItem bluetooth | StatusItem(StatusItem { name: "status", title: "bluetooth.status.item", tap: "open", priority: 0, min_width: 0, token: 3, flags: 0 })
 native StatusItem lock | StatusItem(StatusItem { name: "touch-status", title: "lock.touch-status", tap: "", priority: 0, min_width: 0, token: 34, flags: 0 })
 native StatusItem power | StatusItem(StatusItem { name: "status", title: "power.status.item", tap: "open", priority: 0, min_width: 0, token: 12, flags: 0 })
 native StatusItem reader | StatusItem(StatusItem { name: "status.title", title: "reader.status.item.title", tap: "", priority: 64, min_width: 0, token: 16, flags: 0 })

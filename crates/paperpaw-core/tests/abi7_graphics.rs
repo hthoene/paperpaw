@@ -3,6 +3,10 @@
 #![allow(clippy::unwrap_used, reason = "tests fail loudly on unexpected errors")]
 
 #[path = "../src/abi7/graphics.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod graphics;
 
 use graphics::InvalidInput;

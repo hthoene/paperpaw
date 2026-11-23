@@ -134,11 +134,9 @@ macro_rules! numbers {
 }
 numbers!(u8, u16, u32, u64, usize, i32, i64);
 
-/// Written and read without `core`'s formatter and parser of floats:
-/// those are some 36 KB of the firmware (#258) and 16 KB of a native
-/// plugin taking a reading event (ADR 0024). Written as `Display` writes
-/// it; read as near as the float can say (within a unit of its last
-/// place).
+/// Written and read without `core`'s formatter and parser of floats, some
+/// 36 KB of the firmware (#258): written as `Display` writes it, read as
+/// `core` reads it (the nearest float to the number).
 impl ParamValue for f32 {
     fn to_param(&self) -> String {
         let mut text = String::new();

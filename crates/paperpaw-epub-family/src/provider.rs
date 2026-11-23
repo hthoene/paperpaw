@@ -634,8 +634,8 @@ impl FormatProvider {
     }
 
     /// The size of the root-6 file of face `index`, written first when it is
-    /// not there whole (through a temporary name, so one half-written is
-    /// never taken for it); 0 where the face cannot be read.
+    /// not there whole (a whole write, so one half-written is never taken
+    /// for it); 0 where the face cannot be read.
     fn face_file(
         document: &dyn Document,
         cache: &str,
@@ -680,11 +680,8 @@ impl FormatProvider {
         if bytes == 0 {
             return Ok(0);
         }
-        let temp = crate::fallible::try_format!("{path}.tmp").map_err(|_| Error::NoMemory)?;
-        if io.write(&temp, &data).is_err() || io.rename(&temp, &path).is_err() {
-            let _ = io.remove(&temp);
-            return Err(Error::Io);
-        }
+        // A whole write: the copy is there whole or not at all.
+        io.write(&path, &data).map_err(|_| Error::Io)?;
         Ok(bytes)
     }
 

@@ -38,6 +38,8 @@ struct World {
     posts: Vec<Post>,
     cancelled: usize,
     next: u32,
+    /// A body holding this text finds no room in the heap to be sent.
+    no_memory_for: Option<&'static str>,
 }
 
 impl World {
@@ -50,6 +52,7 @@ impl World {
             posts: Vec::new(),
             cancelled: 0,
             next: 0,
+            no_memory_for: None,
         }
     }
 
@@ -93,6 +96,9 @@ impl Wire for World {
 
     fn post(&mut self, token: &Secret) -> Result<RequestId, Error> {
         let body = String::from_utf8(self.data.get(BODY).unwrap()).unwrap();
+        if self.no_memory_for.is_some_and(|text| body.contains(text)) {
+            return Err(Error::NoMemory);
+        }
         self.posts.push(Post {
             token: token.as_str().to_string(),
             body,
@@ -134,7 +140,7 @@ fn highlights_are_sent_from_a_file_and_leave_the_list_when_taken() {
     // It waits until Readwise has taken it.
     assert_eq!(w.waiting(), ["Notes/a.md"]);
     let done = w.done(200);
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Told(Tell::Sent(2)));
+    assert_eq!(s.done(&mut w, &done), Step::Told(Tell::Sent(2)));
     assert!(w.waiting().is_empty());
     assert!(!s.busy());
     assert!(w.data.get(BODY).is_none(), "the body is cleaned away");
@@ -156,7 +162,7 @@ fn notes_of_any_length_are_sent_in_small_writes() {
     assert_eq!(w.posts[0].body.matches("\"text\"").count(), 300);
     assert!(*w.data.longest.borrow() <= paperpaw_sdk::native::storage::MAX_DATA);
     let done = w.done(201);
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Told(Tell::Sent(300)));
+    assert_eq!(s.done(&mut w, &done), Step::Told(Tell::Sent(300)));
 }
 
 #[test]
@@ -166,16 +172,16 @@ fn what_fails_waits_and_goes_later() {
     let mut s = Sender::new();
     export(&mut w, &mut s, "Notes/a.md");
     let done = w.done(503);
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Told(Tell::Failed));
+    assert_eq!(s.done(&mut w, &done), Step::Told(Tell::Failed));
     assert_eq!(w.waiting(), ["Notes/a.md"]);
     // By itself later, it tells only what went well.
     assert_eq!(s.start(&mut w, Start::Retry, None).unwrap(), Step::Quiet);
     assert_eq!(w.posts.len(), 2);
     let done = w.done(500);
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Quiet);
+    assert_eq!(s.done(&mut w, &done), Step::Quiet);
     assert_eq!(s.start(&mut w, Start::Retry, None).unwrap(), Step::Quiet);
     let done = w.done(200);
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Told(Tell::Sent(2)));
+    assert_eq!(s.done(&mut w, &done), Step::Told(Tell::Sent(2)));
     assert!(w.waiting().is_empty());
 }
 
@@ -200,7 +206,7 @@ fn no_answer_ends_the_sending_and_the_files_wait() {
         export(&mut w, &mut s, "b.md");
         let done = Done::new(w.id(), REQUEST_TOKEN, reason, 0);
         assert_eq!(
-            s.done(&mut w, &done).unwrap(),
+            s.done(&mut w, &done),
             Step::Told(Tell::Unreachable),
             "{reason:?}"
         );
@@ -211,6 +217,36 @@ fn no_answer_ends_the_sending_and_the_files_wait() {
 }
 
 #[test]
+fn a_notes_file_the_heap_has_no_room_for_fails_alone_and_waits_behind_the_others() {
+    let mut w = World::new();
+    w.notes("a.md", &NOTES.replace("Curiouser", "Enormous"));
+    w.notes("b.md", NOTES);
+    w.notes("c.md", NOTES);
+    for path in ["a.md", "b.md", "c.md"] {
+        add_waiting(&w.data, path).unwrap();
+    }
+    w.no_memory_for = Some("Enormous");
+    let mut s = Sender::new();
+    // By itself: the others go, and nothing is said of the memory.
+    assert_eq!(s.start(&mut w, Start::Retry, None).unwrap(), Step::Quiet);
+    assert_eq!(w.posts.len(), 1);
+    assert_eq!(w.waiting(), ["b.md", "c.md", "a.md"]);
+    let done = w.done(200);
+    assert_eq!(s.done(&mut w, &done), Step::Quiet);
+    let done = w.done(200);
+    assert_eq!(s.done(&mut w, &done), Step::Quiet);
+    assert_eq!(w.posts.len(), 2);
+    assert_eq!(w.waiting(), ["a.md"]);
+    // The reader's export is told that not every file went.
+    w.notes("d.md", NOTES);
+    assert_eq!(export(&mut w, &mut s, "d.md"), Step::Quiet);
+    assert_eq!(w.waiting(), ["d.md", "a.md"]);
+    let done = w.done(200);
+    assert_eq!(s.done(&mut w, &done), Step::Told(Tell::Failed));
+    assert_eq!(w.waiting(), ["a.md"]);
+}
+
+#[test]
 fn the_end_of_the_run_stops_it_quietly_when_it_ran_by_itself() {
     let mut w = World::new();
     w.notes("a.md", NOTES);
@@ -218,7 +254,7 @@ fn the_end_of_the_run_stops_it_quietly_when_it_ran_by_itself() {
     let mut s = Sender::new();
     s.start(&mut w, Start::Retry, None).unwrap();
     let done = Done::new(w.id(), REQUEST_TOKEN, Reason::WorkEnded, 0);
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Quiet);
+    assert_eq!(s.done(&mut w, &done), Step::Quiet);
     assert!(!s.busy());
     assert_eq!(w.waiting(), ["a.md"]);
     assert_eq!(w.posts.len(), 1);
@@ -249,7 +285,7 @@ fn a_refused_token_is_let_go_until_another_is_kept_or_entered() {
     let mut s = Sender::new();
     export(&mut w, &mut s, "a.md");
     let done = w.done(401);
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Told(Tell::BadToken));
+    assert_eq!(s.done(&mut w, &done), Step::Told(Tell::BadToken));
     assert_eq!(w.waiting(), ["a.md"]);
     // The refused one is not tried again by itself, and an export asks anew.
     assert_eq!(s.start(&mut w, Start::Retry, None).unwrap(), Step::Quiet);
@@ -264,13 +300,13 @@ fn a_refused_token_is_let_go_until_another_is_kept_or_entered() {
     assert_eq!(w.posts[1].token, "new");
     let done = w.done(403);
     // A refusal is told only when the reader started the sending.
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Quiet);
+    assert_eq!(s.done(&mut w, &done), Step::Quiet);
     // The same token entered anew is sent again.
     let typed = Secret::new("new").unwrap();
     s.start(&mut w, Start::Export, Some(typed)).unwrap();
     assert_eq!(w.posts.len(), 3);
     let done = w.done(200);
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Told(Tell::Sent(2)));
+    assert_eq!(s.done(&mut w, &done), Step::Told(Tell::Sent(2)));
 }
 
 #[test]
@@ -350,7 +386,7 @@ fn a_file_that_cannot_be_read_counts_as_failed_and_the_others_go_on() {
     s.start(&mut wire, Start::Export, None).unwrap();
     assert_eq!(wire.0.posts.len(), 1, "the good file goes on");
     let done = wire.0.done(200);
-    assert_eq!(s.done(&mut wire, &done).unwrap(), Step::Told(Tell::Failed));
+    assert_eq!(s.done(&mut wire, &done), Step::Told(Tell::Failed));
     assert_eq!(wire.0.waiting(), ["bad.md"]);
 }
 
@@ -377,10 +413,10 @@ fn an_export_while_sending_comes_along() {
     export(&mut w, &mut s, "b.md");
     assert_eq!(w.posts.len(), 1);
     let done = w.done(200);
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Quiet);
+    assert_eq!(s.done(&mut w, &done), Step::Quiet);
     assert_eq!(w.posts.len(), 2);
     let done = w.done(200);
-    assert_eq!(s.done(&mut w, &done).unwrap(), Step::Told(Tell::Sent(4)));
+    assert_eq!(s.done(&mut w, &done), Step::Told(Tell::Sent(4)));
     assert!(w.waiting().is_empty());
 }
 
@@ -391,9 +427,9 @@ fn other_requests_and_other_ends_are_ignored_and_a_cancel_ends_it() {
     let mut s = Sender::new();
     export(&mut w, &mut s, "a.md");
     let other = Done::new(RequestId::new(77).unwrap(), REQUEST_TOKEN, Reason::Ok, 200);
-    assert_eq!(s.done(&mut w, &other).unwrap(), Step::Quiet);
+    assert_eq!(s.done(&mut w, &other), Step::Quiet);
     let token = Done::new(w.id(), REQUEST_TOKEN + 1, Reason::Ok, 200);
-    assert_eq!(s.done(&mut w, &token).unwrap(), Step::Quiet);
+    assert_eq!(s.done(&mut w, &token), Step::Quiet);
     assert!(s.busy());
     s.cancel(&mut w);
     assert!(!s.busy());
@@ -401,7 +437,7 @@ fn other_requests_and_other_ends_are_ignored_and_a_cancel_ends_it() {
     assert!(w.data.get(BODY).is_none());
     // Its end, when it comes, is ignored.
     let cancelled = Done::new(w.id(), REQUEST_TOKEN, Reason::Cancelled, 0);
-    assert_eq!(s.done(&mut w, &cancelled).unwrap(), Step::Quiet);
+    assert_eq!(s.done(&mut w, &cancelled), Step::Quiet);
     assert_eq!(w.waiting(), ["a.md"]);
 }
 
@@ -432,7 +468,7 @@ fn a_long_list_is_taken_a_few_at_a_time_and_none_is_lost() {
         s.start(&mut w, Start::Retry, None).unwrap();
         while s.busy() {
             let done = w.done(200);
-            s.done(&mut w, &done).unwrap();
+            s.done(&mut w, &done);
         }
     }
     assert_eq!(rounds, 2);
@@ -553,7 +589,7 @@ fn refused_memory_ends_in_no_memory_never_an_abort() {
         let mut sender = Sender::new();
         sender.start(&mut sink, Start::Export, None)?;
         let done = Done::new(RequestId::new(1).unwrap(), REQUEST_TOKEN, Reason::Ok, 200);
-        sender.done(&mut sink, &done)
+        Ok(sender.done(&mut sink, &done))
     });
 }
 

@@ -67,8 +67,6 @@
 //! input waits, so the device answers at once and sleeps between steps.
 //! A step should take a few milliseconds.
 //!
-//! `Staging::add_work`: crate::Staging::add_work
-//!
 //! **Nothing is refused silently, nothing nags.** Work held back by the
 //! power mode stays queued and runs when allowed; work that can never run
 //! (the reader switched the plugin's network off, the manifest does not

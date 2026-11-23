@@ -2,10 +2,11 @@
 //! 1.2, 1.3, 3.1 and 4.3 as pure functions over a borrowed view of the screen
 //! stack.
 //!
-//! The stack itself (instances, hand-overs, commands) is H1's. This module
-//! only decides, so that every consumer (the command applier, the input
-//! router, `core.ui` ops 1 and 8, the compose hook) asks one place and the
-//! rules cannot drift apart. Nothing here allocates, keeps a reference or
+//! The stack itself (instances, hand-overs, commands) is the kernel's, which
+//! also places opens under a guard and runs key bindings under it
+//! (`Kernel::apply`, `key_guard.rs`). This module only decides for the native
+//! paths (the command stage, the input chain, `core.ui` ops 1 and 8, the
+//! compose hook), so that each of them asks one place. Nothing here allocates, keeps a reference or
 //! calls plugin code; a stack view is read-only and ordered bottom to top.
 //!
 //! "The guard" is the topmost instance whose `guards` flag is set; "the
@@ -20,7 +21,6 @@ pub(crate) const MAX_REQUESTS: u8 = 4;
 pub(crate) const MAX_REQUESTS_X4: u8 = 1;
 
 /// One screen instance, as the rules need it.
-#[allow(dead_code, reason = "consumers are H1's applier and the core.ui ops")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Row {
     pub(crate) instance: u32,
@@ -38,16 +38,16 @@ pub(crate) struct Row {
 }
 
 /// The stack, bottom (index 0) to top.
-#[allow(dead_code, reason = "consumers are H1's applier and the core.ui ops")]
 pub(crate) trait UiStackView {
     fn len(&self) -> usize;
     fn row(&self, index: usize) -> Option<Row>;
 }
 
-/// A stack kept as a slice of rows (bottom to top).
-#[allow(dead_code, reason = "consumers are H1's applier and the core.ui ops")]
+/// A stack kept as a slice of rows (bottom to top), for the tests' stacks.
+#[cfg(test)]
 pub(crate) struct Rows<'a>(pub(crate) &'a [Row]);
 
+#[cfg(test)]
 impl UiStackView for Rows<'_> {
     fn len(&self) -> usize {
         self.0.len()
@@ -73,10 +73,6 @@ pub(crate) fn topmost_guard(view: &dyn UiStackView) -> Option<usize> {
 }
 
 /// The topmost guarding instance, if any.
-#[allow(
-    dead_code,
-    reason = "the kernel's stack sync uses it; test crates that include this file by path do not"
-)]
 pub(crate) fn guard_instance(view: &dyn UiStackView) -> Option<u32> {
     topmost_guard(view)
         .and_then(|i| view.row(i))
@@ -135,53 +131,9 @@ pub(crate) fn top_is_secret(view: &dyn UiStackView) -> bool {
 
 /// The one instance that gets keys and pointers ([`input_index`]). With a guard
 /// up it is always the guard or something above it (opens of others wait
-/// below, [`open_index`]) and never the host's sleep screen, so the lock owns
-/// the input path.
+/// below) and never the host's sleep screen, so the lock owns the input path.
 pub(crate) fn input_target(view: &dyn UiStackView) -> Option<u32> {
     top(view).map(|r| r.instance)
-}
-
-/// Whether `instance` may get `draw`/`input` at all: only the top one does.
-pub(crate) fn may_receive_input(view: &dyn UiStackView, instance: u32) -> bool {
-    input_target(view) == Some(instance)
-}
-
-/// Where a new instance goes: the index it is inserted at. With a guard up,
-/// an open by another plugin goes directly below the topmost guard and waits
-/// there (no `draw`, no `input`); the guard's plugin, a dialog the host
-/// authorized for the guard's question and the host's own screen for a device
-/// state go on top.
-pub(crate) fn open_index(
-    view: &dyn UiStackView,
-    opener: u64,
-    authorized_dialog: bool,
-    host_screen: bool,
-) -> usize {
-    match topmost_guard(view) {
-        Some(guard)
-            if !(authorized_dialog
-                || host_screen
-                || (opener != 0 && guard_owner(view) == Some(opener))) =>
-        {
-            guard
-        }
-        _ => view.len(),
-    }
-}
-
-/// `command.open` (any mode) and command 56 from the callback of the screen
-/// instance `from` (`None`: an action or event): a guard dialog opens nothing
-/// but its one nested question, so any ordinary open from it is `ERR_DENIED`
-/// at the caller (section 4.3). Where the new instance goes is [`open_index`].
-pub(crate) fn open_allowed(view: &dyn UiStackView, from: Option<u32>) -> Result<(), i32> {
-    if invalid_view(view) {
-        return Err(ERR_STATE);
-    }
-    let dialog = from
-        .and_then(|instance| find(view, instance))
-        .and_then(|i| view.row(i))
-        .is_some_and(|r| r.guard_dialog);
-    if dialog { Err(ERR_DENIED) } else { Ok(()) }
 }
 
 /// Whether the `core.input-filter` subscriber `filter_plugin` is called for
@@ -203,19 +155,6 @@ pub(crate) fn filter_runs(view: &dyn UiStackView, filter_plugin: u64) -> bool {
     match top(view).filter(|_| top_is_secret(view)) {
         Some(top_row) => top_row.owner == filter_plugin,
         None => true,
-    }
-}
-
-/// A binding in the slot or global key layer that names another plugin's
-/// action or input does nothing while a guard is up (logged); host actions
-/// and the guard's plugin's own run (section 4.3).
-pub(crate) fn binding_runs(view: &dyn UiStackView, target_plugin: Option<u64>) -> bool {
-    if target_plugin == Some(0) || invalid_view(view) {
-        return false;
-    }
-    match (guard_owner(view), target_plugin) {
-        (None, _) | (Some(_), None) => true,
-        (Some(guard), Some(plugin)) => guard == plugin,
     }
 }
 
@@ -270,10 +209,6 @@ pub(crate) fn guard_on_allowed(
 /// the stack `ERR_NOT_FOUND`); `guards` on only as [`guard_on_allowed`] says,
 /// where the instance does not guard already. Everything else, turning
 /// `guards` off and `secret` or `holds_edges` either way, is allowed.
-#[allow(
-    dead_code,
-    reason = "the stage uses it; test crates that include this file by path do not"
-)]
 pub(crate) fn policy_allowed(
     view: &dyn UiStackView,
     submitter: u64,
@@ -414,29 +349,7 @@ pub(crate) fn visible_rows(view: &dyn UiStackView, viewer: u64) -> Visible {
     }
 }
 
-/// Whether the instance at `index` is drawn (by the host, as itself) under an
-/// overlay owned by `overlay_owner`: not when it is secret, or at or below a
-/// guard, and the overlay is another plugin's (section 1.2).
-pub(crate) fn drawn_under_overlay(
-    view: &dyn UiStackView,
-    index: usize,
-    overlay_owner: u64,
-) -> bool {
-    if invalid_view(view) {
-        return false;
-    }
-    let Some(row) = view.row(index) else {
-        return false;
-    };
-    if row.owner == overlay_owner {
-        return true;
-    }
-    let at_or_below_guard = topmost_guard(view).is_some_and(|g| index <= g);
-    !(is_secret(view, index) || at_or_below_guard)
-}
-
 /// A question as `core.ui` op 8 gets it.
-#[allow(dead_code, reason = "consumer is H2's op 8 handler")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Ask<'a> {
     pub(crate) asker: u64,

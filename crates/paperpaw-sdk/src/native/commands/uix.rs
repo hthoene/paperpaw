@@ -35,6 +35,11 @@ impl CommandSender<'_, '_> {
     /// `State` when it is not asleep or the plugin has no screen on top,
     /// `Invalid` for a time under the least; buffer limits.
     pub fn show_again(&mut self, after_ms: u32, every_ms: u32) -> Result<(), Error> {
+        // Checked here, not left to the host: it reads `after_ms` 0 as a
+        // cancel, which would drop the request that waits instead of refusing.
+        if after_ms < SHOW_AGAIN_MIN_MS || (every_ms != 0 && every_ms < SHOW_AGAIN_MIN_MS) {
+            return Err(Error::Invalid);
+        }
         self.submit(wire::Command::ShowAgain {
             instance: 0,
             after_ms,

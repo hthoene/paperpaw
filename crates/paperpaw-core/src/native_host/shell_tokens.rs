@@ -7,10 +7,6 @@ use paperpaw_graphics::Canvas;
 
 /// A host-produced event or input for a declared screen or action token.
 /// Tokens come from committed declarations, never a fabricated registration.
-#[allow(
-    dead_code,
-    reason = "native built-in adapter follows this prerequisite"
-)]
 pub(crate) enum TokenInvocation<'a> {
     Event(&'a [u8]),
     Input(&'a [u8]),
@@ -18,10 +14,6 @@ pub(crate) enum TokenInvocation<'a> {
 
 /// Dispatch a token resolved by the host from one committed declaration.
 /// The frame remains scoped to this synchronous callback and owner admission.
-#[allow(
-    dead_code,
-    reason = "native built-in adapter follows this prerequisite"
-)]
 pub(crate) fn dispatch_token<S: 'static, M>(
     batch: &Published<'_, S, M, Registration>,
     token: u32,
@@ -98,10 +90,6 @@ pub(super) fn invoke_token<S: 'static>(
 /// Draw a declared screen token with its full pane and separate clip rows.
 /// The adapter supplies the complete frame rather than deriving a pane from
 /// the clipped canvas, which may hold only one band of a larger screen.
-#[allow(
-    dead_code,
-    reason = "native built-in adapter follows this prerequisite"
-)]
 pub(crate) fn dispatch_token_draw<S: 'static, M>(
     batch: &Published<'_, S, M, Registration>,
     token: u32,
@@ -157,10 +145,6 @@ impl<S: 'static> super::Context<S> {
     /// What a command stage checks the plugin's image commands against:
     /// whether root 1 is open to it (`uses.storage`) and how many more
     /// requests it may queue now.
-    #[allow(
-        dead_code,
-        reason = "read by the staged command path (with_native_commands), which the shell wires"
-    )]
     pub(crate) fn image_admit(&self) -> super::super::image_service::commands::ImageAdmit {
         super::super::image_service::commands::ImageAdmit {
             storage_root: self

@@ -19,14 +19,6 @@
 //! answers with `Staging::on` and hands them to
 //! `Installer::received`.
 
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod local;
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod marks;
-mod origin;
-
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;

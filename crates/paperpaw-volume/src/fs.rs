@@ -13,6 +13,7 @@ use crate::file::File;
 use crate::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use crate::table::{
     ClusterIterator, FatValue, RESERVED_FAT_ENTRIES, count_free_clusters, read_fat, read_fat_flags,
+    write_fat,
 };
 use crate::time::{DefaultTimeProvider, TimeProvider};
 
@@ -205,21 +206,14 @@ impl FsInfoSector {
         Ok(())
     }
 
+    // Modified for PaperPaw: the hint only. The sector's count of free clusters is never taken
+    // (see `FileSystem::new`): the count is one this file system counted or was given.
     fn validate_and_fix(&mut self, total_clusters: u32) {
         let max_valid_cluster_number = total_clusters + RESERVED_FAT_ENTRIES;
-        if let Some(n) = self.free_cluster_count {
-            if n > total_clusters {
-                warn!(
-                    "invalid free_cluster_count ({}) in fs_info exceeds total cluster count ({})",
-                    n, total_clusters
-                );
-                self.free_cluster_count = None;
-            }
-        }
         if let Some(n) = self.next_free_cluster {
             if n > max_valid_cluster_number {
                 warn!(
-                    "invalid free_cluster_count ({}) in fs_info exceeds maximum cluster number ({})",
+                    "invalid next_free_cluster ({}) in fs_info exceeds maximum cluster number ({})",
                     n, max_valid_cluster_number
                 );
                 self.next_free_cluster = None;
@@ -460,7 +454,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         let root_dir_sectors = bpb.root_dir_sectors();
         let first_data_sector = bpb.first_data_sector();
         let total_clusters = bpb.total_clusters();
-        let fat_type = FatType::from_clusters(total_clusters);
+        let fat_type = FatType::from_clusters(bpb.data_clusters());
         // Modified for PaperPaw: FAT12 and FAT16 volumes only where built in (feature `fat16`).
         if !cfg!(feature = "fat16") && fat_type != FatType::Fat32 {
             return Err(Error::CorruptedFileSystem);
@@ -482,7 +476,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         // reads it with `kept_free_count`.
         fs_info.free_cluster_count = None;
 
-        // Validate the numbers stored in the free_cluster_count and next_free_cluster are within bounds for volume
+        // Validate the hint stored in next_free_cluster is within bounds for volume
         fs_info.validate_and_fix(total_clusters);
 
         // Modified for PaperPaw: a claim left by a cut waits for `settle_claim`.
@@ -541,6 +535,8 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         self.bpb.bytes_from_sectors(sector)
     }
 
+    // Modified for PaperPaw: for one of the volume's clusters only (`offset_from_cluster`): it lies
+    // in the data area, which the boot sector's checks keep within `u32` sectors.
     fn sector_from_cluster(&self, cluster: u32) -> u32 {
         self.first_data_sector
             + self
@@ -655,8 +651,15 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         *self.dir_notes.borrow_mut() = [None; DIR_NOTES];
     }
 
-    pub(crate) fn offset_from_cluster(&self, cluster: u32) -> u64 {
-        self.offset_from_sector(self.sector_from_cluster(cluster))
+    // Modified for PaperPaw: checked to be one of the volume's clusters. A number read from the
+    // card (a directory entry's first cluster, a link in the FAT) may be none: 1 or one past the
+    // end wrapped round to a place in the FAT (or overflowed), and a file's data was written
+    // there.
+    pub(crate) fn offset_from_cluster(&self, cluster: u32) -> Result<u64, Error<IO::Error>> {
+        if !self.is_cluster(cluster) {
+            return Err(Error::CorruptedFileSystem);
+        }
+        Ok(self.offset_from_sector(self.sector_from_cluster(cluster)))
     }
 
     pub(crate) fn bytes_from_clusters(&self, clusters: u32) -> u64 {
@@ -678,7 +681,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         cluster: u32,
     ) -> ClusterIterator<impl ReadWriteSeek<Error = Error<IO::Error>> + '_, IO::Error> {
         let disk_slice = self.fat_slice();
-        ClusterIterator::new(disk_slice, self.fat_type, cluster)
+        ClusterIterator::new(disk_slice, self.fat_type, cluster, self.total_clusters)
     }
 
     // Modified for PaperPaw: the clusters freed counted (see `cluster_changes`), also of a chain
@@ -871,39 +874,46 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     // Modified for PaperPaw: `referrer` added, what is to point at the cluster: said on the disk
     // before the cluster is marked taken (see `claim`).
+    //
+    // Modified for PaperPaw: a directory's cluster, zeroed before anything links it (`zero` is
+    // gone: every caller zeroed). Upstream linked it from `prev_cluster` first: the disk takes
+    // changes in the order they were made, so a cut before the zeros left the bytes the cluster
+    // held before (a removed file's) in the directory, read as entries whose clusters are other
+    // files' (removing the directory then freed them). Now the cluster is marked taken on its
+    // own, zeroed, and linked last; cut off before the link, it is taken by nothing, and the
+    // claim of its link (`Referrer::Link`) has the next mount free it.
     pub(crate) fn alloc_cluster(
         &self,
         prev_cluster: Option<u32>,
-        zero: bool,
         referrer: Referrer,
     ) -> Result<u32, Error<IO::Error>> {
         trace!("alloc_cluster");
         let hint = self.fs_info.borrow().next_free_cluster;
-        // One cluster, through `alloc_run`: linked in one write where the cluster before it
-        // lies in the same block of the FAT.
         let (cluster, _) = {
             let mut fat = self.fat_slice();
             crate::table::alloc_run(
                 &mut fat,
                 self.fat_type,
-                prev_cluster,
+                None,
                 hint,
                 self.total_clusters,
                 &self.clusters_taken,
                 1,
-                &mut |fat, first, entries, joined| {
-                    if joined {
-                        self.drop_free_claim()
-                    } else {
-                        self.claim_taking(fat, first, entries, referrer)
-                    }
-                },
+                &mut |fat, first, entries, _| self.claim_taking(fat, first, entries, referrer),
             )?
         };
-        if zero {
+        {
             let mut disk = self.disk.borrow_mut();
-            disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster)))?;
+            disk.seek(SeekFrom::Start(self.offset_from_cluster(cluster)?))?;
             write_zeros(&mut *disk, u64::from(self.cluster_size()))?;
+        }
+        if let Some(prev) = prev_cluster {
+            write_fat(
+                &mut self.fat_slice(),
+                self.fat_type,
+                prev,
+                FatValue::Data(cluster),
+            )?;
         }
         let mut fs_info = self.fs_info.borrow_mut();
         fs_info.set_next_free_cluster(cluster + 1);
@@ -982,8 +992,10 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     /// Returns filesystem statistics like number of total and free clusters.
     ///
-    /// For FAT32 volumes number of free clusters from the FS Information Sector is returned (may be incorrect).
-    /// For other FAT variants number is computed on the first call to this method and cached for later use.
+    /// Modified for PaperPaw: the free clusters are counted in the FAT on the first call and
+    /// followed as clusters are taken and freed, or are the count given to `keep_free_count`.
+    /// The FS information sector's count is never taken: it may be wrong after a cut (see
+    /// `FileSystem::new`).
     ///
     /// # Errors
     ///

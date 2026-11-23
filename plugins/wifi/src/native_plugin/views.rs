@@ -4,7 +4,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use paperpaw_sdk::native::Error;
-use paperpaw_ui_kit::{Item, ItemList, RowItem, mem::push, text::copy};
+use paperpaw_ui_kit::{
+    Item, ItemList, RowItem,
+    mem::{one, push},
+    text::copy,
+};
 
 use crate::native_model::{Network, PageRow};
 use crate::native_policy::{Net as Reach, Radio};
@@ -67,6 +71,8 @@ impl Page {
 pub(super) struct Mark {
     pub(super) signal: i32,
     pub(super) secured: bool,
+    /// Its password is kept: the network can be forgotten.
+    pub(super) kept: bool,
 }
 
 /// The networks in reach: a row for each, then the row that looks again.
@@ -75,9 +81,31 @@ pub(super) struct Networks {
     /// Of the rows of `list`, the first of each network, in order.
     pub(super) marks: Vec<Mark>,
     pub(super) list: ItemList,
+    /// The key bar names *Forget* for the menu button now.
+    pub(super) forget_named: bool,
 }
 
 impl Networks {
+    /// No network to choose, only `text` to read (the radio is off): shown
+    /// whole, and not a row to choose.
+    pub(super) fn said(text: String) -> Result<Self, Error> {
+        let mut row = row_item(text, String::new());
+        if let Item::Row(row) = &mut row {
+            row.whole = true;
+            row.plain = true;
+        }
+        Ok(Self {
+            marks: Vec::new(),
+            list: ItemList::new(one(row)?),
+            forget_named: false,
+        })
+    }
+
+    /// Whether the network of row `index` is kept (and can be forgotten).
+    pub(super) fn kept(&self, index: usize) -> bool {
+        self.marks.get(index).is_some_and(|mark| mark.kept)
+    }
+
     /// The name of the network of row `index`; `None` for the last row.
     pub(super) fn ssid(&self, index: usize) -> Option<&str> {
         self.marks.get(index)?;

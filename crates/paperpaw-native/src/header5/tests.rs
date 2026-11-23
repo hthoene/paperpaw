@@ -325,6 +325,30 @@ fn parts_that_do_not_hold_together_are_malformed() {
     }
 }
 
+/// More patches than the relocation takes are refused from the header,
+/// before the file is read for its digest, even where the code holds that
+/// many instructions.
+#[test]
+fn more_patches_than_the_relocation_takes_are_refused_from_the_header() {
+    let big = Header5 {
+        image_len: 64 * 1024,
+        ..good()
+    };
+    let at_cap = Header5 {
+        patches: MAX_PATCHES,
+        ..big
+    };
+    assert!(read(&at_cap.to_bytes(), at_cap.file_len()).is_ok());
+    let over = Header5 {
+        patches: MAX_PATCHES + 1,
+        ..big
+    };
+    assert_eq!(
+        read(&over.to_bytes(), over.file_len()),
+        Err(Refusal::Malformed("more patches than MAX_PATCHES"))
+    );
+}
+
 #[test]
 fn the_edges_that_hold_are_taken() {
     let g = good();
@@ -402,40 +426,6 @@ fn the_digest_covers_the_first_64_bytes_and_all_after() {
     assert_ne!(changed.digest_prefix(), header.digest_prefix());
     // The bytes the digest does not cover are the digest itself.
     assert_eq!(&header.to_bytes()[64..], &header.sha256);
-}
-
-#[test]
-fn relocation_words_must_be_addresses_in_the_image_by_either_view() {
-    let h = good();
-    let code = h.base + CODE_OFFSET;
-    // Data addresses and code addresses, the first byte, the last, and the
-    // end (a slice may point there).
-    let inside = [
-        h.base,
-        h.base + h.image_len - 1,
-        h.base + h.image_len,
-        h.base + 100,
-        code,
-        code + h.code_at,
-        code + h.image_len,
-    ];
-    assert_eq!(h.check_reloc_words(inside), Ok(()));
-    assert_eq!(h.check_reloc_words([]), Ok(()));
-    for outside in [
-        h.base - 1,
-        h.base + h.image_len + 1,
-        code - 1,
-        code + h.image_len + 1,
-        0,
-        u32::MAX,
-        h.base + h.image_len + CODE_OFFSET / 2,
-    ] {
-        assert_eq!(
-            h.check_reloc_words([h.base, outside]),
-            Err(EntryRefusal::RelocOutside),
-            "{outside:#x}"
-        );
-    }
 }
 
 fn record_bytes(len: usize) -> Vec<u8> {

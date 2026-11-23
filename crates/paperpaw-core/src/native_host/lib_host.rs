@@ -595,6 +595,10 @@ impl LibWrite for LibraryHost {
         self.raise_changed(lib_changed::BOOKS | lib_changed::WALK, "");
     }
 
+    fn status_noted(&self) {
+        self.raise_changed(lib_changed::STATUS, "");
+    }
+
     /// A field is part of the book's details, which a move carries: a book the
     /// job holds is `ERR_BUSY` (as for `provide`).
     fn set_field(&self, book: BookRef<'_>, field: &str, value: &str) -> Result<(), i32> {

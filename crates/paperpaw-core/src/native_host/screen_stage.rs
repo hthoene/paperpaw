@@ -229,9 +229,11 @@ pub(crate) fn build_stage<'a>(parts: StageParts<'a>) -> CommandStage<'a> {
     stage
 }
 
-/// What the callback staged, after it returned `0` or `1`: the stage consumed
-/// into a batch for the kernel.
-pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Staged {
+/// What the callback staged, after it returned `0` or `1`, taken out of the
+/// stage into a batch for the kernel: everything it holds. The one place for a
+/// screen's callbacks and for the events' and actions' (`event_call.rs`), so
+/// that nothing a stage admitted is left behind on one of them (#483).
+pub(crate) fn staged_of(stage: &mut CommandStage<'_>, owner_key: u64) -> Staged {
     let policies = stage.take_policies();
     let item_states = stage.take_item_states();
     let presets = stage.take_presets();
@@ -241,7 +243,7 @@ pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Staged {
     let hints = stage.take_hint_sets();
     let widgets = stage.take_widget_changes();
     let dev = stage.take_dev_boxed();
-    let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
+    let (commands, redraw, _hop, opens) = stage.take_ui_output_with_opens();
     let mut staged = Staged::new(owner_key, commands, redraw, images);
     staged.opens = opens;
     staged.dev = dev;

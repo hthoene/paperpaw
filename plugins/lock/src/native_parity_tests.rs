@@ -325,3 +325,35 @@ fn a_code_that_cannot_be_kept_is_said_and_the_kinds_are_offered_again() {
     let effects: Vec<&Effect> = fx.iter().collect();
     assert_eq!(effects, [&Effect::Notify("lock.not-kept"), &Effect::Redraw]);
 }
+
+#[test]
+fn a_typed_password_waits_after_wrong_tries_as_the_keys_do() {
+    use crate::native_flow::{Context, Effect, Effects, Flow, Lockstate};
+    let stored = native::kept_value("password", "v2.0123456789abcdef", "secret").unwrap();
+    let mut lock = Lockstate {
+        locked: true,
+        ..Lockstate::default()
+    };
+    let mut flow = Flow::new(true, Some("password"), false);
+    let room = |now_ms| Context {
+        stored: Some(&stored),
+        active: Some("password"),
+        now_ms,
+        touch: false,
+    };
+    let mut typed = |text: &str, now_ms, lock: &mut Lockstate| {
+        let mut fx = Effects::default();
+        let code = native::Code::new(String::from(text));
+        flow.typed(code, lock, &room(now_ms), &mut fx).unwrap();
+        fx.iter().any(|e| *e == Effect::Unlocked)
+    };
+    for _ in 0..native::TRIES {
+        assert!(!typed("wrong", 1_000, &mut lock));
+    }
+    // The wait runs: not even the right password is tried.
+    assert!(!typed("secret", 2_000, &mut lock));
+    assert!(lock.locked);
+    // Once it is over, it opens.
+    assert!(typed("secret", 1_000 + native::WAIT_MS, &mut lock));
+    assert!(!lock.locked);
+}

@@ -94,6 +94,16 @@ impl From<DiskError> for VolumeError {
     }
 }
 
+/// Why rust-fatfs mounted no file system on a volume found: where the card
+/// could not be read (a glitch on its bus) it is [`VolumeError::Disk`], not
+/// one to format. Read past the volume's end, it is no FAT PaperPaw reads.
+pub(crate) fn mount_error<E>(e: &fatfs::Error<E>) -> VolumeError {
+    match e {
+        fatfs::Error::Io(_) => VolumeError::Disk,
+        _ => VolumeError::NoFat,
+    }
+}
+
 /// What the first block of a volume says it is.
 #[derive(PartialEq)]
 enum Boot {

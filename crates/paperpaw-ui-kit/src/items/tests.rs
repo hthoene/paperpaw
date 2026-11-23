@@ -274,6 +274,81 @@ fn faint_rows_are_passed_by_the_focus_and_do_nothing_when_tapped() {
 }
 
 #[test]
+fn a_tap_on_a_row_that_is_gone_or_on_a_faint_stepper_does_nothing() {
+    let tap = |list: &ItemList, x| {
+        list.decide(&Input::Gesture {
+            now_ms: 0,
+            position: Point::new(x, 5),
+            kind: InputGestureKind::Tap,
+        })
+    };
+    // Row 2 was drawn with its − and + and a track, then the rows were freed
+    // (or the list shrank): its targets are the last frame's.
+    let mut list = ItemList::new(items("rrr"));
+    list.hits = Vec::from([(Rect::new(0, 0, 100, 10), 2)]);
+    list.steps = Vec::from([(
+        Rect::new(60, 0, 10, 10),
+        Rect::new(80, 0, 10, 10),
+        2,
+        Some(Rect::new(0, 0, 50, 10)),
+    )]);
+    list.free_rows();
+    for x in [5, 65, 85] {
+        assert_eq!(tap(&list, x), ItemStep::Focus(0), "{x}");
+    }
+    assert_eq!(list.track_at(Point::new(5, 5)), None);
+    // A faint stepper row: its − and + change nothing, nor does its track.
+    let mut spec = items("rrr");
+    if let Item::Row(row) = &mut spec[2] {
+        row.stepper = true;
+        row.disabled = true;
+    }
+    let (hits, steps) = (list.hits.clone(), list.steps.clone());
+    let mut list = ItemList::new(spec);
+    (list.hits, list.steps) = (hits, steps);
+    assert_eq!(tap(&list, 65), ItemStep::Focus(0));
+    assert_eq!(tap(&list, 85), ItemStep::Focus(0));
+    assert_eq!(list.track_at(Point::new(5, 5)), None);
+    // The same row, not faint, steps.
+    if let Some(Item::Row(row)) = list.items.get_mut(2) {
+        row.disabled = false;
+    }
+    assert_eq!(tap(&list, 65), ItemStep::Step(2, -1));
+    assert_eq!(
+        list.track_at(Point::new(5, 5)),
+        Some((2, Rect::new(0, 0, 50, 10)))
+    );
+}
+
+#[test]
+fn small_print_is_no_row_to_choose() {
+    let Item::Row(mut row) = Item::row("Facts", "").unwrap() else {
+        panic!("a row")
+    };
+    row.small = true;
+    assert!(!Item::Row(row).selectable());
+}
+
+#[test]
+fn a_page_of_text_alone_is_turned_to() {
+    // Page 0 is text a page reads out; page 1 has a button.
+    let mut spec = items("rrr");
+    for item in &mut spec[..2] {
+        if let Item::Row(row) = item {
+            row.plain = true;
+        }
+    }
+    let mut list = ItemList::new(spec);
+    list.starts = Vec::from([0, 2]);
+    assert_eq!(list.focus(), 2);
+    assert_eq!(list.decide(&action("core.prev-page")), ItemStep::Focus(0));
+    assert_eq!(list.decide(&action("core.next-page")), ItemStep::Focus(2));
+    list.focus = 0;
+    assert_eq!(list.decide(&action("core.next-page")), ItemStep::Focus(2));
+    assert_eq!(list.decide(&action("core.confirm")), ItemStep::Ignored);
+}
+
+#[test]
 fn replacing_keeps_the_focus_near_where_it_was() {
     let mut list = ItemList::new(items("hrrrr"));
     list.set_focus(4);

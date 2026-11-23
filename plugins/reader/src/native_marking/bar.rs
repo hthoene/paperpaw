@@ -243,12 +243,6 @@ impl Bar {
         })
     }
 
-    /// Where the bar is.
-    #[must_use]
-    pub const fn area(&self) -> Rect {
-        self.area
-    }
-
     /// The item a touch at `point` is on, if the bar is there: a touch beside
     /// the chips, inside the bar, is the nearest one's.
     #[must_use]
@@ -266,19 +260,6 @@ impl Bar {
                     .abs()
             })
         })?;
-        self.items.get(index).copied()
-    }
-
-    /// The item before or after `focus` for a navigation action (`None` for any
-    /// other), staying within the bar.
-    #[must_use]
-    pub fn step(&self, focus: usize, action: &str) -> Option<usize> {
-        self.chips.step(focus, action)
-    }
-
-    /// The item at `index`.
-    #[must_use]
-    pub fn item(&self, index: usize) -> Option<Item> {
         self.items.get(index).copied()
     }
 

@@ -69,28 +69,31 @@ made the frame 2,368 bytes, over the packer's limit of 2,048).
   shelf); `native_plugin.rs` is the glue (`HostWire` over `core.net`, `core.work` and the storage
   calls), the notices (`news.fetching`, `news.fetched` with its plural, ...) and the `date_text`.
   `tests/native_flow.rs` drives the linked plugin: what it registers (the setting, `HttpDone` and
-  `WorkDue`), the work the action `news.fetch` declares (network, optional, at the wake and when
-  online, an hour on: interface 6's `Work::when_cheap(.., 3600 s)`), a work that cannot be declared
-  costs that fetch only, a due work where the list cannot be read says so.
+  `WorkDue`), the work a rule's `news.fetch` declares (network, optional, at the wake, when online
+  and when charging, within an hour: interface 6's `Work::when_cheap(.., 3600 s)`), the reader's own
+  that fetches at once, a work that cannot be declared costs that fetch only, a due work where the
+  list cannot be read says so.
   The image holds the setting and the two subscriptions only: the action, the screen, the menu
   entry and the icons are not in it (`declarations::navigation` and `screens` are built when the
   slices that implement them are), so nothing is offered that opens nothing.
 
 ### Differences from interface 6, on purpose, and gaps
 
-- The action `news.fetch` always declares the background work: a native action cannot tell a
-  rule's run from the reader's (interface 6's `env.reader()`); the reader's own fetch is the screen's
-  *Fetch the news* (next slice).
+- The action `news.fetch` tells a rule's run from the reader's by `ActionRun::background`
+  (interface 6's `env.reader()`): the reader's fetches at once, a rule's declares the background
+  work (#486).
 - Slice 5 (`src/native_shelf.rs`, `src/native_books.rs`, `src/native_screen.rs`): the shelf is the
   library (`Library::import`, SDK #668): the page goes in as `Name (mark).html` in the folder `News` with
   *replace*; a book at that name the library does not know as the plugin's (Beta 3's book of the feed,
   or one moved there) is deleted, unless the reader marked something in it, and the page takes its name;
   where it stays, the new one takes a free name (#459: before, every feed got a second book "(2)" after
-  the update from Beta 3). The library says where the book went, and the plugin keeps
+  the update from Beta 3), and the next fetch replaces the book of the last import where it is (the
+  path in `books.txt`), so the free name is taken once, not at every fetch (#486). The library says where the book went, and the plugin keeps
   that path next to the feed's mark in `books.txt` (`mark<TAB>path`, at most 300) and the newest headlines
   in `headlines.txt` (as interface 6). The list of feeds is the screen `news.list` (one at a time):
   *Fetch the news*, the feeds, *Add a feed*, and what feeds are when there is none; a tap opens the
-  feed's book in `core.reader` (or fetches a feed with no book), a hold offers *Open / Fetch / Remove*,
+  feed's book in `core.reader` (or fetches a feed with no book), a hold (or Select held, or the menu
+  button, #486) offers *Open / Fetch / Remove*,
   *Add a feed* asks for the address on the keyboard (from `https://`). The action `news.open`, the place
   in the tools (order 44) and the icons are declared as in interface 6.
 - Differences from interface 6, on purpose: the *go online* offer in Offline mode is restored (#459, the
@@ -128,12 +131,11 @@ made the frame 2,368 bytes, over the packer's limit of 2,048).
   medium or large device as in interface 6, 8 KiB (`MAX_TEXT_SMALL`) on a small one (the X4: the
   peak is about 4 × `max_text` per article, the converter's field, the paragraphs, the escaped text
   and the page piece; 64 KiB would be ~256 KiB, the whole heap) and wherever the class cannot be read.
-- A user-bound `news.fetch` action (a menu entry, once `navigation` is built into the image) would
-  declare the background work and so wait an hour (`BACKGROUND_AFTER_MS`) before it fetches; the
-  reader's own fetch is the screen's *Fetch the news* (next slice) and starts at once (`start`).
 - A refused next request ends the fetch (`Ended::NoNetwork`, the notice *needs a network*) with the
   counts kept; the end of the run (`Reason::WorkEnded`, 10 minutes) stops it and asks for no more;
-  a start replaces a fetch under way and ends its request first.
+  a start while a fetch is under way ends nothing: the feeds it asks for that the fetch does not come
+  to are fetched after it, once each, and a due work is not started again (#486). The screen and the
+  widget are drawn again once a fetch is over, not for each request that ends.
 - Unmeasured: the peak while the list (at most 64 KiB, `FEEDS_CAP`) is alive during `book`, on top of
   the ~4 × `max_text` of the conversion. To be measured on the X4 with the screen.
 - A feed's name is not yet cleaned for a file name (`web::try_clean_name` is there; the library's

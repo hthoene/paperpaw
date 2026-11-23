@@ -2,7 +2,8 @@
 //! reader typed is held back (the request ends with reason `offline`, 11), the
 //! host's question offers to go online, *Go online* sends `command.go_online`
 //! and loads the address again, and *Not now* says it needs the network and
-//! loads nothing. Offered once: held back again, it says so.
+//! loads nothing. Offered once: held back again, it says so. An answer that
+//! arrived but cannot be read is said too, never left at *Loading*.
 #![cfg(feature = "linked")]
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use paperpaw_core::native_host::commands::{WireCommand, commands_decode};
@@ -259,6 +260,21 @@ fn no_network_is_said_as_before_without_an_offer() {
     assert!(redrew(&done), "the message is shown");
     assert!(!went_online(&done));
     assert_eq!(requests.borrow().len(), 1);
+}
+
+#[test]
+fn an_answer_that_cannot_be_read_is_said_not_left_loading() {
+    let host = ScriptedHost::new();
+    let (dialogs, _) = world(&host);
+    let p = host.load(NATIVE_ENTRY.entry()).unwrap();
+    open(&p);
+    enter(&p, &dialogs, "example.com");
+    host.reset_counts();
+    // The page arrived, but this host refuses to give its answer: the
+    // message (`browser.cannot-open`) takes the place of *Loading*.
+    let done = ended(&p, 1, 0);
+    assert!(redrew(&done), "the message is shown");
+    assert_eq!(host.calls(Slot::I18nCopy), 1);
 }
 
 /// `command.go_online` (the offer's *Go online*) needs `uses.wifi`: the host

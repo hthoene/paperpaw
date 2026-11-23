@@ -10,7 +10,7 @@ use crate::native_model::render::{Save, safe_name};
 use crate::native_model::store::{self, Letter};
 use crate::native_model::texts::{self, Say};
 use crate::native_plugin::NativeMail;
-use crate::native_values::HostValues;
+use crate::native_values::switch;
 use crate::native_words::HostWords;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -34,6 +34,9 @@ use paperpaw_ui_kit::{
 
 /// The token of the reader.
 pub(crate) const READ_TOKEN: u32 = SCREEN_TOKEN + 2;
+/// The switch that marks a mail read on the server when it is opened (on as
+/// declared).
+const MARK_READ: &str = "mail.mark-read";
 /// The most lines a mail is wrapped to.
 const MAX_LINES: usize = 1024;
 /// The buttons, by their catalog keys.
@@ -191,14 +194,7 @@ impl NativeMail {
         let reading = self.readers.get(instance).ok_or(Error::State)?;
         let (account, folder, uid) = (reading.account, copy(&reading.folder)?, reading.uid);
         self.services(host)?;
-        let secrets = self.secrets.as_ref().ok_or(Error::State)?;
-        let mark = {
-            use crate::native_model::account::Values;
-            // The setting is a switch: 1 where it is on.
-            HostValues { host, secrets }
-                .int("mail.mark-read")
-                .map(|v| v != 0)?
-        };
+        let mark = switch(host, MARK_READ, true)?;
         let tasks = reader::fetch_tasks(account, &folder, uid, mark).map_err(fail_error)?;
         self.begin(host, instance, account, tasks)
     }
@@ -320,10 +316,7 @@ impl NativeMail {
 
     /// Marks the mail seen in the folder's list where the settings say so.
     fn mark_seen(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
-        use crate::native_model::account::Values;
-        let secrets = self.secrets.as_ref().ok_or(Error::State)?;
-        let values = HostValues { host, secrets };
-        if values.int("mail.mark-read")? == 0 {
+        if !switch(host, MARK_READ, true)? {
             return Ok(());
         }
         let reading = self.readers.get(instance).ok_or(Error::State)?;
