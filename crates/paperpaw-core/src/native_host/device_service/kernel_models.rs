@@ -1,6 +1,6 @@
 //! The parts of `core.device` the kernel answers from its own models, for
-//! every shell: Wi-Fi (op 8), Bluetooth (op 10), the bonded devices (op 11)
-//! and the power level and mode (op 12).
+//! every shell: Wi-Fi (op 8), Bluetooth (op 10), the bonded devices (op 11),
+//! the power level and mode (op 12) and how long the device slept (op 1).
 //!
 //! The kernel is the one that knows them (`Place::wifi`, `Place::bluetooth`,
 //! `Place::power`, built afresh for each call), so a plugin that reads after
@@ -91,8 +91,22 @@ pub(crate) fn kind_code(kind: DeviceKind) -> u32 {
 }
 
 impl DeviceHost for KernelHost<'_> {
+    /// Op 1 from the shell's facts, with the time asleep the kernel took
+    /// itself: from its suspend to its resume, or as the shell said at a
+    /// start after a sleep with the device switched off
+    /// (`Place::slept_for`). The shell's own figure is for a frame without
+    /// the kernel.
     fn device(&self, visit: &mut dyn FnMut(&DeviceFacts<'_>)) -> Result<(), i32> {
-        self.inner.device(visit)
+        let slept_ms = self
+            .env
+            .slept_for()
+            .map(|slept| u64::try_from(slept.as_millis()).unwrap_or(u64::MAX));
+        self.inner.device(&mut |facts| {
+            visit(&DeviceFacts {
+                slept_ms: slept_ms.or(facts.slept_ms),
+                ..*facts
+            });
+        })
     }
     fn values(&self, visit: &mut dyn FnMut(&Reading<'_>) -> ControlFlow<()>) -> Result<(), i32> {
         self.inner.values(visit)
