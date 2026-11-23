@@ -216,10 +216,6 @@ impl Firmware {
         // Startup released its bands before loading the kernel. Drive the
         // first frame whole instead of comparing its old panel memories.
         self.state.frame_stale = true;
-        // What building the kernel warned of.
-        for warning in self.kernel.take_warnings() {
-            warn!("{warning}");
-        }
         // The linked plugins of interface 7, hosted only where the stack's band
         // is armed (`abi/heap-word.md` section 6); else none runs and the log
         // says so. Here, on the kernel in its place: a local in `kernel()` or
@@ -251,6 +247,12 @@ impl Firmware {
         // Interface 6's passwords through the same sealer, before the start.
         #[cfg(feature = "ppn5")]
         self.secrets.started(&mut self.kernel);
+        // What building the kernel warned of, once the linked plugins have
+        // declared their settings: a value the configuration has for one of
+        // theirs is no longer an "unknown setting" (#509).
+        for warning in self.kernel.take_warnings() {
+            warn!("{warning}");
+        }
         let began = crate::micros();
         let effects = self.kernel.start(now());
         let started = crate::micros();
