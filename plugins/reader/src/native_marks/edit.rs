@@ -14,8 +14,8 @@ use alloc::vec::Vec;
 use paperpaw_sdk::native::{
     Error, Host,
     library::{
-        AnnotationCursor, AnnotationEdit, AnnotationKind, AnnotationTextKind,
-        AnnotationTextQuery, BookRef, Library, MAX_EDITS_PER_CALL, NOTE_MAX_BYTES, Transaction,
+        AnnotationCursor, AnnotationEdit, AnnotationKind, AnnotationTextKind, AnnotationTextQuery,
+        BookRef, Library, MAX_EDITS_PER_CALL, NOTE_MAX_BYTES, Transaction,
     },
 };
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
@@ -109,7 +109,8 @@ pub fn whole(
         if kind == AnnotationTextKind::Note && to.len() + part.text().len() > NOTE_MAX_BYTES {
             return Err(Error::NoSpace);
         }
-        to.try_reserve(part.text().len()).map_err(|_| Error::NoMemory)?;
+        to.try_reserve(part.text().len())
+            .map_err(|_| Error::NoMemory)?;
         to.push_str(part.text());
         match part.next_offset() {
             Some(next) if next > offset => offset = next,

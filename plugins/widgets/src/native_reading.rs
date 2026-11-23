@@ -178,12 +178,18 @@ fn chapter_left_text(
         Some(seconds) => Some(duration(
             cx,
             seconds,
-            ("widgets.reading.chapter-minutes", "widgets.reading.chapter-hours"),
+            (
+                "widgets.reading.chapter-minutes",
+                "widgets.reading.chapter-hours",
+            ),
         )?),
         None => None,
     };
     if let Some(time) = &time {
-        for pages in [Some(&long), titled.then_some(&short)].into_iter().flatten() {
+        for pages in [Some(&long), titled.then_some(&short)]
+            .into_iter()
+            .flatten()
+        {
             let timed = cx.format(
                 "widgets.reading.chapter-time",
                 &[

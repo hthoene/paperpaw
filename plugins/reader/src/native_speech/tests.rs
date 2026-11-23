@@ -514,5 +514,9 @@ mu nu xi omicron pi rho sigma tau upsilon. Last words here.";
     let said = speak_all(&mut speaker, &mut scene);
     assert_eq!(said.len(), 3, "{said:?} {:?}", scene.says);
     assert_eq!(said[2], "Last words here.");
-    assert!(!scene.says.contains(&"reader.aloud.paused"), "{:?}", scene.says);
+    assert!(
+        !scene.says.contains(&"reader.aloud.paused"),
+        "{:?}",
+        scene.says
+    );
 }

@@ -12,8 +12,8 @@ use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::Host;
 use paperpaw_sdk::native::device::{Device, DeviceClass};
-use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 use paperpaw_sdk::reading::PageIndex;
+use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
 use crate::native_pages::Reading;
 use paperpaw_sdk::Storage;

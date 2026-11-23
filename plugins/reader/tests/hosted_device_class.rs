@@ -13,8 +13,8 @@
 mod hosted;
 
 use paperpaw_core::native_host::device_service::{DeviceFacts, DeviceHost};
-use paperpaw_plugin_reader::native_index;
 use paperpaw_platform::Instant;
+use paperpaw_plugin_reader::native_index;
 use paperpaw_sdk::native::{
     self, Error, Host,
     callbacks::DrawFrame,

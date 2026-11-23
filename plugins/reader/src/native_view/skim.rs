@@ -33,10 +33,7 @@ impl View {
         Ok(Some(Place {
             label: open.place_label(host)?,
             chapter: text::copy(chapter)?,
-            permille: text::copy(text::decimal_u64(
-                u64::from(open.ppm() / 1000),
-                &mut digits,
-            ))?,
+            permille: text::copy(text::decimal_u64(u64::from(open.ppm() / 1000), &mut digits))?,
         }))
     }
 

@@ -187,7 +187,10 @@ fn reading_before_the_time_is_known_waits_for_it() {
     assert!(!told.not_saved);
     assert_eq!(cx.seconds_read(), 30);
     assert_eq!(store::books(&cx.data).len(), 1);
-    assert_eq!(recorder.read_today(&cx).map(|(_, seconds)| seconds), Some(30));
+    assert_eq!(
+        recorder.read_today(&cx).map(|(_, seconds)| seconds),
+        Some(30)
+    );
 }
 
 #[test]

@@ -54,7 +54,10 @@ impl FooterStatus {
         if self.items.is_empty() {
             return false;
         }
-        let Ok(now) = self.lists().and_then(|lists| status_line::shows(host, &lists, ui)) else {
+        let Ok(now) = self
+            .lists()
+            .and_then(|lists| status_line::shows(host, &lists, ui))
+        else {
             return false;
         };
         self.shown.replace(Some(now)) != Some(now)
@@ -95,7 +98,10 @@ impl Dashboard {
             return Ok(());
         }
         let area = laid.footer_status_area(style);
-        let (top, bottom) = (i32::from(area.y), i32::from(area.y) + i32::from(area.height));
+        let (top, bottom) = (
+            i32::from(area.y),
+            i32::from(area.y) + i32::from(area.height),
+        );
         let band = (
             frame.clip_top.saturating_sub(frame.rect.y),
             frame.clip_bottom.saturating_sub(frame.rect.y),

@@ -161,7 +161,12 @@ impl<K: PartialEq, V> Kept<K, V> {
         key: K,
         make: impl FnOnce() -> Result<Option<V>, Error>,
     ) -> Result<bool, Error> {
-        if self.0.borrow().as_ref().is_some_and(|(kept, _)| *kept == key) {
+        if self
+            .0
+            .borrow()
+            .as_ref()
+            .is_some_and(|(kept, _)| *kept == key)
+        {
             return Ok(true);
         }
         *self.0.borrow_mut() = None;

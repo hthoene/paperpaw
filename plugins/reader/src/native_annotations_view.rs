@@ -14,6 +14,7 @@
 //!   moved over the old file at the end; the stage `reader.notes-exported` runs
 //!   after a successful write only. A refused write says so and leaves the old
 //!   file.
+use crate::native_marks::edit::whole;
 use crate::{
     native_annotations::{self as model, Headings, Kind, Note},
     native_chapter::{self, Chapter},
@@ -38,7 +39,6 @@ use paperpaw_sdk::{
         ui::{HandoverId, Notify, Open, Param, Ui},
     },
 };
-use crate::native_marks::edit::whole;
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages,
     mem::{SERVICE_BUFFER, buffer},
@@ -545,9 +545,22 @@ fn stream(
                 }
                 // The whole text and note, as Beta 3 wrote them, not the
                 // list's previews.
-                let (id, text, said) = (row.id(), AnnotationTextKind::Text, AnnotationTextKind::Note);
-                let text = whole(host, library, book, (id, text), (row.text(), row.text_cut()))?;
-                let said = whole(host, library, book, (id, said), (row.note(), row.note_cut()))?;
+                let (id, text, said) =
+                    (row.id(), AnnotationTextKind::Text, AnnotationTextKind::Note);
+                let text = whole(
+                    host,
+                    library,
+                    book,
+                    (id, text),
+                    (row.text(), row.text_cut()),
+                )?;
+                let said = whole(
+                    host,
+                    library,
+                    book,
+                    (id, said),
+                    (row.note(), row.note_cut()),
+                )?;
                 let note = Note::new(kind, percent_of(row.percent()), &text, &said);
                 markdown.note(&note)?;
             }

@@ -16,8 +16,8 @@ use paperpaw_sdk::{
         settings::SettingValue,
         snapshot,
         ui::{
-            ButtonHint, HandoverId, Instance, Notify, Open, Param, Question, RequestId, ScreenPolicy,
-            Ui,
+            ButtonHint, HandoverId, Instance, Notify, Open, Param, Question, RequestId,
+            ScreenPolicy, Ui,
         },
     },
 };

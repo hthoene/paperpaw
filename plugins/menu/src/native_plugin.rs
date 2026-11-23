@@ -151,7 +151,11 @@ impl Plugin for NativeMenu {
             } => self.shown(host, instance, last_input),
             Event::ScreenClosed { instance, .. } => {
                 // A number shown but not kept goes back to the value kept.
-                if self.screens.get(instance).is_some_and(|v| v.editing.is_some()) {
+                if self
+                    .screens
+                    .get(instance)
+                    .is_some_and(|v| v.editing.is_some())
+                {
                     CommandSender::new(host, &mut [0; 64]).end_preview().ok();
                 }
                 self.screens.close(instance);
@@ -719,8 +723,13 @@ impl NativeMenu {
                 let Some(view) = self.screens.top(token) else {
                     return Ok(());
                 };
-                let items =
-                    Self::items(host, &view.rows, &view.infos, Some((index, before)), view.touch)?;
+                let items = Self::items(
+                    host,
+                    &view.rows,
+                    &view.infos,
+                    Some((index, before)),
+                    view.touch,
+                )?;
                 Self::redraw(host)?;
                 view.editing = Some(Editing {
                     row: index,
@@ -799,14 +808,23 @@ impl NativeMenu {
         let Some(Value::Int(next)) = next_value(host, &shown, direction)? else {
             return Ok(Some(Handled::Yes));
         };
-        let items = Self::items(host, &view.rows, &view.infos, Some((editing.row, next)), view.touch)?;
+        let items = Self::items(
+            host,
+            &view.rows,
+            &view.infos,
+            Some((editing.row, next)),
+            view.touch,
+        )?;
         let (mut scratch, mut values) = (buffer(1024)?, buffer(64)?);
         CommandSender::new(host, &mut scratch).preview_settings(
             &[PreviewSetting::new(&shown.key, SettingValue::Int(next))],
             &mut values,
         )?;
         Self::redraw(host)?;
-        view.editing = Some(Editing { now: next, ..editing });
+        view.editing = Some(Editing {
+            now: next,
+            ..editing
+        });
         view.list.replace(items);
         Ok(Some(Handled::Yes))
     }
