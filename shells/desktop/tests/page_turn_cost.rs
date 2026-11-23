@@ -107,9 +107,17 @@ fn button(device: &mut Device, name: &'static str, state: ButtonState) {
     device.call(|kernel, now| kernel.handle(now, InputEvent::Button { name, state }));
 }
 
+/// 400 ms later, with what came due meanwhile run in one tick, as the
+/// device's loop does once a key's call is over: the work held for its frame
+/// (#518) and the page laid out in the quiet time.
+fn pass(device: &mut Device) {
+    device.advance(400);
+    device.tick_if_due();
+}
+
 fn press_button(device: &mut Device, name: &'static str, state: ButtonState) {
     button(device, name, state);
-    device.advance(400);
+    pass(device);
 }
 
 fn press(device: &mut Device, state: ButtonState) {
@@ -198,7 +206,7 @@ fn measure(label: &str, name: &str, book: &[u8], ini: &str) -> Seen {
         slot_counts::reset();
         button(&mut device, buttons::PAGE_FORWARD, ButtonState::Pressed);
         let key = slot_counts::snapshot();
-        device.advance(400);
+        pass(&mut device);
         press(&mut device, ButtonState::Released);
         let counts = slot_counts::snapshot();
         seen.key_measures += count_of(&key, "text_measure");

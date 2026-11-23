@@ -337,6 +337,8 @@ pub(crate) struct Pass {
     pub(crate) network_wanted: bool,
     /// Work left a hold: tell its plugins `event.work_allowed` (a hint).
     pub(crate) allowed: bool,
+    /// Work due by its time was kept back by the screen's hold.
+    pub(crate) screen_held: bool,
 }
 
 #[derive(Debug)]
@@ -656,7 +658,11 @@ impl WorkSched {
                 }
             }
             let Some(trigger) = e.trigger else { continue };
-            if (screen && e.at_ms.is_none()) || e.held.is_some() {
+            if screen && e.at_ms.is_none() && e.held.is_none() {
+                pass.screen_held = true;
+                continue;
+            }
+            if e.held.is_some() {
                 continue;
             }
             if e.network && !up {

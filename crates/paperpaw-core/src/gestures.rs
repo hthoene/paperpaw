@@ -49,6 +49,10 @@ pub(crate) struct InputState {
     /// The screen on top when the last button was pressed or finger came
     /// down: what is held is resolved for it.
     pub(crate) pressed_on: Option<u32>,
+    /// The kernel call of a button or finger event is under way: work that
+    /// comes due waits for the next call, so that what this one changed is
+    /// drawn first (#518).
+    pub(crate) answering: bool,
     /// The thresholds of recognition, read from the settings once until
     /// they change.
     pub(crate) thresholds: core::cell::Cell<Option<Thresholds>>,
