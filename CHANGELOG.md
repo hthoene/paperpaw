@@ -5390,6 +5390,12 @@ change the plugin SDK.
   shows first and the count goes on after it. Measured on the X4 Pro, the
   release of a page turn while a book was counted took 1,074 to 2,000 ms before
   and 21 to 340 ms now.
+- **A swipe in a panel of the menu turns its pages** (#521). On touch screens,
+  a swipe in the book menu's *Font* panel or the quick panel moved the focus
+  from control to control instead of turning the page. Up or left now goes to
+  the next page, down or right to the previous one, as the arrows under the
+  panel do. With the focus shown (buttons used), the page buttons still step
+  it.
 
 ## [0.6.0-beta.3] - 2026-11-05
 
