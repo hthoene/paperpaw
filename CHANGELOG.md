@@ -4935,6 +4935,8 @@ change the plugin SDK.
 
 - **Long texts on empty pages show whole** (#481). The empty *Passwords and keys* page, the statistics' empty book list and the help of *Sync with KOReader* were cut to a line or four lines with "…"; they are wrapped whole again (settings 1.0.14, stats 1.1.4).
 
+- **The chosen button has its ring again, with a gap, as in Beta 3** (#481). A button with the focus keeps its own look and gets a ring round it, as thick as its outline and as far off it, in dialogs, the keyboard's field buttons (*Phone*, *Paste*) and its accented letters, the quick panel, the setup assistant, the device check, the transfer page and every other button of the kit. Beta 4 filled the chosen button or drew its ring tight to it. The keys of the keyboard stay filled where the focus is, as in Beta 3.
+
 - **Covers and "Continue reading" went missing in the library after reading** (#480). Back from a book, the library showed letters instead of covers and no card for the book just read. The kernel noted how far the book was read without telling the library, whose list then went stale; it now tells it, and covers and card are back as in Beta 3.
 
 - **The book just opened leads the library again** (#480). A book opened but still at 0 % is the *Continue reading* card, also among the books begun, as in Beta 3 (files 1.0.13).
