@@ -13,13 +13,16 @@
 //! `lint.setting-help`, `lint.untranslated`, `lint.id`, `lint.catalog`,
 //! `lint.unknown-setting`, `lint.dash`, `lint.register`,
 //! `lint.pseudo-overflow`, `lint.hardcoded`, `lint.how-it-works` (a plugin
-//! with code that says not, or hardly, how it works: `Manifest::how`).
+//! with code that says not, or hardly, how it works: `Manifest::how`),
+//! `lint.language-mixed` (the setup guide with the language changed while
+//! it is open shows another language's text: [`switch`]).
 
 pub(crate) mod catalogs;
 mod drawn;
 mod files;
 mod groups;
 pub mod pseudo;
+pub(crate) mod switch;
 mod texts;
 
 use std::path::{Path, PathBuf};
@@ -284,7 +287,13 @@ pub fn run(context: &Context, report: &mut Report) -> Result<(), String> {
     }
     drop(session);
 
-    drawn(context, &looked, &all, report)
+    drawn(context, &looked, &all, report)?;
+    // The setup guide and the store's step in it, the language changed
+    // while it is open (#505).
+    if looked.iter().any(|p| p == "setup" || p == "store") {
+        switch::guide(context, &languages, report)?;
+    }
+    Ok(())
 }
 
 /// The shortest *How it works* that says enough, in characters.

@@ -271,13 +271,15 @@ impl NativeSetup {
     /// The language changed: each open guide takes its words, its steps'
     /// titles and its page anew and is drawn again, its key bar too (#459,
     /// #472: until then the title and *Skip* stayed in the language the guide
-    /// opened in).
+    /// opened in). Every step's title, also of one its plugin hides now: the
+    /// guide keeps the steps it opened with, and one shown again kept the
+    /// title of the language before (#505).
     fn language_changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let mut any = false;
         for guide in self.screens.all() {
             guide.texts = texts(host)?;
             let mut reader = Reader::open(host)?;
-            let found = reader.steps();
+            let found = reader.all_steps();
             guide.retitle(reader.finish(found)?);
             let loaded = read_page(host, guide, guide.page)?;
             guide.commit(

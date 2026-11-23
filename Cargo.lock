@@ -1794,6 +1794,7 @@ dependencies = [
  "paperpaw-json",
  "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-plugin-store",
  "paperpaw-publish",
  "paperpaw-sdk",
  "png",
@@ -2768,7 +2769,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-setup"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
