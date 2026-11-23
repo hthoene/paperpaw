@@ -6,4 +6,4 @@ Text "Delete this book?" at 488,700 288x57
 Text "It is taken off the card." at 94,803 297x46
 Button "Yes" at 94,896 514x83
 Button "No" (focused) at 655,896 514x83
-frame 1680 rows, fnv1a64 41214960451fcfee
+frame 1680 rows, fnv1a64 746f37a9dd50ef14
