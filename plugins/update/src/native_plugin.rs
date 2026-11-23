@@ -39,7 +39,7 @@ use paperpaw_sdk::{
         registry::PageCursor,
         reply::Reply,
         storage::{self, Root},
-        ui::{Notify, Open},
+        ui::{Instance, Notify, Open},
     },
 };
 use paperpaw_ui_kit::{
@@ -284,13 +284,7 @@ impl Plugin for NativeUpdate {
                 self.setting_changed(host, key)
             }
             Event::FirmwareChanged { .. } if token == FIRMWARE_CHANGED => self.progress(host),
-            Event::ScreenOpened { instance, .. } if token == PAGE => {
-                self.anyway = false;
-                let page = self.look(host)?;
-                let seen = self.waiting_seen(host, &page.view);
-                self.screens.open(instance, page)?;
-                online::tolerate(seen)
-            }
+            Event::ScreenOpened { instance, .. } if token == PAGE => self.opened(host, instance),
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
@@ -370,6 +364,18 @@ impl NativeUpdate {
             Err(Error::NotFound) => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    /// The page opened: what there is now, kept as its state. In a frame of
+    /// its own: the page made here would otherwise sit in the frame of every
+    /// event (over the C3's 2,047 B with `Screens` of two lists, #4954).
+    #[inline(never)]
+    fn opened(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        self.anyway = false;
+        let page = self.look(host)?;
+        let seen = self.waiting_seen(host, &page.view);
+        self.screens.open(instance, page)?;
+        online::tolerate(seen)
     }
 
     /// What there is now: an install going on, one waiting for its restart, or
