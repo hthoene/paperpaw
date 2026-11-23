@@ -566,6 +566,15 @@ impl NativeInstances {
         self.rows()?.iter().nth(index)?.id.try_clone()
     }
 
+    /// Whether the plugin `key` is parked: installed, its instance not made
+    /// (yet or again, #248), so it holds nothing it would show.
+    pub(crate) fn is_parked(&self, key: u64) -> bool {
+        self.with_entry(key, |entry| {
+            entry.lease().is_some_and(NativeLease::is_parked)
+        })
+        .unwrap_or(false)
+    }
+
     /// A lease of the installed, enabled plugin `key` (`None` for none, or
     /// where memory refuses the clone).
     pub(crate) fn lease(&self, key: u64) -> Option<NativeLease> {

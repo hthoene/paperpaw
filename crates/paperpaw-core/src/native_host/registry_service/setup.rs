@@ -47,7 +47,8 @@ fn applies(env: &Place<'_>, step: &wire::SetupStep<'_>, pushed_shown: Option<boo
         && pushed_shown.unwrap_or(step.flags & DECLARED_APPLIES != 0)
 }
 
-/// The row of a declared step.
+/// The row of a declared step: its badge is the one the plugin pushed for it
+/// (`command.set_item_state`), in the user's language; none before a push.
 fn declared_row(
     env: &Place<'_>,
     pushed: Option<&ItemStates>,
@@ -58,23 +59,23 @@ fn declared_row(
     let Some(id) = Fixed::<{ caps::ID }>::of(&[plugin, ".", step.name]) else {
         return ControlFlow::Continue(());
     };
+    let push = pushed.and_then(|states| states.get(plugin, step.name));
+    let mut badge = [0_u8; caps::BADGE];
+    let badge = push
+        .and_then(|p| super::menus::shown(env.i18n(), p.badge(), p.badge_args(), &mut badge))
+        .unwrap_or("");
     visit(&Record::ServiceRegSetupStep(wire::ServiceRegSetupStep {
         id: id.as_str(),
         page_kind: step.page_kind,
         page: step.page,
         order: step.order,
-        flags: if applies(
-            env,
-            step,
-            pushed
-                .and_then(|states| states.get(plugin, step.name))
-                .map(|push| !push.hidden()),
-        ) {
+        flags: if applies(env, step, push.map(|push| !push.hidden())) {
             APPLIES
         } else {
             0
         },
         title: translated(env.i18n(), step.title, caps::TITLE),
+        badge,
     }))
 }
 
@@ -160,5 +161,6 @@ fn env_row(
         order: step.order,
         flags: if applies { APPLIES } else { 0 },
         title: translated(env.i18n(), key, caps::TITLE),
+        badge: "",
     }))
 }

@@ -494,7 +494,7 @@ const paperpaw_sdk::memory::Memory::NONE: Self = Self { read: None }
 const paperpaw_sdk::memory::Placement::FAST: Self = Self(1)
 const paperpaw_sdk::memory::Placement::LARGE: Self = Self(2)
 const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "code-host.dll", "code-host.so", "code-host.dylib", ]
-const paperpaw_sdk::native::DRAFT: u16 = 39u16
+const paperpaw_sdk::native::DRAFT: u16 = 40u16
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
 const paperpaw_sdk::native::INTERFACE: u16 = 7u16
 const paperpaw_sdk::native::LAYOUT: u64 = 18_274_061_776_900_477_695u64
@@ -1121,6 +1121,7 @@ const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_KEY_MAX_B
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_TAG: u32 = 1_027u32
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_TITLE_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETTING_VALUE_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETUP_STEP_BADGE_MAX_BYTES: usize = 64usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETUP_STEP_ID_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETUP_STEP_PAGE_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_REG_SETUP_STEP_TAG: u32 = 1_038u32
@@ -2969,7 +2970,7 @@ struct paperpaw_sdk::native::declare::records_wire::ServiceRegPlugin<'a> { id: &
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegQuery<'a> { scope: &'a str, cursor: u32, generation: u32, flags: u32 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegSetting<'a> { key: &'a str, group: &'a str, kind: u32, flags: u32, source: u32, title: &'a str, value: &'a [u8] }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegSettingExtra<'a> { min: i32, max: i32, step: i32, unit: &'a str, section: &'a str, follows: &'a str, shown_id: &'a str, shown_value: &'a str, editor_kind: u32, editor: &'a str, choices: u32 }
-struct paperpaw_sdk::native::declare::records_wire::ServiceRegSetupStep<'a> { id: &'a str, page_kind: u32, page: &'a str, order: i32, flags: u32, title: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ServiceRegSetupStep<'a> { id: &'a str, page_kind: u32, page: &'a str, order: i32, flags: u32, title: &'a str, badge: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegSlot<'a> { id: &'a str, screen: &'a str, default: &'a str, flags: u32, title: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegStatus<'a> { id: &'a str, plugin: &'a str, kind: u32, flags: u32, priority: u32, size: u32, tap: &'a str, title: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceRegText<'a> { text: &'a str }

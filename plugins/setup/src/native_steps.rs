@@ -132,6 +132,19 @@ impl<'h, 'cb> Reader<'h, 'cb> {
         Ok(found)
     }
 
+    /// What the plugin of step `id` says of it now (e.g. "Connected"); empty
+    /// where it says nothing.
+    pub fn badge(&mut self, id: &str) -> Result<String, Error> {
+        let mut found = String::new();
+        rows!(cursor => self.registry.setup(self.host, cursor, &mut self.input, &mut self.output), |row| {
+            if row.id() == id {
+                found = copy(row.badge())?;
+            }
+            Ok::<(), Error>(())
+        })?;
+        Ok(found)
+    }
+
     /// The setting `key`: its metadata, help, value and options.
     pub fn setting(&mut self, key: &str) -> Result<Setting, Error> {
         let (kind, title, help, unit, editor, bounds, count, value) = {

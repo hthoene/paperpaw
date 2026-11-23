@@ -14,7 +14,7 @@ use super::DEVICE_INPUT;
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::native::{
     Error, Host,
-    commands::CommandSender,
+    commands::{CommandSender, ItemState},
     events::WifiDone,
     reply::Reply,
     snapshot,
@@ -486,6 +486,24 @@ impl NativeWifi {
         self.search_if_switched_on(host)?;
         self.phone_changed(host, now_ms)?;
         self.reread(host)
+    }
+
+    /// The setup's card for the Wi-Fi step says "Connected" while the reader
+    /// is (e.g. on the network the flasher wrote), as in Beta 3; pushed only
+    /// when that changes.
+    pub(super) fn say_connected(&mut self, host: &Host<'_>, connected: bool) -> Result<(), Error> {
+        if connected == self.said_connected {
+            return Ok(());
+        }
+        let state = if connected {
+            ItemState::new().badge("wifi.network.connected", &[])
+        } else {
+            ItemState::new()
+        };
+        let mut scratch = [0; 128];
+        CommandSender::new(host, &mut scratch).set_item_state("setup", &state, &mut [])?;
+        self.said_connected = connected;
+        Ok(())
     }
 
     /// Another power mode: a radio only charging kept on may go off.

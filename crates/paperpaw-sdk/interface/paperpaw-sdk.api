@@ -3854,6 +3854,7 @@ pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::step(&self) -> 
 pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::unit(&self) -> &'a str
 pub struct paperpaw_sdk::native::registry::RegistrySetupStep<'a>
 impl<'a> paperpaw_sdk::native::registry::RegistrySetupStep<'a>
+pub fn paperpaw_sdk::native::registry::RegistrySetupStep<'a>::badge(&self) -> &'a str
 pub fn paperpaw_sdk::native::registry::RegistrySetupStep<'a>::flags(&self) -> u32
 pub fn paperpaw_sdk::native::registry::RegistrySetupStep<'a>::id(&self) -> &'a str
 pub fn paperpaw_sdk::native::registry::RegistrySetupStep<'a>::order(&self) -> i32

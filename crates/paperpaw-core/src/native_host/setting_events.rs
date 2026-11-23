@@ -237,6 +237,10 @@ impl SettingEvents {
 
     /// Announces that the registry changed in the `what` bits (OR-ed with the
     /// bits not yet told) to every plugin subscribed to `event.registry_changed`.
+    /// A parked plugin is not told: the event is a hint to read again what it
+    /// shows, and it shows nothing; it reads the registry when it is made. So
+    /// a pushed item state (Wi-Fi's "Connected" on its setup step) wakes no
+    /// parked menu (#496).
     pub(crate) fn publish_registry(&self, instances: &NativeInstances, what: u32) {
         if what == 0 {
             return;
@@ -247,7 +251,9 @@ impl SettingEvents {
         let mut n = 0;
         while let Some(owner) = instances.running_key_nth(n) {
             n += 1;
-            if !instances.subscribed(owner, wire::EVENT_REGISTRY_CHANGED_TAG) {
+            if !instances.subscribed(owner, wire::EVENT_REGISTRY_CHANGED_TAG)
+                || instances.is_parked(owner)
+            {
                 continue;
             }
             if let Ok(queue) = self.queue_of(&mut queues, owner) {

@@ -263,7 +263,7 @@ impl NativeSetup {
         );
         let mut guide = Guide::new(steps, texts(host)?, display, snap.has_touch());
         let loaded = read_page(host, &guide, 0)?;
-        guide.commit(0, loaded.gone, (loaded.setting, loaded.help));
+        guide.commit(0, loaded.gone, (loaded.setting, loaded.help, loaded.badge));
         key_bar(host, &guide);
         self.screens.open(instance, guide)
     }
@@ -280,7 +280,11 @@ impl NativeSetup {
             let found = reader.steps();
             guide.retitle(reader.finish(found)?);
             let loaded = read_page(host, guide, guide.page)?;
-            guide.commit(guide.page, loaded.gone, (loaded.setting, loaded.help));
+            guide.commit(
+                guide.page,
+                loaded.gone,
+                (loaded.setting, loaded.help, loaded.badge),
+            );
             key_bar(host, guide);
             any = true;
         }
@@ -303,7 +307,11 @@ impl NativeSetup {
         }
         let loaded = read_page(host, guide, guide.page)?;
         Self::redraw(host, RedrawMode::Partial)?;
-        guide.commit(guide.page, loaded.gone, (loaded.setting, loaded.help));
+        guide.commit(
+            guide.page,
+            loaded.gone,
+            (loaded.setting, loaded.help, loaded.badge),
+        );
         guide.away = false;
         key_bar(host, guide);
         Ok(())
@@ -343,7 +351,11 @@ impl NativeSetup {
                 keep_edited(host, guide)?;
                 let loaded = read_page(host, guide, page)?;
                 Self::redraw(host, RedrawMode::Partial)?;
-                guide.commit(page, loaded.gone, (loaded.setting, loaded.help));
+                guide.commit(
+                    page,
+                    loaded.gone,
+                    (loaded.setting, loaded.help, loaded.badge),
+                );
                 key_bar(host, guide);
                 Ok(())
             }
@@ -571,6 +583,8 @@ struct Loaded {
     setting: Option<Setting>,
     /// What a screen step says about itself.
     help: String,
+    /// What the plugin of a screen step says of it now (`Guide::badge`).
+    badge: String,
 }
 
 /// What the plugin of a screen step says about it: its catalog's `<id>.help`
@@ -626,13 +640,17 @@ fn read_page(host: &Host<'_>, guide: &Guide, page: usize) -> Result<Loaded, Erro
                 gone,
                 setting: None,
                 help: String::new(),
+                badge: String::new(),
             });
         };
         let Page::Setting(key) = &step.page else {
+            let mut reader = Reader::open(host)?;
+            let badge = reader.badge(&step.id);
             return Ok(Loaded {
                 gone,
                 setting: None,
                 help: screen_help(host, &step.id),
+                badge: reader.finish(badge)?,
             });
         };
         let mut reader = Reader::open(host)?;
@@ -643,6 +661,7 @@ fn read_page(host: &Host<'_>, guide: &Guide, page: usize) -> Result<Loaded, Erro
                     gone,
                     setting: Some(setting),
                     help: String::new(),
+                    badge: String::new(),
                 });
             }
             Err(Error::NotFound) => gone += 1,

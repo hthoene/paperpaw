@@ -4872,6 +4872,8 @@ pub const SERVICE_REG_SETUP_STEP_ID_MAX_BYTES: usize = 128;
 pub const SERVICE_REG_SETUP_STEP_PAGE_MAX_BYTES: usize = 128;
 /// Maximum bytes of `service.reg_setup_step.title`.
 pub const SERVICE_REG_SETUP_STEP_TITLE_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.reg_setup_step.badge`.
+pub const SERVICE_REG_SETUP_STEP_BADGE_MAX_BYTES: usize = 64;
 
 /// The `service.reg_setup_step` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4888,17 +4890,20 @@ pub struct ServiceRegSetupStep<'a> {
     pub flags: u32,
     /// UTF-8 text of at most 128 bytes.
     pub title: &'a str,
+    /// UTF-8 text of at most 64 bytes. Appended and optional; empty when absent.
+    pub badge: &'a str,
 }
 
 wire_fields! {
     /// The fields of `service.reg_setup_step` as the codec walks them.
-    SERVICE_REG_SETUP_STEP_FIELDS: [ServiceRegSetupStep<'static>; 6] {
+    SERVICE_REG_SETUP_STEP_FIELDS: [ServiceRegSetupStep<'static>; 7] {
         id: text, 0, 128;
         page_kind: u32, 0, 0;
         page: text, 0, 128;
         order: i32, 0, 0;
         flags: u32, 0, 0;
         title: text, 0, 128;
+        badge: text, 1, 64;
     }
 }
 

@@ -16,7 +16,8 @@ no draft steps, no carrier pull requests just to bless, no baseline replacements
   `core.convert`: additions only, plugins of draft 36 run unchanged; draft 38 for Beta 4, #448, when the row
   of button hints shows, `screen.spec.flags` and `screen_policy` bits 13-14: plugins of draft 37 run
   unchanged; draft 39 for Beta 4, #463, the plugins' stylesheets for books, `core.format` root 7:
-  plugins of draft 38 run unchanged); plugins built from
+  plugins of draft 38 run unchanged; draft 40 for Beta 4, #496, the setup step's badge,
+  `reg_setup_step.badge`: plugins of draft 39 run unchanged); plugins built from
   an earlier tree are built again.
 - **What it no longer checks.** Whether a change is an addition only, and whether it is named in
   `blessings.txt`. Both come back at the release: once a minor is released (`released_minor` in the lock), the

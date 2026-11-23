@@ -8,6 +8,8 @@ pub(crate) mod caps {
     pub(crate) const ID: usize = 128;
     /// Translated titles, cut at a character.
     pub(crate) const TITLE: usize = 128;
+    /// A row's translated badge (`reg_menu_row.badge`, `reg_setup_step.badge`).
+    pub(crate) const BADGE: usize = 64;
     /// A plugin's translated name.
     pub(crate) const PLUGIN_NAME: usize = 128;
     /// A description or help text.

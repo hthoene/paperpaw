@@ -123,6 +123,9 @@ pub struct Guide {
     /// What a screen step says about itself (its plugin's `<id>.help`); empty
     /// for a page with a setting, which has the setting's own.
     pub help: String,
+    /// What the plugin of a screen step says of it now (e.g. "Connected"),
+    /// shown on the card instead of *Open*; empty for nothing.
+    pub badge: String,
     pub focus: Target,
     /// Whether the focus shows (once a button was used; at once without touch).
     pub shown: bool,
@@ -147,6 +150,7 @@ impl Guide {
             page: 0,
             setting: None,
             help: String::new(),
+            badge: String::new(),
             focus: Target::Next,
             shown: !touch,
             editing: None,
@@ -161,7 +165,12 @@ impl Guide {
     /// A page turned to has the focus on *Next*; the page shown, read again
     /// (back from the list of its choice, the language changed), keeps it
     /// where it was, as in Beta 3: on the card the answer was just chosen in.
-    pub fn commit(&mut self, page: usize, gone: usize, (setting, help): (Option<Setting>, String)) {
+    pub fn commit(
+        &mut self,
+        page: usize,
+        gone: usize,
+        (setting, help, badge): (Option<Setting>, String, String),
+    ) {
         let end = page.saturating_add(gone).min(self.steps.len());
         self.steps.drain(page.min(end)..end);
         if page != self.page || gone > 0 {
@@ -171,6 +180,7 @@ impl Guide {
         self.editing = None;
         self.setting = setting;
         self.help = help;
+        self.badge = badge;
     }
 
     /// Takes the steps' titles from `fresh`, the steps read again (in the
@@ -445,9 +455,14 @@ impl Guide {
 
     // ---- painting
 
-    /// The label of the card for a page that is not a setting.
+    /// The label of the card for a page that is not a setting: what its
+    /// plugin says of it, else that it opens.
     fn card_label(&self) -> &str {
-        &self.texts.open
+        if self.badge.is_empty() {
+            &self.texts.open
+        } else {
+            &self.badge
+        }
     }
 
     /// Prepares the page's drawing: in `ops` what is drawn in the UI font, in
@@ -1184,9 +1199,9 @@ mod tests {
         g.setting = Some(two());
         g.focus = Target::Card;
         // Back from the list of its choice, or the language changed.
-        g.commit(0, 0, (Some(two()), String::new()));
+        g.commit(0, 0, (Some(two()), String::new(), String::new()));
         assert_eq!(g.focus, Target::Card);
-        g.commit(1, 0, (None, String::new()));
+        g.commit(1, 0, (None, String::new(), String::new()));
         assert_eq!(g.focus, Target::Next);
     }
 
@@ -1195,7 +1210,7 @@ mod tests {
         let mut g = guide(false);
         g.focus = Target::Card;
         // Its setting is gone: the next step's page shows in its place.
-        g.commit(0, 1, (None, String::new()));
+        g.commit(0, 1, (None, String::new(), String::new()));
         assert_eq!(g.focus, Target::Next);
         assert_eq!(g.steps.len(), 1);
     }
