@@ -87,6 +87,17 @@ impl NativeReader {
         {
             return;
         }
+        // Work declared in a run is due a second later at the soonest
+        // (`work.md` 1.1): the next step is declared as this one begins, so
+        // that it is due as this one ends, not a second after it (#506).
+        let ahead = self.screens.top(SCREEN).is_some_and(|view| view.counting());
+        if ahead {
+            self.declare_work(
+                host,
+                (native_index::WORK_KEY, WORK_DUE),
+                native_index::DELAY_MS,
+            );
+        }
         let more = match (self.screens.top(SCREEN), &self.docs) {
             (Some(view), Some(docs)) => {
                 // What the book's text lacks is kept, and the first page's
@@ -97,8 +108,13 @@ impl NativeReader {
             }
             _ => None,
         };
-        if let Some(delay) = more {
-            self.declare_work(host, (native_index::WORK_KEY, WORK_DUE), delay);
+        match (more, ahead) {
+            (Some(delay), false) => {
+                self.declare_work(host, (native_index::WORK_KEY, WORK_DUE), delay);
+            }
+            // Counted: the step declared ahead is not needed.
+            (None, true) => self.cancel_work(host, native_index::WORK_KEY),
+            _ => {}
         }
     }
 }

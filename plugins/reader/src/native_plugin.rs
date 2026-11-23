@@ -954,6 +954,13 @@ impl NativeReader {
         }
     }
 
+    /// The work `key` is no longer due.
+    fn cancel_work(&mut self, host: &Host<'_>, key: &str) {
+        if let Some(work) = &self.work {
+            work.cancel(host, key, &mut [0; 256], &mut [0; 64]).ok();
+        }
+    }
+
     /// The work service, opened at the first need; a host without it is asked once.
     fn open_work(&mut self, host: &Host<'_>) {
         if self.work.is_none() && !self.no_work {

@@ -3,6 +3,7 @@
 //! report and the status lines carry once the count is complete.
 
 use paperpaw_sdk::document::Locator;
+use paperpaw_sdk::native::clock;
 use paperpaw_sdk::native::device::DeviceClass;
 use paperpaw_sdk::native::files::Files;
 use paperpaw_sdk::native::fonts::{Font, FontRole};
@@ -90,9 +91,11 @@ impl Open {
         let setup = self.settings.setup(host).ok()?;
         self.ensure_counter(host, &setup);
         let mut counter = self.counter.take()?;
-        let (per_step, delay) = native_index::pace(self.device_class(host));
+        let (pace, delay) = native_index::pace(self.device_class(host));
         let storage = DataStorage::new(host);
-        let step = counter.step(&storage, per_step, &mut |at: Locator| {
+        let began = clock::micros(host).ok();
+        let mut more = |laid| pace.goes_on(laid, began, clock::micros(host).ok());
+        let step = counter.step(&storage, &mut more, &mut |at: Locator| {
             let (page, unreliable) =
                 self.lay_flagged(host, docs, &setup, (at.section, at.offset))?;
             Ok(Laid {
