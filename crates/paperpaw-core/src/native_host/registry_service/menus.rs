@@ -441,7 +441,7 @@ fn row(
         state.enabled = !push.faint();
         state.checked = push.switch();
     }
-    let (mut label_text, mut badge_text) = ([0_u8; caps::TITLE], [0_u8; 64]);
+    let (mut label_text, mut badge_text) = ([0_u8; caps::TITLE], [0_u8; caps::BADGE]);
     let pushed_label =
         push.and_then(|p| shown(translator, p.label(), p.label_args(), &mut label_text));
     let pushed_badge =
@@ -487,7 +487,7 @@ fn row(
     );
     let badge = pushed_badge
         .or(state.badge.as_deref())
-        .map_or("", |badge| clip(badge, 64));
+        .map_or("", |badge| clip(badge, caps::BADGE));
     let native = call.native.as_ref();
     let native_icon = native.and_then(|n| n.icon(item.id));
     let icon = menus
@@ -516,7 +516,7 @@ fn row(
 /// A pushed label or badge as shown now: the catalog message of `key` with
 /// its argument batch, in the user's language; `None` for none, or where it
 /// cannot be resolved now (the item then shows its title and no badge).
-fn shown<'b>(
+pub(super) fn shown<'b>(
     translator: &paperpaw_i18n::Translator,
     key: &str,
     args: &[u8],

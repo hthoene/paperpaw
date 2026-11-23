@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-setup"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -774,7 +774,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wifi"
-version = "1.0.11"
+version = "1.0.12"
 dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",

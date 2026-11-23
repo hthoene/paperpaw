@@ -242,9 +242,13 @@ pub(super) fn read(reply: &[u8]) -> (Vec<String>, Option<wire::ServiceEnd>) {
             Record::ServiceRegBinding(r) => {
                 format!("bind {} {} {} {}", r.layer, r.input, r.action, r.origin)
             }
-            Record::ServiceRegSetupStep(r) => format!(
+            Record::ServiceRegSetupStep(r) if r.badge.is_empty() => format!(
                 "step {} {} {} {} {} {}",
                 r.id, r.page_kind, r.page, r.order, r.flags, r.title
+            ),
+            Record::ServiceRegSetupStep(r) => format!(
+                "step {} {} {} {} {} badge={} {}",
+                r.id, r.page_kind, r.page, r.order, r.flags, r.badge, r.title
             ),
             Record::ServiceRegWidget(r) if r.previews.is_empty() => format!(
                 "widget {} {} {} {} {} cells={} {}",
