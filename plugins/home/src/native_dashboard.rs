@@ -201,6 +201,9 @@ pub struct Dashboard {
     /// What the card and the shelf of the page share of the library: the books
     /// listed and what the host said of their files (#267).
     listing: Listing,
+    /// The page to go to at the next layout, by its setting's slot (opened to
+    /// edit one page's setting, as Beta 3).
+    wanted: Option<usize>,
 }
 
 impl Dashboard {
@@ -223,15 +226,21 @@ impl Dashboard {
     /// Opened again by the host while it is open: its view is kept (the page
     /// it is on, the widgets it made, the focus), editing starts where asked.
     /// A new dashboard would drop the widgets it made without letting them go.
-    pub fn reopened(&mut self, edit: bool) {
+    pub fn reopened(&mut self, edit: bool, page: Option<usize>) {
         if edit && !self.editing {
             self.set_editing(true);
         }
+        if page.is_some() {
+            self.wanted = page;
+            self.mark_stale();
+        }
     }
 
-    /// Starts editing (opened to edit with `mode` = `edit`).
-    pub fn start_editing(&mut self) {
+    /// Starts editing (opened to edit with `mode` = `edit`, or for the page of
+    /// setting slot `page`), on that page where one is named.
+    pub fn start_editing(&mut self, page: Option<usize>) {
         self.editing = true;
+        self.wanted = page;
     }
 
     /// What shows is read and laid out again before the next draw or input.
@@ -374,6 +383,13 @@ impl Dashboard {
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
         if let Some(at) = turned {
+            nav.page = at;
+        }
+        if let Some(at) = self
+            .wanted
+            .take()
+            .and_then(|slot| pages.iter().position(|p| p.slot == slot))
+        {
             nav.page = at;
         }
         let (page, count) = (nav.page, nav.pages);

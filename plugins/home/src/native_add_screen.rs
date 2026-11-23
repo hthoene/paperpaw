@@ -375,13 +375,23 @@ impl AddScreen {
 
 /// Stages the settings written and the placements reset, then the messages.
 /// Over the host's budget for one callback nothing is staged: the old layout
-/// stays, the reader is told, and `false` comes back.
+/// stays, the reader is told, and `false` comes back. So too where the layout
+/// is not kept at all (only messages, as for a side layout of too many
+/// pages): the placements of what it would have removed stay.
 ///
 /// # Errors
 /// Allocation and host errors; an error return drops everything staged.
 pub fn apply(host: &Host<'_>, writes: &[Write], resets: &[String]) -> Result<bool, Error> {
     if !add::fits(writes, resets) {
         say(host, "home.grid.too-big")?;
+        return Ok(false);
+    }
+    if !writes.iter().any(|write| matches!(write, Write::Set { .. })) {
+        for write in writes {
+            if let Write::Notify(key) = write {
+                say(host, key)?;
+            }
+        }
         return Ok(false);
     }
     let longest = writes
