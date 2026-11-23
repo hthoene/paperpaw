@@ -249,7 +249,10 @@ impl crate::Kernel {
 
     /// Tells the device's view what the kernel holds: the power level and
     /// stretch of the user's mode, and whether a real-time screen (one that
-    /// takes raw keys or runs at a pace, not a native one) is on top.
+    /// takes raw keys or runs at a pace, not a native one) is on top or a
+    /// press is still to be told. Work due between a press and its click
+    /// would run before the click's action is drawn: a page turned on the
+    /// release of its button waited for a whole background step (#515).
     pub(crate) fn tell_work_env(&self, env: &dyn super::work_sched::WorkEnv) {
         use paperpaw_sdk::power::PowerLevel;
         let power = &self.shared.power;
@@ -262,7 +265,7 @@ impl crate::Kernel {
         env.kernel_state(
             level,
             power.stretch,
-            self.top_realtime() || self.top_mode().is_paced(),
+            self.top_realtime() || self.top_mode().is_paced() || self.input.recognizer.deciding(),
         );
     }
 }

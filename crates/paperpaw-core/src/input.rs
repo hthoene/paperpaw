@@ -108,6 +108,15 @@ impl Recognizer {
         self.pointers.clear();
     }
 
+    /// Whether a press is still to be told: a button down or a finger down
+    /// unmoved whose click, tap or long press is not recognized yet. At most
+    /// the long-press time: then it is told as a long press (a button that
+    /// turns as it is pressed is told at once).
+    pub(crate) fn deciding(&self) -> bool {
+        self.buttons.iter().any(|b| !b.long_fired)
+            || self.pointers.iter().any(|p| !p.moved && !p.long_fired)
+    }
+
     /// Whether button `name` is held: pressed and not let go yet.
     pub(crate) fn holds(&self, name: &str) -> bool {
         self.buttons.iter().any(|b| b.name == name)
