@@ -38,8 +38,9 @@ use crate::native_wire::{DownloadWire, HostWire, InstallWire};
 const DATA_DIR: &str = ".paperpaw/plugins/store/";
 /// The first request number of a removal: an install's own count is small.
 const REMOVE_REQUEST: u32 = 0x7000_0000;
-/// The setup's step, as the plugin's own item.
-const SETUP_ITEM: &str = "store.setup";
+/// The setup's step, as the plugin's own item: by its declared name, as
+/// items are named relative to their plugin (`store.setup` is not one, #496).
+const SETUP_ITEM: &str = "setup";
 /// How long the network is asked for when the reader goes online for the
 /// list in Offline mode (as the fonts' browser asks).
 const GO_ONLINE_MS: u32 = 300_000;

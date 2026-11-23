@@ -275,3 +275,25 @@ fn the_wifi_steps_card_says_connected_where_the_reader_is() {
     let shown = labels(&mut device);
     assert!(shows(&shown, "Öffnen ›"), "{shown:?}");
 }
+
+#[test]
+fn the_stores_step_card_says_that_the_plugins_chosen_were_added() {
+    // The plugins chosen on the store's page are kept for its card, and none
+    // waits: the card says they were added instead of *Open*, as in Beta 3
+    // (#496). The store pushes that state for its step by the step's name.
+    let files = MemoryStorage::new()
+        .with(
+            "paperpaw.ini",
+            "[core]\nlanguage = de\n[help]\nshow = false\n",
+        )
+        .with(".paperpaw/plugins/store/offer-chosen.txt", "weather\n");
+    paperpaw_emulator::budget::override_limit(None);
+    let profile = profiles::find("xteink-x4").unwrap();
+    let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
+    device.start();
+    run_script(&mut device, "wait:3000").unwrap();
+    page_titled(&mut device, "Mehr hinzufügen");
+    let shown = labels(&mut device);
+    assert!(shows(&shown, "Hinzugefügt ›"), "{shown:?}");
+    assert!(!shows(&shown, "Öffnen ›"), "{shown:?}");
+}
