@@ -16,6 +16,7 @@ use paperpaw_sdk::native::{
     storage::{self, Root},
 };
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
+use paperpaw_ui_kit::storage::{error_in, read_full};
 
 mod op {
     pub const SNIFF: u32 = 1;
@@ -35,8 +36,6 @@ mod op {
 pub const MAX_DOCUMENTS: usize = 8;
 /// The format's id, as the declaration spells it (`format-xtc.xtc`).
 const FORMAT_ID: &str = "format-xtc.xtc";
-/// The code a refused allocation travels as through `StorageError`.
-const NO_MEMORY: u16 = 0x6e6d;
 const TEXT: usize = 1024;
 /// Rows of a reply, one of them the closing `fmt.end`.
 const ROWS: usize = 64;
@@ -69,40 +68,15 @@ fn route(path: &str) -> (Root, &str) {
     }
 }
 
-fn storage_error(error: Error) -> StorageError {
-    match error {
-        Error::NotFound => StorageError::NotFound,
-        Error::Full | Error::NoSpace => StorageError::Full,
-        Error::Unsupported | Error::Denied => StorageError::Unsupported,
-        Error::Invalid => StorageError::InvalidPath,
-        // A refused allocation is not a damaged book: it keeps its name.
-        Error::NoMemory => StorageError::Other(NO_MEMORY),
-        _ => StorageError::Io,
-    }
-}
-
 impl Storage for HostIo<'_, '_> {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         let (root, name) = route(path);
-        let mut done = 0;
-        while done < buf.len() {
-            let end = min(buf.len(), done + storage::MAX_DATA);
-            let Some(part) = buf.get_mut(done..end) else {
-                break;
-            };
-            let at = offset.saturating_add(done as u64);
-            let n = storage::read_at(self.host, root, name, at, part).map_err(storage_error)?;
-            done += n;
-            if n < part.len() {
-                break;
-            }
-        }
-        Ok(done)
+        read_full(self.host, root, name, offset, buf).map_err(|error| error_in(root, error))
     }
 
     fn size(&self, path: &str) -> Result<u64, StorageError> {
         let (root, name) = route(path);
-        storage::size(self.host, root, name).map_err(storage_error)
+        storage::size(self.host, root, name).map_err(|error| error_in(root, error))
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
@@ -111,15 +85,16 @@ impl Storage for HostIo<'_, '_> {
             return Err(StorageError::Unsupported);
         }
         if data.is_empty() {
-            return storage::write(self.host, root, name, data).map_err(storage_error);
+            return storage::write(self.host, root, name, data)
+                .map_err(|error| error_in(root, error));
         }
         // The first piece makes the file new, the rest follow it.
         let mut pieces = data.chunks(storage::MAX_DATA);
         if let Some(first) = pieces.next() {
-            storage::write(self.host, root, name, first).map_err(storage_error)?;
+            storage::write(self.host, root, name, first).map_err(|error| error_in(root, error))?;
         }
         for piece in pieces {
-            storage::append(self.host, root, name, piece).map_err(storage_error)?;
+            storage::append(self.host, root, name, piece).map_err(|error| error_in(root, error))?;
         }
         Ok(())
     }
@@ -130,7 +105,7 @@ impl Storage for HostIo<'_, '_> {
             return Err(StorageError::Unsupported);
         }
         for piece in data.chunks(storage::MAX_DATA) {
-            storage::append(self.host, root, name, piece).map_err(storage_error)?;
+            storage::append(self.host, root, name, piece).map_err(|error| error_in(root, error))?;
         }
         Ok(())
     }
@@ -144,7 +119,7 @@ impl Storage for HostIo<'_, '_> {
         if root == Root::Book {
             return Err(StorageError::Unsupported);
         }
-        storage::remove(self.host, root, name).map_err(storage_error)
+        storage::remove(self.host, root, name).map_err(|error| error_in(root, error))
     }
 }
 
@@ -176,7 +151,7 @@ fn document_error(error: &DocumentError) -> Error {
         DocumentError::Storage(StorageError::Unsupported) | DocumentError::UnsupportedFormat => {
             Error::Unsupported
         }
-        DocumentError::OutOfMemory | DocumentError::Storage(StorageError::Other(NO_MEMORY)) => {
+        DocumentError::OutOfMemory | DocumentError::Storage(StorageError::OutOfMemory) => {
             Error::NoMemory
         }
         DocumentError::Malformed(_) => Error::Invalid,

@@ -238,10 +238,11 @@ pub struct Sync {
     auto: bool,
     /// Something changed since this was asked last.
     dirty: bool,
-    /// Whether anything of the source was read in this run, and whether some
-    /// of it was not.
+    /// Whether anything of the source was read in this run, whether some of
+    /// it was not, and whether a calendar gave no answer.
     got: bool,
     partly: bool,
+    missed: bool,
 }
 
 /// A calendar or address book an answer names, and where to look instead.
@@ -410,6 +411,9 @@ impl<'a> Collect<'a> {
             known: false,
             uid: hash(&event.uid),
             cal: self.cal,
+            // The rule counts in the event's own days: the day it is written
+            // with (a time in UTC is UTC's day).
+            shift: i8::try_from(day - start.at.day).unwrap_or(0),
             over,
             rule,
             skip,
@@ -444,6 +448,7 @@ impl<'a> Collect<'a> {
                 known: year != 0,
                 uid: hash(&card.uid),
                 cal: self.cal,
+                shift: 0,
                 over: None,
                 rule: String::new(),
                 skip: Vec::new(),
@@ -663,7 +668,7 @@ impl Sync {
                 continue;
             };
             self.src = id;
-            (self.got, self.partly) = (false, false);
+            (self.got, self.partly, self.missed) = (false, false, false);
             match source.kind {
                 Kind::File => {
                     let path = copy(&source.url)?;
@@ -786,7 +791,7 @@ impl Sync {
                 };
                 // The calendars read before keep what they gave.
                 if matches!(state, State::Pull { .. }) {
-                    self.close_calendars(store);
+                    self.close_calendars(store, false);
                 }
                 self.finished(store, wire, how)?;
                 return self.next_source(store, wire);
@@ -874,7 +879,7 @@ impl Sync {
                 (true, true) => state::PARTLY,
                 (true, false) => state::OK,
             };
-            self.close_calendars(store);
+            self.close_calendars(store, !self.missed);
             self.finished(store, wire, how)?;
             return self.next_source(store, wire);
         };
@@ -925,20 +930,23 @@ impl Sync {
             self.report.skipped = self.report.skipped.saturating_add(collect.skipped);
             self.partly |= !complete || collect.skipped > 0;
         } else {
-            self.partly = true;
+            (self.partly, self.missed) = (true, true);
         }
         self.pull(store, wire, cal + 1)
     }
 
     /// The calendars of the account are read, or a request failed: where one
-    /// answered, the events of calendars the account no longer has go (and
-    /// those kept before its calendars were told apart); changed times are
-    /// linked, and what is outside the window goes.
-    fn close_calendars(&self, store: &mut Store) {
+    /// answered, the events of calendars the account no longer has go, and
+    /// those kept before its calendars were told apart once `every` calendar
+    /// answered (they may be one's that did not); changed times are linked,
+    /// and what is outside the window goes.
+    fn close_calendars(&self, store: &mut Store, every: bool) {
         if self.got {
             let (src, found) = (self.src, &self.found);
             store.entries.retain(|entry| {
-                entry.src != src || found.iter().any(|href| calendar_tag(href) == entry.cal)
+                entry.src != src
+                    || (entry.cal == WHOLE_SOURCE && !every)
+                    || found.iter().any(|href| calendar_tag(href) == entry.cal)
             });
         }
         store.finish_source(self.src, self.window.0, self.window.1);

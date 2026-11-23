@@ -14,10 +14,11 @@ use paperpaw_sdk::{
     Handled, Rect,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, Input},
+        callbacks::{DrawFrame, FrameRect, Input},
+        commands::{CommandSender, RedrawMode},
     },
 };
-use paperpaw_ui_kit::{Footer, Item, ItemList, ItemStep, list::redraw_areas, mem::push, text};
+use paperpaw_ui_kit::{Footer, Item, ItemList, ItemStep, mem::push, text};
 
 /// What a row of the list is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,12 +186,27 @@ impl Dash {
         changed
     }
 
-    /// Asks for `area` of the screen (or all of it) to be drawn again.
+    /// Asks for `area` of the screen (or all of it, also where the host
+    /// refuses the area) to be drawn again, refreshed partly: values that
+    /// changed are words, not the fast step of a focus.
     ///
     /// # Errors
     /// Propagates command queueing errors.
     pub fn redraw(host: &Host<'_>, area: Option<Rect>) -> Result<(), Error> {
-        redraw_areas(host, (0, 0), [area, area])
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        if let Some(area) = area {
+            let area = FrameRect::new(
+                i32::from(area.x),
+                i32::from(area.y),
+                u32::from(area.width),
+                u32::from(area.height),
+            );
+            if sender.queue_redraw_area(RedrawMode::Partial, area).is_ok() {
+                return Ok(());
+            }
+        }
+        sender.queue_redraw(RedrawMode::Partial)
     }
 
     /// Draws the screen.

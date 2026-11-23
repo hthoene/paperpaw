@@ -461,7 +461,7 @@ fn a_letter_is_made_kept_and_read_the_same() {
         .chain(&["Content-Type: text/html\n\n<p>x</p>\n"])
     {
         let new_storage = MemoryStorage::new().with("raw.eml", mail.as_bytes());
-        let new = new_store::make_letter(&new_storage, "raw.eml", "m1.txt").unwrap();
+        let new = new_store::make_letter(&new_storage, "raw.eml", "m1.txt", 0).unwrap();
         pin.check(format!("{mail:?}"), new_storage.get("m1.txt"));
         pin.check(format!("{mail:?}"), new.header_text().unwrap());
         pin.check("", &(new.text));
@@ -486,11 +486,32 @@ fn a_letter_is_made_kept_and_read_the_same() {
 }
 
 #[test]
+fn a_kept_mail_of_a_folder_made_anew_is_not_taken_for_its_uid() {
+    use paperpaw_sdk::Storage as _;
+    let status = new_store::status_file(1, "INBOX").unwrap();
+    let kept = new_store::text_file(1, "INBOX", 5).unwrap();
+    let counts = |validity: &str| format!("3\t0\t{validity}\t0\n");
+    let storage = MemoryStorage::new()
+        .with(&status, counts("7").as_bytes())
+        .with("raw.eml", b"Subject: Old\n\nold text\n");
+    new_store::make_letter(&storage, "raw.eml", &kept, 7).unwrap();
+    let letter = new_store::kept_letter(&storage, 1, "INBOX", 5).unwrap();
+    assert_eq!(letter.unwrap().subject, "Old");
+    // The folder was made anew on the server: UID 5 is another mail now.
+    storage.write(&status, counts("8").as_bytes()).unwrap();
+    assert!(
+        new_store::kept_letter(&storage, 1, "INBOX", 5)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
 fn a_card_that_says_no_is_told_apart_from_no_memory() {
     let storage = MemoryStorage::new();
     let error = new_render::render(&storage, "missing.eml", "out.txt", 1024).unwrap_err();
     assert_eq!(error, Fail::Storage(StorageError::NotFound));
-    let error = new_store::make_letter(&storage, "missing.eml", "m.txt").unwrap_err();
+    let error = new_store::make_letter(&storage, "missing.eml", "m.txt", 0).unwrap_err();
     assert_eq!(error, Fail::Storage(StorageError::NotFound));
 }
 

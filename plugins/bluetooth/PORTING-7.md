@@ -44,7 +44,7 @@ senders and event 98 of the SDK (PR #363).
   bonded device is connected, a tap opens the page. The host asks the owner
   through the stage `core.status`; the answer is a drawn value
   (`StatusAnswer::drawn`), the sign drawn as the Wi-Fi plugin draws its own
-  (`src/native_plugin/status_icon.rs`), no text hides the item.
+  (ui-kit `status_line/icon.rs`), no text hides the item.
 - **Slot** `core.bluetooth` is offered for `bluetooth.page`: the plugin bound to
   it sees `given` in device op 11 and gets event 98 (no subscription; Kernel
   ruled the same for `event.answered`).

@@ -6,10 +6,9 @@ use paperpaw_sdk::native::net::FileRoot;
 use paperpaw_sdk::native::{
     Error, Host,
     net::{Header, Net, REPLY, REQUEST_INPUT, Request},
-    storage::{self, Root},
 };
 use paperpaw_ui_kit::{
-    files::Volume,
+    files::{OnHost, Volume},
     mem::{buffer, wipe},
 };
 
@@ -20,38 +19,11 @@ use crate::native_sync::{GET_TOKEN, LIST_TOKEN, Link};
 /// How long a listing may take, and a photo without a byte moving.
 const LIST_TIMEOUT_MS: u32 = 30_000;
 
-/// The storage calls on the plugin's data folder.
-pub struct Data<'a, 'h>(pub &'a Host<'h>);
-
-impl Volume for Data<'_, '_> {
-    fn size(&self, name: &str) -> Result<u64, Error> {
-        storage::size(self.0, Root::Data, name)
-    }
-    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.0, Root::Data, name, at, out)
-    }
-    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.0, Root::Data, name, data)
-    }
-    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.0, Root::Data, name, data)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        storage::rename(self.0, Root::Data, from, to)
-    }
-    fn remove(&self, name: &str) -> Result<(), Error> {
-        storage::remove(self.0, Root::Data, name)
-    }
-    fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.0)
-    }
-}
-
 /// The data folder and the network, with the account's header.
 pub struct HostLink<'a, 'h> {
     pub host: &'a Host<'h>,
     pub net: &'a mut Option<Net>,
-    pub data: Data<'a, 'h>,
+    pub data: OnHost<'a, 'h>,
     /// `Basic ...` where the server wants an account.
     pub auth: Option<&'a Secret>,
 }

@@ -22,13 +22,12 @@ use paperpaw_sdk::native::{
     reply::Reply,
     secrets::{SecretName, SecretWrite, Secrets},
     settings::{self, SettingValue},
-    storage::{self, Root},
     ui::{Notify, Open, Question, RequestId as AskId, Ui},
     work::{Work, WorkSpec},
 };
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
-    files::Volume,
+    files::{OnHost, Volume},
     mem::{SERVICE_BUFFER, buffer, push, wipe},
     read_event,
     text::copy,
@@ -120,7 +119,7 @@ pub struct NativeReadLaterCloud {
 struct HostWire<'a, 'h> {
     host: &'a Host<'h>,
     handles: &'a RefCell<Handles>,
-    volume: DataVolume<'a, 'h>,
+    volume: OnHost<'a, 'h>,
 }
 
 /// The handles, for the length of one call.
@@ -133,7 +132,7 @@ impl<'a, 'h> HostWire<'a, 'h> {
         Self {
             host,
             handles,
-            volume: DataVolume(host),
+            volume: OnHost::data(host),
         }
     }
 }
@@ -340,33 +339,6 @@ impl Shelf for HostShelf<'_, '_> {
     }
 }
 
-/// The storage calls on the plugin's data folder.
-struct DataVolume<'a, 'h>(&'a Host<'h>);
-
-impl Volume for DataVolume<'_, '_> {
-    fn size(&self, name: &str) -> Result<u64, Error> {
-        storage::size(self.0, Root::Data, name)
-    }
-    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.0, Root::Data, name, at, out)
-    }
-    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.0, Root::Data, name, data)
-    }
-    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.0, Root::Data, name, data)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        storage::rename(self.0, Root::Data, from, to)
-    }
-    fn remove(&self, name: &str) -> Result<(), Error> {
-        storage::remove(self.0, Root::Data, name)
-    }
-    fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.0)
-    }
-}
-
 impl Plugin for NativeReadLaterCloud {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
         for batch in image::SETTINGS
@@ -413,7 +385,7 @@ impl Plugin for NativeReadLaterCloud {
             Event::WorkDue(_) if token == WORK_TOKEN => self.fetch(host),
             Event::HttpDone(done) if token == HTTP_TOKEN => self.ended(host, &done),
             Event::PageTurned(reading) if token == PAGE_TOKEN => lists::page_turned(
-                &DataVolume(host),
+                &OnHost::data(host),
                 reading.path(),
                 (reading.page(), reading.pages(), reading.progress_ppm()),
             ),

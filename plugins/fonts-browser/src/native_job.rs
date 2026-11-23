@@ -94,7 +94,7 @@ impl Job {
 fn io(error: StorageError) -> Error {
     match error {
         StorageError::NotFound => Error::NotFound,
-        StorageError::Other(0x6e6d) => Error::NoMemory,
+        StorageError::OutOfMemory => Error::NoMemory,
         _ => Error::Io,
     }
 }

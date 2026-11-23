@@ -22,6 +22,7 @@ use crate::{
     widget::text::ink_baseline,
 };
 
+pub mod icon;
 pub mod layout;
 
 use layout::{self as lay, Laid, Listed, Parts};

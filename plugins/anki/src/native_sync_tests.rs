@@ -50,6 +50,8 @@ struct Fake {
     stranger: Option<&'static str>,
     /// Requests of `answerCards` that are answered; later ones fail.
     answers_allowed: usize,
+    /// Requests are answered, but the answers time out on the way back.
+    replies_lost: bool,
 }
 
 impl Fake {
@@ -66,6 +68,7 @@ impl Fake {
             cut_at: usize::MAX,
             stranger: None,
             answers_allowed: usize::MAX,
+            replies_lost: false,
         }
     }
 
@@ -220,7 +223,13 @@ impl Link for Fake {
             truncated: false,
             body_len: 0,
         };
+        if self.replies_lost {
+            self.answer(&text);
+            done.reason = Reason::Timeout;
+            done.status = 0;
+        }
         let mut bytes = match self.stranger {
+            _ if self.replies_lost => Vec::new(),
             Some(page) => page.as_bytes().to_vec(),
             None if self.reason == Reason::Ok => self.answer(&text).into_bytes(),
             None => Vec::new(),
@@ -417,6 +426,30 @@ fn answers_wait_offline_and_go_with_the_next_sync() {
     assert_eq!(fake.taken, [(11, 3), (12, 1)]);
     assert!(fake.vol.get(ANSWERS).is_none());
     assert_eq!(lines(&fake, CARDS), ["15\tmesa\ttable"]);
+}
+
+#[test]
+fn answers_whose_reply_was_lost_do_not_reach_anki_twice() {
+    let mut fake = collection();
+    store::record(&fake.vol, 11, 3).unwrap();
+    store::record(&fake.vol, 12, 1).unwrap();
+    fake.vol.write(CARDS, b"11\tperro\tdog\n").unwrap();
+    // Anki takes the answers; its reply times out.
+    fake.replies_lost = true;
+    let finish = run(&mut fake, account(None, "Spanish", 0), Mode::Sync);
+    assert_eq!((finish.key, finish.sent), ("anki.unreachable", 0));
+    assert_eq!(fake.taken, [(11, 3), (12, 1)]);
+    // Until the next sync, the cards stay answered.
+    assert_eq!(lines(&fake, ANSWERS), ["11\t3", "12\t1"]);
+
+    fake.replies_lost = false;
+    store::record(&fake.vol, 21, 4).unwrap();
+    let finish = run(&mut fake, account(None, "", 0), Mode::Sync);
+    assert_eq!(finish.key, "anki.nothing-due");
+    // Only the answer made after it goes; the unconfirmed ones were let go.
+    assert_eq!(fake.taken, [(11, 3), (12, 1), (21, 4)]);
+    assert!(fake.vol.get(ANSWERS).is_none());
+    assert!(fake.vol.get(store::SENDING).is_none());
 }
 
 #[test]

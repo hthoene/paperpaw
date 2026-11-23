@@ -17,7 +17,7 @@ use paperpaw_sdk::native::Error;
 use paperpaw_ui_kit::files::Volume;
 
 use crate::keep::{self, Loaded};
-use crate::model::{Kind, Show, Store, state};
+use crate::model::{Kind, Show, Store, WHOLE_SOURCE, state};
 use crate::sync::{Call, Ended, Outcome, Report, Step, Sync, Wire};
 use crate::test_volume::Fake;
 
@@ -437,6 +437,27 @@ fn a_subscription_a_file_and_contacts() {
 }
 
 #[test]
+fn a_repeat_in_another_zone_falls_on_the_readers_days() {
+    let mut world = World::new();
+    // Tuesdays 18:00 in Los Angeles are Wednesdays 03:00 on the reader.
+    world.feeds.insert(
+        "/la.ics".into(),
+        ical(
+            "BEGIN:VEVENT\nUID:la1\nSUMMARY:Standup\n\
+DTSTART;TZID=America/Los_Angeles:20261117T180000\nDURATION:PT30M\n\
+RRULE:FREQ=WEEKLY;BYDAY=TU\nEXDATE;TZID=America/Los_Angeles:20261201T180000\nEND:VEVENT\n",
+        ),
+    );
+    let mut reader = Reader::default();
+    reader.add(Kind::Ics, "LA", "https://cloud.example/la.ics");
+    reader.run(&mut world, false);
+    assert_eq!(
+        reader.agenda(22),
+        ["+0 03:00 Standup", "+7 03:00 Standup", "+21 03:00 Standup"]
+    );
+}
+
+#[test]
 fn calendars_on_another_server_or_on_http_are_not_looked_for() {
     // `World::answer` fails the test on any address that is not on
     // `https://cloud.example/`: nothing, nor the password, goes there.
@@ -567,6 +588,30 @@ fn a_calendar_that_fails_keeps_its_events_while_the_others_are_read() {
         .filter(|line| !line.contains("Zoo"))
         .collect();
     assert_eq!(reader.agenda(14), without);
+}
+
+/// #495: the events kept before Beta 4 told an account's calendars apart
+/// belong to none: a run in which one calendar fails keeps them (they may be
+/// its), and the first run in which every calendar answers replaces them.
+#[test]
+fn events_kept_before_calendars_were_told_apart_stay_while_one_fails() {
+    let mut world = World::new();
+    personal(&mut world);
+    family(&mut world, "Zoo");
+    let mut reader = Reader::default();
+    reader.add(Kind::Caldav, "Work", ROOT);
+    reader.run(&mut world, false);
+    let known = reader.agenda(14);
+    for entry in &mut reader.store.entries {
+        entry.cal = WHOLE_SOURCE;
+    }
+    world.broken = Some(PERSONAL.into());
+    reader.run(&mut world, false);
+    let now = reader.agenda(14);
+    assert!(now.contains(&"+0 14:30 Call".to_string()), "{now:?}");
+    world.broken = None;
+    reader.run(&mut world, false);
+    assert_eq!(reader.agenda(14), known);
 }
 
 #[test]

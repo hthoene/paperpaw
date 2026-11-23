@@ -23,6 +23,7 @@ mod empty;
 mod extra;
 mod grip;
 mod head;
+mod hold;
 mod pages;
 mod row;
 pub(crate) use row::draw_row;

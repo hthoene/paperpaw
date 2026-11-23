@@ -2367,6 +2367,7 @@ version = "1.0.5"
 dependencies = [
  "miniz_oxide",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2464,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-bluetooth"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2481,7 +2482,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-file-manager"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2489,7 +2490,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.13"
+version = "1.0.14"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2517,6 +2518,7 @@ name = "paperpaw-plugin-format-docx"
 version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2548,6 +2550,7 @@ name = "paperpaw-plugin-format-images"
 version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2563,6 +2566,7 @@ name = "paperpaw-plugin-format-mobi"
 version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2570,6 +2574,7 @@ name = "paperpaw-plugin-format-txt"
 version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2577,6 +2582,7 @@ name = "paperpaw-plugin-format-xtc"
 version = "1.0.2"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2621,7 +2627,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-news"
-version = "1.1.5"
+version = "1.1.6"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2629,7 +2635,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-opds"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2637,7 +2643,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-plugin-manager"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2684,7 +2690,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.18"
+version = "1.0.19"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2692,7 +2698,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-transfer"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "flate2",
  "paperpaw-qr",
@@ -2720,7 +2726,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wifi"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",

@@ -320,7 +320,7 @@ fn rendering_and_the_store_survive_refused_allocations() {
     });
     swept("letter", || {
         card.put("raw.eml", MAIL);
-        let letter = store::make_letter(&card, "raw.eml", "m1.txt").map_err(refused)?;
+        let letter = store::make_letter(&card, "raw.eml", "m1.txt", 0).map_err(refused)?;
         assert!(letter.text.contains("caf\u{e9}"));
         let read = store::read_letter(&card, "m1.txt").map_err(refused)?;
         assert!(read.is_some());

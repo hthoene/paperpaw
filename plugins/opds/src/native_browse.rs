@@ -202,7 +202,7 @@ impl Browser {
     ) -> Result<Self, Error> {
         let auth = match password {
             Some(password) if !catalog.user.is_empty() => {
-                Some(Secret::basic(&catalog.user, &password)?)
+                Some(Secret::basic(&catalog.user, password.as_str())?)
             }
             _ => None,
         };

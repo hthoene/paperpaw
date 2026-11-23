@@ -11,6 +11,7 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
 use paperpaw_ui_kit::mem;
+use paperpaw_ui_kit::storage::error as storage_error;
 
 /// The plugin's data folder, as a [`Storage`] that makes and removes folders.
 pub struct Folders<'a, 'h> {
@@ -42,21 +43,10 @@ impl<'a, 'h> Folders<'a, 'h> {
         let mut input = mem::buffer(INPUT_BYTES).map_err(|_| StorageError::OutOfMemory)?;
         let mut out = mem::buffer(OUTPUT_BYTES).map_err(|_| StorageError::OutOfMemory)?;
         let opened = Files::open(self.host);
-        let files = opened.map_err(error)?;
+        let files = opened.map_err(storage_error)?;
         let result = op(&files, &mut input, &mut out);
         files.release(self.host).ok();
-        result.map_err(error)
-    }
-}
-
-fn error(error: Error) -> StorageError {
-    match error {
-        Error::NotFound => StorageError::NotFound,
-        Error::Full | Error::NoSpace => StorageError::Full,
-        Error::Unsupported | Error::Denied => StorageError::Unsupported,
-        Error::Invalid => StorageError::InvalidPath,
-        Error::NoMemory => StorageError::OutOfMemory,
-        _ => StorageError::Io,
+        result.map_err(storage_error)
     }
 }
 

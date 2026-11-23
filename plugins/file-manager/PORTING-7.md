@@ -118,8 +118,8 @@ still not an error (the storage's rule).
 
 ## Open points
 
-- Out of memory: a host out-of-memory in a card call (`card::Watch` notes it) reaches the reader as
-  "not enough memory" (`Browser::lacked_memory`). Sweeps (every allocation refused in turn, files
+- Out of memory: a host out-of-memory in a card call is `StorageError::OutOfMemory` (the SDK's
+  mapping, #492) and reaches the reader as "not enough memory". Sweeps (every allocation refused in turn, files
   intact) run at model, card and browser level over the memory storage and the fake card. Not covered:
   the allocations of `HostCard::open` and the `core.ui`/`core.library`/`core.document` glue
   (`native_plugin.rs`: offer, open, delete, readers), which need a host: no scripted-host test drives

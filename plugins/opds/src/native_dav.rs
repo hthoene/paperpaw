@@ -13,6 +13,7 @@ use paperpaw_sdk::{
     xml::{Token, Tokenizer, local_name, try_decode},
 };
 use paperpaw_ui_kit::{
+    dav::url::path,
     mem::{buffer, push},
     text::{cmp_lowercase, copy},
 };
@@ -156,13 +157,15 @@ impl Reader {
     }
 
     fn response(&mut self, r: Response) -> Result<(), Error> {
-        let decoded = try_percent_decode(&r.href).map_err(|_| Error::NoMemory)?;
-        let target = decoded.trim_end_matches('/');
-        if target == self.own || r.href.is_empty() || r.href.len() > MAX_URL {
+        if r.href.is_empty() || r.href.len() > MAX_URL {
             return Ok(());
         }
+        // An `href` may be a whole address, a path or relative (RFC 4918); only
+        // the path of the address it makes tells whether it is the folder itself.
         let url = join_url(&self.base, &r.href)?;
-        if url.len() > MAX_URL {
+        let decoded = try_percent_decode(path(&url)).map_err(|_| Error::NoMemory)?;
+        let target = decoded.trim_end_matches('/');
+        if target == self.own || url.len() > MAX_URL {
             return Ok(());
         }
         let file = target.rsplit('/').next().unwrap_or("");
@@ -212,10 +215,7 @@ impl Reader {
 /// `NoMemory` when not even the reader can be made; the source's error when
 /// it cannot be read.
 pub fn read(source: &mut impl Source, base: &str, limits: Limits) -> Result<Feed, Error> {
-    let path = base.split("://").nth(1).map_or(base, |r| {
-        r.get(r.find('/').unwrap_or(r.len())..).unwrap_or("")
-    });
-    let decoded = try_percent_decode(path).map_err(|_| Error::NoMemory)?;
+    let decoded = try_percent_decode(path(base)).map_err(|_| Error::NoMemory)?;
     let own = copy(decoded.trim_end_matches('/'))?;
     let mut reader = Reader {
         limits,
