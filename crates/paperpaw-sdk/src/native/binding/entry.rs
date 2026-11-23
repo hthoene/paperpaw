@@ -1,6 +1,6 @@
 //! Implementation details for `native_plugin!`. Not an application API.
 use super::{Error, Host, Plugin, status};
-use core::{ffi::c_void, mem, ptr};
+use core::{alloc::Layout, ffi::c_void, mem, ptr};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, MAX_ALIGN, OK};
 use paperpaw_native::host_glue::{MAJOR, MINOR, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin};
 
@@ -149,6 +149,11 @@ struct State<T> {
 
 /// Construct the plugin behind an entry export.
 ///
+/// A thin shim over [`make_core`], which does not depend on the plugin type: the
+/// table checks, the allocation and the error paths are compiled once, the shim
+/// only hands the core the state layout and [`init`]. Statuses and the order of
+/// the checks are those of one function per plugin.
+///
 /// # Safety
 /// A non-null host exposes its size header and the claimed bytes, aligned for
 /// PpHost. Context and table outlive destruction. Output is writable, aligned
@@ -157,6 +162,36 @@ pub(super) unsafe extern "C" fn make<T: Plugin, const NEEDS_MINOR: u16>(
     host: *const PpHost,
     ctx: *mut c_void,
     out: *mut *const PpPlugin,
+) -> i32 {
+    // SAFETY: as this function; `init::<T>` fills a block of `State<T>`'s layout.
+    unsafe {
+        make_core(
+            host,
+            ctx,
+            out,
+            NEEDS_MINOR,
+            Layout::new::<State<T>>(),
+            init::<T>,
+        )
+    }
+}
+
+/// Make the plugin value and move it with its table into `block`.
+type Init = unsafe fn(&Host<'_>, *mut c_void) -> Result<*const PpPlugin, Error>;
+
+/// The type-independent part of [`make`].
+///
+/// # Safety
+/// As [`make`]; `init` fills a block of `layout` and returns the plugin table
+/// inside it.
+#[inline(never)]
+unsafe fn make_core(
+    host: *const PpHost,
+    ctx: *mut c_void,
+    out: *mut *const PpPlugin,
+    needs_minor: u16,
+    layout: Layout,
+    init: Init,
 ) -> i32 {
     if out.is_null() || host.is_null() || ctx.is_null() {
         return ERR_INVALID;
@@ -167,43 +202,51 @@ pub(super) unsafe extern "C" fn make<T: Plugin, const NEEDS_MINOR: u16>(
     }
     // SAFETY: size was checked before forming a reference to the full table.
     let table = unsafe { &*host };
-    if table.major != MAJOR || table.minor < NEEDS_MINOR {
+    if table.major != MAJOR || table.minor < needs_minor {
         return ERR_UNSUPPORTED;
     }
-    if mem::align_of::<State<T>>() > MAX_ALIGN {
+    if layout.align() > MAX_ALIGN {
         return ERR_INVALID;
     }
     let mut block = ptr::null_mut();
     // SAFETY: call-local output; layout is nonzero and bounded by MAX_ALIGN.
-    if let Err(e) = status(unsafe {
-        (table.heap_alloc)(
-            ctx,
-            mem::size_of::<State<T>>(),
-            mem::align_of::<State<T>>(),
-            &mut block,
-        )
-    }) {
+    if let Err(e) =
+        status(unsafe { (table.heap_alloc)(ctx, layout.size(), layout.align(), &mut block) })
+    {
         return e.status();
     }
     if block.is_null() {
         return ERR_NO_MEMORY;
     }
     let binding = Host { table, ctx };
-    let value = match T::make(&binding) {
-        Ok(value) => value,
-        Err(e) => {
-            // SAFETY: the block is uninitialized and was allocated above.
-            unsafe { free::<T>(host, ctx, block) };
-            return e.status();
+    // SAFETY: the block is uninitialized, of `layout` and exclusively ours.
+    match unsafe { init(&binding, block) } {
+        Ok(plugin) => {
+            // SAFETY: output is published only after `init` initialized the state.
+            unsafe { out.write(plugin) };
+            OK
         }
-    };
+        Err(e) => {
+            // SAFETY: `init` failed before initializing the block allocated above.
+            unsafe { free(host, ctx, block, layout) };
+            e.status()
+        }
+    }
+}
+
+/// Make the plugin value, then move it with its table into `block`.
+///
+/// # Safety
+/// `block` is uninitialized storage of `State<T>`'s layout, exclusively ours.
+unsafe fn init<T: Plugin>(host: &Host<'_>, block: *mut c_void) -> Result<*const PpPlugin, Error> {
+    let value = T::make(host)?;
     let state = block.cast::<State<T>>();
-    // SAFETY: allocator provides sufficient aligned exclusive storage; output is
-    // published only after all fields and the plugin value have been initialized.
+    // SAFETY: allocator provides sufficient aligned exclusive storage; the plugin
+    // table is returned only after all fields and the plugin value are initialized.
     unsafe {
         state.write(State {
-            host,
-            ctx,
+            host: host.table,
+            ctx: host.ctx,
             plugin: PpPlugin {
                 size: mem::size_of::<PpPlugin>() as u32,
                 state: block,
@@ -214,9 +257,8 @@ pub(super) unsafe extern "C" fn make<T: Plugin, const NEEDS_MINOR: u16>(
             },
             value,
         });
-        out.write(&raw const (*state).plugin);
+        Ok(&raw const (*state).plugin)
     }
-    OK
 }
 
 /// The callbacks are thin shims over cores that do not depend on the plugin type: the
@@ -432,21 +474,18 @@ unsafe extern "C" fn destroy<T: Plugin>(state: *mut c_void) {
     // SAFETY: state is initialized; drop the plugin before returning its storage.
     unsafe {
         ptr::drop_in_place(state);
-        free::<T>(host, ctx, state.cast());
+        free(host, ctx, state.cast(), Layout::new::<State<T>>());
     }
 }
 
-unsafe fn free<T>(host: *const PpHost, ctx: *mut c_void, block: *mut c_void) {
+/// # Safety
+/// Same host, context, block and layout as the allocation, used exactly once.
+unsafe fn free(host: *const PpHost, ctx: *mut c_void, block: *mut c_void, layout: Layout) {
     // Deallocation has no recovery path; a conforming allocator accepts its own
     // live block with the original layout and returns OK.
-    // SAFETY: same host/context/block/layout as allocation, used exactly once.
+    // SAFETY: as this function.
     unsafe {
-        ((*host).heap_dealloc)(
-            ctx,
-            block,
-            mem::size_of::<State<T>>(),
-            mem::align_of::<State<T>>(),
-        );
+        ((*host).heap_dealloc)(ctx, block, layout.size(), layout.align());
     }
 }
 

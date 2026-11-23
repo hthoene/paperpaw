@@ -155,7 +155,7 @@ fn placed(env: &Place<'_>, store: &DeclarationStore) -> Option<Vec<u32>> {
     if failed {
         return None;
     }
-    out.sort_unstable();
+    paperpaw_sort::sort_unstable(&mut out);
     out.dedup();
     Some(out)
 }
