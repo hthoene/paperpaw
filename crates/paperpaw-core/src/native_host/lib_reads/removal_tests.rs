@@ -3,6 +3,7 @@
 //! each phase, that a repeat changes nothing, and that other books are left.
 extern crate std;
 use super::*;
+use crate::native_host::lib_reads::tests::Epub;
 use crate::native_host::lib_reads::tests::card;
 use crate::native_host::lib_service::LibQuery;
 use paperpaw_platform::StorageError;
@@ -67,6 +68,7 @@ fn details_forgets_the_catalog_line_the_details_and_the_fields_but_not_the_marks
     assert_eq!(
         reads.book(
             crate::native_host::lib_service::BookRef::Path("books/c.epub"),
+            &Epub,
             &mut |_| {}
         ),
         Err(paperpaw_native::host_glue::ERR_NOT_FOUND)

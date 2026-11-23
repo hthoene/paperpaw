@@ -3,6 +3,7 @@
 //! folders excluded.
 extern crate std;
 use super::*;
+use crate::native_host::lib_reads::tests::Epub;
 use crate::native_host::lib_reads::tests::card;
 use crate::native_host::registrations::Record;
 use crate::native_host::storage_files::{BusyKind, BusySource};
@@ -210,15 +211,15 @@ fn an_unconfirmed_sync_position_is_busy_for_a_book_the_move_carries_and_a_local_
 fn the_delete_preflight_is_the_cards() {
     let host = host();
     assert_eq!(
-        host.can_delete("books/c.epub"),
+        host.can_delete("books/c.epub", &Epub),
         (paperpaw_native::host_glue::OK, 0)
     );
     assert_eq!(
-        host.can_delete("books/none.epub").0,
+        host.can_delete("books/none.epub", &Epub).0,
         paperpaw_native::host_glue::ERR_NOT_FOUND
     );
     assert_eq!(
-        host.can_delete("books/d.txt").0,
+        host.can_delete("books/d.txt", &Epub).0,
         paperpaw_native::host_glue::ERR_INVALID
     );
 }
@@ -255,7 +256,7 @@ fn a_delete_goes_to_the_journalled_job_hides_the_book_and_a_busy_path_is_not_pas
     // books are hidden until it is done.
     assert!(card.storage.size("books/c.epub").is_err());
     assert!(
-        host.book(BookRef::Path("books/c.epub"), &mut |_| {})
+        host.book(BookRef::Path("books/c.epub"), &Epub, &mut |_| {})
             .is_err()
     );
     assert!(moves.pending_delete("books/e.epub"));

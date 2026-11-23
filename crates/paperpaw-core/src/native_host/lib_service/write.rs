@@ -6,7 +6,7 @@
 //! that refuses with `ERR_UNSUPPORTED`, so a host or a test fake implements
 //! only what it backs.
 use super::{
-    BookRef, Caller, ServiceOp, args, encode,
+    BookFormats, BookRef, Caller, ServiceOp, args, encode,
     wire::{self, Record},
 };
 use crate::abi7::context::RowsEnd;
@@ -46,7 +46,8 @@ pub(crate) trait LibWrite {
     /// `ERR_INVALID` not a book, `ERR_NOT_FOUND` gone already, `ERR_IO`) and
     /// the facts (bit 0 has annotations, 1 has a position, 2 has plugins'
     /// book data). It changes nothing.
-    fn can_delete(&self, _path: &str) -> (i32, u32) {
+    /// `formats` tells a book by its format.
+    fn can_delete(&self, _path: &str, _formats: &dyn BookFormats) -> (i32, u32) {
         (ERR_UNSUPPORTED, 0)
     }
     /// Remove the books at `paths` (at most 7, each of them accepted by
@@ -182,13 +183,14 @@ pub(crate) trait LibWrite {
 pub(super) fn run(
     host: &dyn super::LibHost,
     who: &Caller<'_>,
+    formats: &dyn BookFormats,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
     match op.id {
         8 => set_status(host, input),
-        9 | 10 => files::paths(host, who, op.id == 10, input, out),
+        9 | 10 => files::paths(host, who, formats, op.id == 10, input, out),
         11 => files::move_book(host, who, input, out),
         12 => files::import(host, who, input, out),
         14 => position::set(host, input, out),

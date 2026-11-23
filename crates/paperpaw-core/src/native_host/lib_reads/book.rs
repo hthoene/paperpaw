@@ -1,7 +1,7 @@
 //! Ops 3 `book` and 4 `text`: one book's line, whole texts by offsets.
 use super::{CatalogReads, fail, valid_prefix, zeroed};
 use crate::kit::library::{self, catalog};
-use crate::native_host::lib_service::{BookRef, One};
+use crate::native_host::lib_service::{BookFormats, BookRef, One};
 use crate::native_host::registrations::{self as wire, Record};
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
@@ -116,7 +116,12 @@ fn bytes(text: &str) -> u32 {
     u32::try_from(text.len()).unwrap_or(u32::MAX)
 }
 
-pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+pub(super) fn book(
+    reads: &CatalogReads,
+    book: BookRef<'_>,
+    formats: &dyn BookFormats,
+    visit: One<'_>,
+) -> Result<(), i32> {
     // The log of changes is read once for the whole call.
     let changes = catalog::try_changes(&*reads.storage).map_err(fail)?;
     let offset = reads.locate_with(book, &changes)?;
@@ -146,7 +151,7 @@ pub(super) fn book(reads: &CatalogReads, book: BookRef<'_>, visit: One<'_>) -> R
     let author = valid_prefix(&author_b[..filled.author]);
     let series = valid_prefix(&series_b[..filled.series]);
     let mut format_len = None;
-    reads.env.format_id(path, &mut |id| {
+    formats.format_id(path, &mut |id| {
         if id.len() <= format_b.len() {
             format_b[..id.len()].copy_from_slice(id.as_bytes());
             format_len = Some(id.len());

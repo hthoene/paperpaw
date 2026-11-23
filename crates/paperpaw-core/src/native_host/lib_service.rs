@@ -45,6 +45,37 @@ pub(crate) struct Caller<'a> {
     pub(crate) storage: Result<(), i32>,
 }
 
+/// Which format reads a file: `lib_book.format` (op 3) and the book test of
+/// `can_delete` and `delete` (ops 9 and 10). The kernel answers it from the
+/// formats the plugins declared ([`Declared`]), never the shell: the shell
+/// does not know them (#487).
+pub(crate) trait BookFormats {
+    /// The id (`<plugin>.<name>`) of the format an open of `path` would
+    /// choose; nothing where no declared format claims its extension.
+    fn format_id(&self, path: &str, visit: &mut dyn FnMut(&str));
+}
+
+/// The formats declared in the call's frame, by extension as an open chooses
+/// them (`reading_apps::format_of`: the user's choice of the extension, else
+/// the higher priority). Asked in memory at each call: nothing is kept and
+/// nothing is read from the card. A store the frame does not lend (busy, or
+/// none) knows no format.
+pub(crate) struct Declared<'a>(pub(crate) &'a dyn Frame);
+
+impl BookFormats for Declared<'_> {
+    fn format_id(&self, path: &str, visit: &mut dyn FnMut(&str)) {
+        let mut id = alloc::string::String::new();
+        let lent = self.0.with_declarations(&mut |any| {
+            if let Some(store) = any.downcast_ref::<super::declaration_store::DeclarationStore>() {
+                crate::reading_apps::format_of(store, self.0.settings(), path, &mut id);
+            }
+        });
+        if lent.is_ok() && !id.is_empty() {
+            visit(&id);
+        }
+    }
+}
+
 /// Everything the library service needs from the host's catalog, card and
 /// clock. The shell implements it; the tests use fakes.
 pub(crate) trait LibHost: query::LibQuery + write::LibWrite + LibExcluded {}
@@ -103,7 +134,9 @@ pub(crate) fn backend(
             let cx = CoverCx { frame, caller };
             query::run(frame, host, &who, &cx, op, input, out)
         }
-        8..=12 | 14 | 17..=21 | 23 | 24 | 26 => write::run(host, &who, op, input, out),
+        8..=12 | 14 | 17..=21 | 23 | 24 | 26 => {
+            write::run(host, &who, &Declared(frame), op, input, out)
+        }
         _ => Err(ERR_UNSUPPORTED),
     }
 }

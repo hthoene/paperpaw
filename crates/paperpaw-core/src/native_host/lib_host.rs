@@ -18,8 +18,8 @@ use super::lib_moves_service::LibraryMoves;
 use super::lib_reads::{CatalogEnv, CatalogReads};
 use super::lib_service::moves::Access;
 use super::lib_service::{
-    BookId, BookRef, Caller, CommitRequest, Committed, FieldKind, ImportRequest, LibExcluded,
-    LibQuery, LibWrite, One, Rows, StageItem, StoredPosition, Transactions,
+    BookFormats, BookId, BookRef, Caller, CommitRequest, Committed, FieldKind, ImportRequest,
+    LibExcluded, LibQuery, LibWrite, One, Rows, StageItem, StoredPosition, Transactions,
 };
 use super::registrations::{self as wire};
 use super::storage_files::{BusySources, excluded_on};
@@ -236,9 +236,14 @@ impl LibQuery for LibraryHost {
         self.visible(book)?;
         self.reads.fields(book, cursor, generation, visit)
     }
-    fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+    fn book(
+        &self,
+        book: BookRef<'_>,
+        formats: &dyn BookFormats,
+        visit: One<'_>,
+    ) -> Result<(), i32> {
         self.visible(book)?;
-        self.reads.book(book, visit)
+        self.reads.book(book, formats, visit)
     }
     fn book_file_present(&self, path: &str) -> Result<bool, i32> {
         self.reads.book_file_present(path)
@@ -505,8 +510,8 @@ impl LibWrite for LibraryHost {
     }
 
     /// Op 9's preflight: the card's, read-only (a book, gone, what is kept).
-    fn can_delete(&self, path: &str) -> (i32, u32) {
-        self.reads.can_delete(path)
+    fn can_delete(&self, path: &str, formats: &dyn BookFormats) -> (i32, u32) {
+        self.reads.can_delete(path, formats)
     }
 
     fn field_kind(&self, field: &str) -> Result<FieldKind, i32> {

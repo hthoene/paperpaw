@@ -178,7 +178,12 @@ fn changed(kept: &str, keep: Keep, path: &str, reader: Option<&str>) -> Option<S
 /// The id of the format that reads `path` (`document.md` section 1): by the
 /// longest extension; of its claimants the user's `core.formats.<extension>`,
 /// else the higher priority, else the first loaded. Written into `out`.
-fn format_of(store: &DeclarationStore, settings: &Settings, path: &str, out: &mut String) {
+pub(crate) fn format_of(
+    store: &DeclarationStore,
+    settings: &Settings,
+    path: &str,
+    out: &mut String,
+) {
     let mut longest = 0;
     store.each_format(&mut |format| {
         for extension in extensions_of(format.spec.extensions) {

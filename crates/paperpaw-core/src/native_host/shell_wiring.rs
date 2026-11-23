@@ -244,7 +244,8 @@ impl HostWiring {
 
     /// `core.library`: the reads of the library's catalog on this storage (the
     /// card), with what the card cannot tell: whether the walk is making the
-    /// catalog, today's date, the format of a file ([`CatalogEnv`]). Only the
+    /// catalog, today's date ([`CatalogEnv`]); the format of a file is the
+    /// kernel's, from the plugins' declarations. Only the
     /// reads are served: every write op answers `ERR_UNSUPPORTED` (the
     /// production write half is todo 307), and a name below the card's top
     /// is one of the host's folders by spelling or, for an 8.3 alias (a name

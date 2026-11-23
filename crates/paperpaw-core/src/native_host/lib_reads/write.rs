@@ -3,7 +3,7 @@
 //! the position policy) are the service's; this maps what it has checked to
 //! the card.
 use super::{CatalogReads, delete, field, position};
-use crate::native_host::lib_service::{BookRef, FieldKind, LibWrite, StoredPosition};
+use crate::native_host::lib_service::{BookFormats, BookRef, FieldKind, LibWrite, StoredPosition};
 use crate::native_host::registrations as wire;
 
 impl CatalogReads {
@@ -54,7 +54,7 @@ impl LibWrite for CatalogReads {
         self.set_status_unless(book, set, clear, &|_| false)
     }
 
-    fn can_delete(&self, path: &str) -> (i32, u32) {
-        delete::can_delete(self, path)
+    fn can_delete(&self, path: &str, formats: &dyn BookFormats) -> (i32, u32) {
+        delete::can_delete(self, path, formats)
     }
 }

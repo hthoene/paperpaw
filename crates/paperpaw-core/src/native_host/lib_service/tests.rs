@@ -47,6 +47,8 @@ pub(super) struct View<'a> {
     /// The settings the frame shows: `files.archive` as the test set it.
     settings: Settings,
     hosts: crate::native_host::host_services::HostServices,
+    /// The plugins' declarations the frame lends; none: it lends none.
+    declarations: Option<&'a crate::native_host::declaration_store::DeclarationStore>,
     pub(super) granted: bool,
     pub(super) storage: bool,
 }
@@ -56,6 +58,10 @@ impl Frame for View<'_> {
     }
     fn translator(&self) -> &Translator {
         self.env.i18n()
+    }
+    fn with_declarations(&self, visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
+        visit(self.declarations.ok_or(ERR_UNSUPPORTED)?);
+        Ok(())
     }
 }
 impl View<'_> {
@@ -81,6 +87,15 @@ std::thread_local! {
 
 /// Run `body` with a frame over `host`.
 pub(super) fn with<R>(host: Rc<dyn LibHost>, body: impl FnOnce(&View<'_>) -> R) -> R {
+    with_declared(host, None, body)
+}
+
+/// [`with`], the frame lending the plugins' `declarations`.
+pub(super) fn with_declared<R>(
+    host: Rc<dyn LibHost>,
+    declarations: Option<&crate::native_host::declaration_store::DeclarationStore>,
+    body: impl FnOnce(&View<'_>) -> R,
+) -> R {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
@@ -105,6 +120,7 @@ pub(super) fn with<R>(host: Rc<dyn LibHost>, body: impl FnOnce(&View<'_>) -> R) 
         env: &env,
         settings,
         hosts,
+        declarations,
         granted: true,
         storage: STORAGE.with(core::cell::Cell::get),
     })
@@ -159,6 +175,7 @@ fn a_frame_without_the_host_refuses_the_family() {
         env: &env,
         settings: Settings::new(),
         hosts: crate::native_host::host_services::HostServices::new(),
+        declarations: None,
         granted: true,
         storage: true,
     };

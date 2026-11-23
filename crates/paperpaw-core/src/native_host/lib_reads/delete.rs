@@ -3,10 +3,11 @@
 //! it, so a view decides what to offer before it asks. It changes nothing.
 //!
 //! The book test is the one the catalog walk uses: a format the host's
-//! format index knows by the file's extension ([`CatalogEnv::format_id`]), and
+//! declared format claims by the file's extension ([`BookFormats`]), and
 //! not in PaperPaw's own folder. A file without an extension is no book here
 //! (no sniffing: `format_for` is the document host's, op 20).
 use super::{CatalogReads, fail};
+use crate::native_host::lib_service::BookFormats;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND, OK};
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::{annotations, data, positions};
@@ -17,7 +18,7 @@ const HAS_POSITION: u32 = 1 << 1;
 const HAS_BOOK_DATA: u32 = 1 << 2;
 
 /// Whether `path` names a book by its format and place.
-fn is_book(reads: &CatalogReads, path: &str) -> bool {
+fn is_book(path: &str, formats: &dyn BookFormats) -> bool {
     let own = path
         .trim_start_matches('/')
         .split('/')
@@ -27,13 +28,17 @@ fn is_book(reads: &CatalogReads, path: &str) -> bool {
         return false;
     }
     let mut known = false;
-    reads.env.format_id(path, &mut |_| known = true);
+    formats.format_id(path, &mut |_| known = true);
     known
 }
 
 /// The status and facts of op 9 for one path.
-pub(super) fn can_delete(reads: &CatalogReads, path: &str) -> (i32, u32) {
-    if !is_book(reads, path) {
+pub(super) fn can_delete(
+    reads: &CatalogReads,
+    path: &str,
+    formats: &dyn BookFormats,
+) -> (i32, u32) {
+    if !is_book(path, formats) {
         return (ERR_INVALID, 0);
     }
     match reads.storage.size(path) {

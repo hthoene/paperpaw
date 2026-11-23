@@ -30,7 +30,7 @@
 //! FNV-1a key). The `missing` flag of op 3 is the service's, from
 //! [`LibQuery::book_file_present`]. The generation of an
 //! annotation list is the file's own number, never 0 (`annotations::generation_of`).
-use super::lib_service::{BookRef, LibQuery, One, Rows};
+use super::lib_service::{BookFormats, BookRef, LibQuery, One, Rows};
 use crate::abi7::context::RowsEnd;
 use crate::kit::library::{self, catalog};
 use crate::native_host::registrations::{self as wire, Record};
@@ -86,9 +86,6 @@ pub trait CatalogEnv {
     /// Today as days since 1970, `None` for an unknown clock (no book is
     /// new then).
     fn today(&self) -> Option<u32>;
-    /// The id of the format of the book at `path`, as the format index
-    /// finds it by extension; nothing for none.
-    fn format_id(&self, _path: &str, _visit: &mut dyn FnMut(&str)) {}
     /// The field `id` (`<plugin>.<name>`) a plugin declared with
     /// `book_field.spec`: `Some(true)` kept in the catalog too (short values),
     /// `Some(false)` kept with the book only, `None` for none declared.
@@ -362,8 +359,13 @@ impl LibQuery for CatalogReads {
         self.read_fields(book, cursor, generation, visit)
     }
 
-    fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
-        book::book(self, book, visit)
+    fn book(
+        &self,
+        book: BookRef<'_>,
+        formats: &dyn BookFormats,
+        visit: One<'_>,
+    ) -> Result<(), i32> {
+        book::book(self, book, formats, visit)
     }
 
     fn book_file_present(&self, path: &str) -> Result<bool, i32> {

@@ -88,7 +88,7 @@ impl LibWrite for Fake {
         self.note(std::format!("status {book:?} {set} {clear}"));
         Ok(())
     }
-    fn can_delete(&self, path: &str) -> (i32, u32) {
+    fn can_delete(&self, path: &str, _: &dyn BookFormats) -> (i32, u32) {
         self.note(std::format!("can_delete {path}"));
         self.facts.borrow().get(path).copied().unwrap_or((0, 0))
     }
