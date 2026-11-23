@@ -76,6 +76,9 @@ impl<V> Screens<V> {
     ///
     /// # Errors
     /// [`Error::NoMemory`] when the list cannot grow.
+    // `open` and `close` move or drop a whole view: in a frame of their own,
+    // not in that of each plugin's `event` (over the band's 2,048 B, #4954).
+    #[inline(never)]
     pub fn open(&mut self, instance: Instance, view: V) -> Result<(), Error> {
         if let Some(old) = self.get(instance) {
             *old = view;
@@ -90,9 +93,12 @@ impl<V> Screens<V> {
     }
 
     /// Forgets a closed instance.
+    #[inline(never)]
     pub fn close(&mut self, instance: Instance) {
         if let Some(at) = forget(&mut self.ids, &mut self.tops, instance) {
-            self.views.remove(at);
+            // Dropped where it is: `Vec::remove` would return it, a copy of
+            // the view (up to a kilobyte) on the stack.
+            self.views.drain(at..=at);
         }
     }
 

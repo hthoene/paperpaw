@@ -5,7 +5,7 @@
 use paperpaw_core::{Kernel, KernelBuilder, KernelError};
 use paperpaw_platform::Rotation;
 
-use super::{AddPlugins, CODE_PLUGINS, Card, LinkedInputs, turned};
+use super::{AddPlugins, Card, LinkedInputs, turned};
 use crate::budget;
 use crate::profiles::Profile;
 
@@ -42,7 +42,7 @@ pub(super) fn build_kernel(
         {
             builder = crate::native::code_plugins(
                 builder,
-                CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed),
+                super::code_plugins_on(),
                 profile.device.memory,
                 &pool,
             );
