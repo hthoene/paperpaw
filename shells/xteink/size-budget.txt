@@ -77,5 +77,7 @@ image x4-classic 6395632
 # took it to 6,618,496 in CI (run 44933255403, c9c22313e); the line is that
 # plus 16,000. The settings and setup as in Beta 3 and the kernel's status lines
 # (#472) took it to 6,636,352 in CI (run 45049396804, c14e3a52f; 6,000 more than
-# 1f26bb7a1); the line is that plus 16,000.
-image picco 6652352
+# 1f26bb7a1); the line is that plus 16,000. The plugins' Beta 3 fixes of #486
+# took it to 6,659,056 in CI (run 45088109757, c4172bcd2; 19,584 more than
+# d20957788); the line is that plus 16,000.
+image picco 6675056
