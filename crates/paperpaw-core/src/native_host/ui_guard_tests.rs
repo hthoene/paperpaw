@@ -93,21 +93,7 @@ fn only_the_top_instance_gets_input_and_the_lock_owns_the_path() {
     let rows = locked();
     let v = view(&rows);
     assert_eq!(input_target(v), Some(3));
-    for instance in [1, 2, 4, 0] {
-        assert!(!may_receive_input(v, instance), "instance {instance}");
-    }
-    assert!(may_receive_input(v, 3));
-    // An open by another plugin cannot take the top: it waits below the guard.
-    assert_eq!(open_index(v, MAIL, false, false), 1);
-    // The guard's plugin, its authorized dialog and the host's sleep screen go on top.
-    assert_eq!(open_index(v, LOCK, false, false), 3);
-    assert_eq!(open_index(v, KEYBOARD, true, false), 3);
-    assert_eq!(open_index(v, CORE, false, true), 3);
-    // Without a guard every open goes on top.
-    let rows = plain();
-    assert_eq!(open_index(view(&rows), MAIL, false, false), 2);
     let empty: Vec<Row> = Vec::new();
-    assert_eq!(open_index(view(&empty), MAIL, false, false), 0);
     assert_eq!(input_target(view(&empty)), None);
 }
 
@@ -216,11 +202,6 @@ fn input_filters_and_key_bindings_stay_inside_the_lock() {
     rows[1].secret = true;
     assert!(filter_runs(view(&rows), MENU));
     assert!(!filter_runs(view(&rows), MAIL));
-    // Key maps: another plugin's action or input does nothing under the lock.
-    assert!(binding_runs(v, None), "host action");
-    assert!(binding_runs(v, Some(LOCK)));
-    assert!(!binding_runs(v, Some(MAIL)));
-    assert!(binding_runs(view(&plain()), Some(MAIL)));
 }
 
 #[test]
@@ -270,27 +251,6 @@ fn the_stack_other_plugins_see_is_the_guard_alone() {
             left_out: false
         }
     );
-}
-
-#[test]
-fn an_overlay_of_another_plugin_never_draws_the_secret_or_the_locked() {
-    // page < lock(guards) ; sleep overlay of `core` over them.
-    let rows = locked();
-    let v = view(&rows);
-    assert!(!drawn_under_overlay(v, 2, CORE), "above the guard: secret");
-    assert!(
-        !drawn_under_overlay(v, 0, CORE),
-        "the page, below the guard"
-    );
-    assert!(!drawn_under_overlay(v, 1, CORE));
-    // Its own plugin's overlay shows it.
-    assert!(drawn_under_overlay(v, 1, LOCK));
-    // Without a guard the page is drawn under the sleep screen, unless secret.
-    let mut rows = plain();
-    assert!(drawn_under_overlay(view(&rows), 0, CORE));
-    rows[0].secret = true;
-    assert!(!drawn_under_overlay(view(&rows), 0, CORE));
-    assert!(!drawn_under_overlay(view(&rows), 9, CORE));
 }
 
 fn ask<'a>(asker: u64, kind: u32, slot: &'a str) -> Ask<'a> {
@@ -485,19 +445,11 @@ fn the_host_confirmation_above_a_plugin_screen_is_the_input_target() {
     let rows = alloc::vec![row(1, READER), row(2, MENU), confirmation(3)];
     let v = view(&rows);
     assert_eq!(input_target(v), Some(3));
-    assert!(may_receive_input(v, 3));
-    assert!(!may_receive_input(v, 2));
-    // The plugin underneath: no filter, no binding, no raised input.
+    // The plugin underneath: no filter, no raised input.
     for plugin in [READER, MENU, MAIL] {
         assert!(!filter_runs(v, plugin), "{plugin} filter must not run");
-        assert!(
-            !binding_runs(v, Some(plugin)),
-            "{plugin} binding must not run"
-        );
         assert_eq!(raise_allowed(v, plugin), Err(ERR_DENIED));
     }
-    // Host actions still run.
-    assert!(binding_runs(v, None));
     assert!(!filter_runs(v, CORE));
 }
 
@@ -529,8 +481,6 @@ fn the_hosts_sleep_screen_above_the_guard_gets_no_input() {
         Some(3),
         "the keyboard, not the sleep screen"
     );
-    assert!(may_receive_input(v, 3));
-    assert!(!may_receive_input(v, 9));
     // The lock alone with the sleep screen over it: the lock gets the input.
     let mut lock = row(2, LOCK);
     lock.guards = true;
@@ -582,16 +532,10 @@ fn a_lower_guarding_overlay_is_not_closable_by_an_unrelated_plugin() {
 }
 
 #[test]
-fn a_guard_dialog_opens_nothing_but_its_nested_question() {
+fn a_guard_dialogs_nested_phone_question_is_denied() {
     let rows = locked();
     let v = view(&rows);
-    // The keyboard dialog (instance 3) cannot open a screen; the lock (2) and
-    // the page (1), an action or event (None) and an unknown instance can.
-    assert_eq!(open_allowed(v, Some(3)), Err(ERR_DENIED));
-    for from in [Some(1), Some(2), None, Some(99)] {
-        assert_eq!(open_allowed(v, from), Ok(()), "{from:?}");
-    }
-    // Its one nested phone question is the op 8 path, which the guard denies too.
+    // Its one nested phone question is the op 8 path, which the guard denies.
     let mut phone = ask(KEYBOARD, 0, REMOTE_KEYBOARD);
     phone.parent = nested(true);
     assert_eq!(
@@ -613,8 +557,6 @@ fn full_width_owner_keys_never_alias_their_low_bits() {
     assert!(!filter_runs(v, narrowed));
     assert_eq!(raise_allowed(v, owner), Ok(()));
     assert_eq!(raise_allowed(v, narrowed), Err(ERR_DENIED));
-    assert_eq!(open_index(v, owner, false, false), 1);
-    assert_eq!(open_index(v, narrowed, false, false), 0);
 }
 
 #[test]
@@ -628,9 +570,7 @@ fn a_plugin_row_with_owner_zero_fails_closed() {
     assert_eq!(input_target(v), None);
     assert!(!filter_runs(v, READER));
     assert!(!filter_runs(v, 0));
-    assert!(!binding_runs(v, None));
     assert_eq!(raise_allowed(v, READER), Err(ERR_STATE));
-    assert_eq!(open_allowed(v, None), Err(ERR_STATE));
     assert_eq!(guard_on_allowed(v, READER, 1), Err(ERR_STATE));
     assert_eq!(close_allowed(v, READER, 1), Err(ERR_STATE));
     assert_eq!(back_to_allowed(v, READER, 0), Err(ERR_STATE));
@@ -642,7 +582,6 @@ fn a_plugin_row_with_owner_zero_fails_closed() {
             left_out: true
         }
     );
-    assert!(!drawn_under_overlay(v, 0, READER));
     assert_eq!(
         ask_admission(v, &ask(READER, 0, ""), OpenRequests::default(), false),
         Err(ERR_STATE)
@@ -658,7 +597,6 @@ fn owner_zero_is_valid_only_for_host_screens_and_never_a_plugin_caller() {
     assert_eq!(input_target(v), Some(1));
     assert!(!is_secret(v, 0));
     assert!(!filter_runs(v, 0));
-    assert!(!binding_runs(v, Some(0)));
     assert_eq!(raise_allowed(v, 0), Err(ERR_STATE));
     assert_eq!(guard_on_allowed(v, 0, 1), Err(ERR_STATE));
     assert_eq!(close_allowed(v, 0, 1), Err(ERR_STATE));

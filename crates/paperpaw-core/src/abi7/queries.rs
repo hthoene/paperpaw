@@ -143,8 +143,16 @@ pub(crate) unsafe fn settings_read(slot: &FrameSlot, key: PpBytes, out: PpBuffer
     .unwrap_or(ERR_STATE)
 }
 
+/// A plugin's message copied out, bounded as [`settings_read`] copies a value.
+/// The host table's `i18n.copy` is `formatting::copy` (`shell_i18n`), not
+/// this: `tests/abi7_queries.rs` tests the bounded copy through it.
+///
 /// # Safety
 /// Same pair-validity and no-alias requirements as `settings_read`.
+#[allow(
+    dead_code,
+    reason = "a second copy of formatting::copy that only tests/abi7_queries.rs calls; one copy is #483's follow-up"
+)]
 pub(crate) unsafe fn i18n_copy(slot: &FrameSlot, key: PpBytes, out: PpBuffer) -> i32 {
     // SAFETY: the caller supplies valid, nonoverlapping pairs.
     let key = match unsafe { buffers::text_in(key, buffers::TEXT_MAX) } {

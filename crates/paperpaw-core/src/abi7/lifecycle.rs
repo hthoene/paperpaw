@@ -271,10 +271,6 @@ impl<C, M> Owner<C, M> {
 
 impl<C, M> Lease<'_, C, M> {
     /// The caller must retain the pinned owner until this lease is dropped.
-    #[allow(
-        dead_code,
-        reason = "standalone lifecycle tests omit the retained host adapter"
-    )]
     pub(crate) unsafe fn into_retained(self) -> Lease<'static, C, M> {
         let owner = self.owner;
         core::mem::forget(self);

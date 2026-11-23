@@ -624,7 +624,7 @@ pub(super) fn connect(host: &dyn SockHost, who: &Caller<'_>, input: &[u8]) -> Re
         id,
         owner: who.owner,
         token: c.token,
-        screen: host.showing_screen(who.owner),
+        screen: host.calling_screen(who.owner),
         run,
         run_open: run.is_some(),
         state: State::Waiting,
@@ -1193,5 +1193,6 @@ pub(super) fn owner_stopped(host: &dyn SockHost, owner: u64) -> Result<(), i32> 
     freed = freed.saturating_add(inner.cast_owner_stopped(host, owner));
     inner.release(host, freed);
     inner.sync_demand(host);
+    host.owner_gone(owner);
     Ok(())
 }

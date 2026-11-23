@@ -204,3 +204,42 @@ fn labels_over_the_plugins_budget_are_no_memory_and_the_earlier_ones_stay() {
     assert!(stage.take_hint_sets().is_empty());
     assert_eq!(labels.borrow().charged("probe"), held);
 }
+
+/// A batch refused after its hints were checked (no memory for what it
+/// needs after them) lists none of them, whichever allocation fails: they
+/// were applied after a refused callback (#483).
+#[test]
+fn a_batch_refused_after_its_hints_lists_none_of_them() {
+    let kernel = kernel();
+    let env = kernel.shared.place(Instant(0));
+    let owner = Id::new_static("probe");
+    let commands = [
+        hint("probe.go", 3, ""),
+        WireCommand::RedrawArea {
+            mode: 2,
+            x: 3,
+            y: 2,
+            width: 10,
+            height: 10,
+        },
+    ];
+    let mut bytes = [0; 1024];
+    let len = commands_encode(&commands, &mut bytes).unwrap();
+    let batch = commands_decode(&bytes[..len]).unwrap();
+    for nth in 1..64 {
+        let labels = RefCell::new(HintLabels::default());
+        let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
+            .with_ui(&env, Some(ScreenKey::new(KEY)), 0, 100)
+            .with_hint_labels(&labels, true);
+        let (status, refused) =
+            crate::native_host::shell::tests::refuse_nth(nth, || stage.stage(&batch));
+        if !refused {
+            assert_eq!(status, OK);
+            assert_eq!(stage.take_hint_sets().len(), 1);
+            return;
+        }
+        assert_ne!(status, OK, "{nth}");
+        assert!(stage.take_hint_sets().is_empty(), "{nth}: a hint is listed");
+    }
+    panic!("never accepted");
+}

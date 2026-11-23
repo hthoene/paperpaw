@@ -128,7 +128,8 @@ impl Kernel {
     /// the plugins' callbacks (a nested callback's route on the X4, #250).
     #[inline(never)]
     fn finish_frame(&mut self) -> Effects {
-        if let Some(row) = self.hint_row() {
+        let row = self.hint_row();
+        if let Some(row) = row {
             // A screen that read much as it opened may have filled what is
             // read from a card catalog: the row's labels would fall back.
             self.forget_read_messages_if_full();
@@ -142,6 +143,13 @@ impl Kernel {
             // whole, even with the labels of the last one (#448).
             self.hint.shown.clear();
         }
+        // A row gone, or moved, leaves no labels behind on the panel.
+        if let Some(drawn) = self.hint.drawn
+            && Some(drawn) != row
+        {
+            self.invalidate(drawn);
+        }
+        self.hint.drawn = row;
         // Areas drawn after the frame before them (`command.redraw_area`).
         // The follow-up's frame stays marked until it is drawn, also while
         // a refresh filter holds it back.

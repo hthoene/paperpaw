@@ -97,9 +97,14 @@ impl CommandStage<'_> {
         let mut proposed: Vec<(&str, Option<&str>)> = Vec::new();
         for command in batch.iter() {
             if let WireCommand::SetMenu { menu, items, flags } = command {
-                proposed.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-                proposed.retain(|(changed, _)| *changed != menu);
-                proposed.push((menu, (flags & RESET == 0).then_some(items)));
+                // The last `set_menu` of a menu in the batch is the one that counts.
+                let rows = (flags & RESET == 0).then_some(items);
+                if let Some(earlier) = proposed.iter_mut().find(|(changed, _)| *changed == menu) {
+                    earlier.1 = rows;
+                } else {
+                    proposed.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+                    proposed.push((menu, rows));
+                }
             }
         }
         // A batch without a `set_menu` makes no cycle: the menus are not read

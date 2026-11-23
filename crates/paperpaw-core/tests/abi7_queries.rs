@@ -4,12 +4,28 @@
 
 use paperpaw_core::Place;
 #[path = "../src/abi7/context.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod context;
 #[path = "../src/abi7/queries.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod queries;
 #[path = "../src/abi7/settings_visibility.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod settings_visibility;
 #[path = "../src/abi7/settings_wire.rs"]
+#[allow(
+    dead_code,
+    reason = "the host's source compiled alone: this test uses a part of it"
+)]
 mod settings_wire;
 #[path = "../src/abi7/snapshot_wire.rs"]
 #[allow(

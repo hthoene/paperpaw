@@ -34,9 +34,9 @@ pub(crate) struct Staged {
     /// Its power and Wi-Fi commands, applied in their place among the
     /// commands (`commands_dev.rs`).
     pub(crate) dev: Option<alloc::boxed::Box<super::commands::dev::DevBatch>>,
-    /// What a screen's callback stages besides (empty for a service's event,
-    /// whose stage admits none of it; an event's or an action's callback has
-    /// its item states, answers, lookups and its own top screen's hints).
+    /// What a callback stages besides: a screen's, an event's and an action's
+    /// alike (`screen_stage::staged_of`); what a stage does not admit (a
+    /// screen policy outside an action or an answer) stays empty.
     pub(crate) screen: ScreenEffects,
 }
 
@@ -199,9 +199,10 @@ impl crate::Kernel {
         })
     }
 
-    /// The staged call of `owner`'s callback that `call` makes. An action's
-    /// and an answer's (`navigates`) may also stage the navigation commands (`close` ...,
-    /// `commands_nav.rs`): it has the stack as a screen's callback has.
+    /// The staged call of `owner`'s callback that `call` makes. Every one may
+    /// set its screens' policies; an action's and an answer's (`navigates`)
+    /// may also stage the navigation commands (`close` ..., `commands_nav.rs`)
+    /// as a screen's callback does.
     fn native_staged_call(
         &self,
         owner: u64,
@@ -215,9 +216,11 @@ impl crate::Kernel {
         let id = instances.id(owner).ok_or(ERR_STATE)?;
         let env = self.shared.place(self.shared.now);
         let mut stage = self.callback_stage(owner, &id, &env);
-        if navigates {
-            stage = stage.with_stack(&self.shared.stack_rows, owner);
-        }
+        stage = if navigates {
+            stage.with_stack(&self.shared.stack_rows, owner)
+        } else {
+            stage.with_policy_stack(&self.shared.stack_rows, owner)
+        };
         let status = call(&env, &mut stage);
         self.callback_staged(owner, status, &mut stage)
     }
@@ -283,46 +286,23 @@ impl crate::Kernel {
         status: Result<i32, i32>,
         stage: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
-        let instances = &self.shared.native_instances;
         if !matches!(status, Ok(0 | 1)) {
             return status;
         }
-        let images = stage.take_image_commands();
-        // The widgets it said changed; their makers hear of it from the
-        // pump. The table is not held across a callback, so a failed borrow
-        // is a host fault: the callback fails (`ERR_BUSY`, as in the shell
-        // path) and its batch is dropped.
-        let widgets = stage.take_widget_changes();
-        let item_states = stage.take_item_states();
-        let answers = stage.take_answers();
-        let lookups = stage.take_lookup_readies();
-        let hints = stage.take_hint_sets();
-        // Its power and Wi-Fi commands, in the box their submit made.
-        let dev = stage.take_dev_boxed();
-        let marked = match instances.ui_services() {
-            Some(ui) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
-            _ => Ok(()),
-        };
-        marked?;
-        let (commands, redraw, _hop, opens) = stage.take_ui_output_with_opens();
-        if !commands.is_empty()
-            || dev.is_some()
-            || redraw.is_some()
-            || !images.is_empty()
-            || !item_states.0.is_empty()
-            || !answers.is_empty()
-            || !lookups.is_empty()
-            || !hints.is_empty()
+        let mut staged = super::screen_stage::staged_of(stage, owner);
+        // The widgets it said changed are marked now; their makers hear of it
+        // from the pump. The table is not held across a callback, so a failed
+        // borrow is a host fault: the callback fails (`ERR_BUSY`, as in the
+        // shell path) and its batch is dropped.
+        let widgets = core::mem::take(&mut staged.screen.widgets);
+        if let Some(ui) = self.shared.native_instances.ui_services()
+            && !widgets.is_empty()
         {
-            let mut staged = Staged::new(owner, commands, redraw, images);
-            staged.screen.item_states = item_states;
-            staged.screen.answers = answers;
-            staged.screen.lookups = lookups;
-            staged.screen.hints = hints;
-            staged.opens = opens;
-            staged.dev = dev;
+            ui.widgets_changed(owner, &widgets)?;
+        }
+        if !staged.is_empty() {
             // Empty, checked before the callback: this cannot refuse.
-            instances.outbox.put(staged)?;
+            self.shared.native_instances.outbox.put(staged)?;
         }
         status
     }

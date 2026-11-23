@@ -1,6 +1,6 @@
 //! The `core.input-filter` chain on the kernel's input path (`docs/abi/ui.md`
 //! 4.1 and 4.3): [`crate::Kernel::handle`] asks the native filters first, then
-//! the interface-6 ones, then screens, gestures and key maps.
+//! the screens, gestures and key maps.
 //!
 //! The chain itself (verdicts, captures, the guard rule) is `ui_input.rs`; this
 //! is what is around it: an input event as the stage's `input.key` or
@@ -32,7 +32,7 @@ use paperpaw_sdk::{Direction, Gesture, GestureKind};
 /// What the native filters made of one input.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Native {
-    /// On to the interface-6 filters, screens, gestures and key maps.
+    /// On to the screens, gestures and key maps.
     Pass,
     /// This input in its place.
     Replaced(InputEvent),
@@ -557,21 +557,12 @@ impl crate::Kernel {
             failed: [(0, 0); super::ui_input::MAX_FILTERS],
             count: 0,
         };
+        // Which filters run, and whether the input is secret, by the rules
+        // of the stack as the kernel keeps it (`ui.md` 1.2 and 4.3): every
+        // screen is in its rows, the host's as owner 0 (#483: an interface-6
+        // rule that judged the whole stack for a secret screen is gone).
         let stack: &dyn UiStackView = &*shared.stack_rows;
-        // The interface-6 screens are not in the native stack rows: until they
-        // go, a lock or a PIN screen of theirs is a guard too. Then only the
-        // filters of its plugin run (by the id's namespace, as the
-        // interface-6 filters do).
-        let legacy = self.secret_owner();
-        let runs = |plugin: u64| {
-            super::ui_guard::filter_runs(stack, plugin)
-                && legacy.as_deref().is_none_or(|owner| {
-                    shared
-                        .native_instances
-                        .id(plugin)
-                        .is_some_and(|id| id.namespace() == owner)
-                })
-        };
+        let runs = |plugin: u64| super::ui_guard::filter_runs(stack, plugin);
         let declared = |plugin: u64, name: &str| {
             shared
                 .native_instances
@@ -580,7 +571,7 @@ impl crate::Kernel {
         };
         let policy = Policy {
             touch: shared.device.input.touch || shared.device.input.pen,
-            secret: legacy.is_some() || super::ui_guard::top_is_secret(stack),
+            secret: super::ui_guard::top_is_secret(stack),
             runs: &runs,
             declared: &declared,
         };

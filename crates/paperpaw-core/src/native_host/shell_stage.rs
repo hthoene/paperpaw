@@ -13,10 +13,6 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED, PpBuffer};
 /// retained batch keeps the pinned host, plugin state and module live. Membership,
 /// lazy start, framing and publication belong to the stage broker.
 /// Negative statuses describe a delivered callback, not an admission failure.
-#[allow(
-    dead_code,
-    reason = "stage registry and frozen-membership broker follow this hook"
-)]
 pub(crate) fn dispatch_stage<S: 'static, M>(
     batch: &Published<'_, S, M, Registration>,
     token: u32,

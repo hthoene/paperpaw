@@ -37,7 +37,6 @@
 
 extern crate alloc;
 
-#[allow(dead_code, reason = "M1 adapters compile before host table activation")]
 mod abi7;
 mod accessors;
 mod areas;
@@ -572,8 +571,8 @@ impl Kernel {
             InputEvent::Pointer(pointer) => self.note_corner(&pointer, now),
             _ => {}
         }
-        // The native input filters first, then the interface-6 ones (while a
-        // screen guards the device or a secret is typed, only its plugin's).
+        // The native input filters first (while a screen guards the device or
+        // a secret is typed, only its plugin's: `native_host::input_chain`).
         let event = match self.filtered(now, event) {
             Ok(event) => event,
             Err(effects) => return effects,
@@ -732,15 +731,6 @@ impl Kernel {
     /// screen elsewhere (a remote control, tools) leave out what it says then.
     pub fn is_secret(&self) -> bool {
         self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
-    }
-
-    /// The plugin of the screen that guards the device, else of the one a
-    /// PIN or a password is entered on; `None` where none is.
-    fn secret_owner(&self) -> Option<alloc::string::String> {
-        let guard = self.guard().map(|at| &self.stack[at]);
-        guard
-            .or_else(|| self.stack.iter().rev().find(|s| s.secret()))
-            .map(|s| alloc::string::String::from(s.id.namespace()))
     }
 
     /// Says what has the focus now, if it changed and the user asked for

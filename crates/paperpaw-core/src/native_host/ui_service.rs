@@ -36,7 +36,6 @@ pub(crate) use crate::abi7::context::ui_views::{Declared, UiDirectory};
 /// stage broker (`Frame::stage_run`); `core.ui` encodes the ask, groups the
 /// items per owner, adds the `own` rows itself and decodes the values. It
 /// reads the owner's reply into `out` and returns the bytes used.
-#[allow(dead_code, reason = "Core implements it; ops 4, 14 and 15 consume it")]
 pub(crate) trait StatusAsk {
     fn ask(
         &self,

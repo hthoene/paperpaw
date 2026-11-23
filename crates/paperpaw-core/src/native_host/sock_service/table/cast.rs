@@ -166,7 +166,7 @@ pub(in crate::native_host::sock_service) fn broadcast(
         id,
         owner: who.owner,
         token: b.token,
-        screen: host.showing_screen(who.owner),
+        screen: host.calling_screen(who.owner),
         run,
         run_open: run.is_some(),
         state: State::Running,
