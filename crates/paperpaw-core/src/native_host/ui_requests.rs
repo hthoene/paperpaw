@@ -14,8 +14,8 @@ use paperpaw_native::host_glue::{
     ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
 };
 
-/// Largest host text of a request that is not secret, and of a secret one.
-pub(crate) const TEXT_MAX: usize = 24_576;
+/// Largest host text of a secret request (the cap of one that is not secret
+/// is the device's, `Limits::text_max`).
 pub(crate) const SECRET_TEXT_MAX: usize = 8_192;
 /// A folder answer: a path on root 1.
 const FOLDER_MAX: usize = 512;
@@ -573,7 +573,11 @@ impl UiStore {
         if r.phase != (Phase::Open { dialog }) {
             return Err(ERR_STATE);
         }
-        let max = if r.secret { SECRET_TEXT_MAX } else { TEXT_MAX };
+        let max = if r.secret {
+            SECRET_TEXT_MAX
+        } else {
+            self.limits.text_max
+        };
         Ok(f(&Shown {
             kind: r.kind,
             flags: r.flags,
@@ -607,7 +611,11 @@ impl UiStore {
         }
         let secret = inner.requests[at].secret;
         let slots_free = Self::text_slots(&inner) < self.limits.texts;
-        let text_cap = if secret { SECRET_TEXT_MAX } else { TEXT_MAX };
+        let text_cap = if secret {
+            SECRET_TEXT_MAX
+        } else {
+            self.limits.text_max
+        };
         let Inner {
             requests,
             text_memory,

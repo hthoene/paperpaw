@@ -510,7 +510,7 @@ fn retained_request_rows_are_bounded_replacements_and_cancellations_included() {
 }
 
 #[test]
-fn small_text_writes_cost_chunks_not_a_descriptor_each_and_are_charged_for_them() {
+fn small_text_writes_cost_chunks_not_a_descriptor_each_and_fill_the_x4_cap_it_advertises() {
     let s = UiStore::new(Limits::X4);
     let id = ask(&s, 1, 1, &q(0, 0, ""));
     let mut written = 0;
@@ -520,14 +520,23 @@ fn small_text_writes_cost_chunks_not_a_descriptor_each_and_are_charged_for_them(
             Err(e) => break e,
         }
     };
-    assert_eq!(stopped, ERR_IO, "the 2 KiB pool is charged for chunks");
-    // 7 chunks of 256 bytes and their descriptors fit; an 8th does not.
-    assert_eq!(written, 7 * 256);
-    let inner = s.inner.borrow();
-    let request = &inner.requests[0];
-    assert_eq!(request.text.parts.len(), 7);
-    assert_eq!(inner.text_memory, request.text.charged);
-    assert!(inner.text_memory <= Limits::X4.text_memory);
+    // The X4 has no card file for texts: its cap is what one text can hold of
+    // the 2 KiB pool, and the dialog is told that cap, not 24,576 (#489).
+    assert_eq!(stopped, ERR_NO_SPACE, "the cap, not a full pool");
+    assert_eq!(written, Limits::X4.text_max);
+    {
+        let inner = s.inner.borrow();
+        let request = &inner.requests[0];
+        // 7 chunks of 256 bytes and a last one up to the cap.
+        assert_eq!(request.text.parts.len(), 8);
+        assert_eq!(inner.text_memory, request.text.charged);
+        assert_eq!(inner.text_memory, Limits::X4.text_memory);
+    }
+    s.request_text_write(who(1, 1), None, id, written, b"", true)
+        .unwrap();
+    open(&s, 1, 1, id, 7);
+    let advertised = s.question(7, id, |shown| shown.max_bytes).unwrap();
+    assert_eq!(advertised as usize, Limits::X4.text_max);
 }
 
 #[test]

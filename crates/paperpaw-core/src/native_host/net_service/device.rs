@@ -31,7 +31,7 @@ use crate::native_host::{
     owner_directory::OwnerDirectory,
     owner_paths::{self, OwnerPaths, RECEIVED, owned},
     paths_in_use::PathsInUse,
-    save_files::SaveFiles,
+    save_files::{NET_JOURNAL as JOURNAL, SaveFiles},
     shared::Shared,
     shell_wiring::{
         HttpDone, HttpHeaders, HttpJob, HttpReason, ServedDecision, ServedReply, ServerReason,
@@ -101,7 +101,7 @@ impl NetDevice {
             policy,
             cable: None,
             table: NetTable::new(pool),
-            saves: SaveFiles::new(storage.clone(), in_use),
+            saves: SaveFiles::new(storage.clone(), in_use, JOURNAL),
             storage,
             http,
             network,

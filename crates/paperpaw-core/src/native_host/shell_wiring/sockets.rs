@@ -76,7 +76,7 @@ impl SockLimits {
 /// network, transport and (optionally) TLS.
 #[non_exhaustive]
 pub struct SockInputs {
-    storage: Rc<dyn Storage>,
+    pub(super) storage: Rc<dyn Storage>,
     transport: Rc<dyn SockTransport>,
     tls: Option<Rc<dyn SockTls>>,
     network: Rc<dyn ShellNetwork>,
