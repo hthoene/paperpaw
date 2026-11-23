@@ -10,11 +10,11 @@ use paperpaw_sdk::native::{
     reply::Reply,
     settings::{self, SettingValue},
     snapshot::{Snapshot, capture_snapshot},
-    storage::{self as host_storage, DataStorage, Root},
+    storage::DataStorage,
     ui::{Notify, Open, Ui},
 };
-use paperpaw_sdk::{DirEntry, Handled, Storage, StorageError};
-use paperpaw_ui_kit::Screens;
+use paperpaw_sdk::{Handled, Storage};
+use paperpaw_ui_kit::{Screens, read_event};
 use paperpaw_ui_kit::widget::LocalZone;
 
 use crate::files::DataFolder;
@@ -23,23 +23,9 @@ use crate::native_left::Left;
 use crate::native_overview::OverviewView;
 use crate::native_screens::{self, BookView, BooksView};
 use crate::native_sync_screen::SyncView;
-use crate::native_sync_shell::SyncShell;
+use crate::native_sync_shell::{Card, SyncShell};
 use crate::native_widgets::{Tap, Widgets};
 use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
-
-/// The same as `paperpaw_ui_kit::read_event!`; this plugin does not use the UI kit.
-macro_rules! read_event {
-    ($incoming:expr; $($kind:ty),+ $(,)?) => {{
-        let incoming = &$incoming;
-        let mut found = ::core::option::Option::None;
-        $(
-            if found.is_none() {
-                found = incoming.decode_as::<$kind>()?;
-            }
-        )+
-        found
-    }};
-}
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/stats_declarations.rs"));
@@ -274,7 +260,10 @@ impl Plugin for NativeStats {
                 let (handled, row) = view.input(host, &input)?;
                 if let Some(row) = row {
                     let ui = self.ui.as_ref().ok_or(Error::State)?;
-                    self.sync.activate(host, ui, view, row)?;
+                    let done = self.sync.activate(host, ui, view, row);
+                    // An import or a sync may have changed today's reading.
+                    self.recorder.forget_today();
+                    done?;
                 }
                 Ok(handled)
             }
@@ -367,11 +356,14 @@ impl NativeStats {
             _ => None,
         };
         let ui = self.ui.as_ref().ok_or(Error::State)?;
-        match event {
+        let done = match event {
             Event::HttpDone(done) => self.sync.http_done(host, ui, view, done),
             Event::Answered { answer, .. } => self.sync.answered(host, ui, view, answer),
-            _ => Ok(()),
-        }
+            _ => return Ok(()),
+        };
+        // A step of the sync may have merged another device's reading in.
+        self.recorder.forget_today();
+        done
     }
 
     fn ui(&mut self, host: &Host<'_>) -> Result<&Ui, Error> {
@@ -526,7 +518,7 @@ fn reading<'a>(view: &ReadingView<'a>) -> Reading<'a> {
 struct HostCx<'h, 'cb> {
     host: &'h Host<'cb>,
     data: DataFolder<'h>,
-    files: FilesRead<'h, 'cb>,
+    files: Card<'h, 'cb>,
     now_ms: u64,
     snapshot: Option<Snapshot>,
     /// The time zone days are counted in: UTC where it cannot be read.
@@ -538,13 +530,19 @@ struct HostCx<'h, 'cb> {
 fn with_cx<R>(host: &Host<'_>, now_ms: u64, then: impl FnOnce(&HostCx<'_, '_>) -> R) -> R {
     let storage = DataStorage::new(host);
     let snapshot = capture_snapshot(host).ok();
-    let zone = snapshot
-        .and_then(|snapshot| LocalZone::read(host, &snapshot).ok())
-        .unwrap_or(LocalZone::fixed(0));
+    // A zone setting that cannot be read leaves the system's zone, as no
+    // zone chosen does: not UTC, which would date the reading a day off
+    // and sum the kept days anew twice.
+    let zone = snapshot.map_or(LocalZone::fixed(0), |snapshot| {
+        LocalZone::read(host, &snapshot).unwrap_or_else(|_| {
+            let minutes = snapshot.utc_offset_minutes().unwrap_or(0);
+            LocalZone::fixed(i32::from(minutes) * 60)
+        })
+    });
     let cx = HostCx {
         host,
         data: DataFolder(&storage),
-        files: FilesRead { host },
+        files: Card { host },
         now_ms: if now_ms == 0 {
             snapshot.map_or(0, |s| s.instant().millis())
         } else {
@@ -600,36 +598,3 @@ impl Surroundings for HostCx<'_, '_> {
     }
 }
 
-/// The user's files (wire root 1), read only: the books.
-struct FilesRead<'h, 'cb> {
-    host: &'h Host<'cb>,
-}
-
-fn refused(error: Error) -> StorageError {
-    match error {
-        Error::NotFound => StorageError::NotFound,
-        Error::Invalid => StorageError::InvalidPath,
-        _ => StorageError::Io,
-    }
-}
-
-impl Storage for FilesRead<'_, '_> {
-    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        host_storage::read_at(self.host, Root::Files, path, offset, buf).map_err(refused)
-    }
-    fn size(&self, path: &str) -> Result<u64, StorageError> {
-        host_storage::size(self.host, Root::Files, path).map_err(refused)
-    }
-    fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
-        Err(StorageError::Unsupported)
-    }
-    fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
-        Err(StorageError::Unsupported)
-    }
-    fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        Err(StorageError::Unsupported)
-    }
-    fn remove(&self, _: &str) -> Result<(), StorageError> {
-        Err(StorageError::Unsupported)
-    }
-}
