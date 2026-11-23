@@ -44,6 +44,7 @@ pub mod header;
 pub mod icons;
 pub mod items;
 pub mod json;
+pub mod key_bar;
 pub mod list;
 pub mod mem;
 pub mod messages;
