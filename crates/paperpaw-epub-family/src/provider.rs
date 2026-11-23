@@ -320,7 +320,7 @@ impl FormatProvider {
                 if let Some(at) = self.slots.iter().position(|s| s.id == id)
                     && let Some(step) = self.slots[at].preparing.take()
                 {
-                    let record = self.prepare(io, at, step, call.conversion)?;
+                    let record = self.prepare(io, at, step, call.conversion);
                     return one(Record::FmtState(record), out);
                 }
                 match &self.slot(id)?.document {
@@ -435,27 +435,21 @@ impl FormatProvider {
     }
 
     /// The `prepare` call's `step` of the first open of the document in slot
-    /// `at`: the book opened, or its first chapter converted.
-    ///
-    /// # Errors
-    /// `NoMemory`: the step is kept for the host's next call.
+    /// `at`: the book opened, or its first chapter converted. No room to open
+    /// it fails the document with `ERR_NO_MEMORY` (the reader says so), not
+    /// the call: a step the host tries again would leave the book preparing.
     fn prepare(
         &mut self,
         io: &dyn Storage,
         at: usize,
         step: Preparation,
         conversion: u64,
-    ) -> Result<stage::FmtState<'static>, Error> {
+    ) -> stage::FmtState<'static> {
         let id = self.slots[at].id;
         match step {
             Preparation::Open { name, options } => {
-                let document = match self.open_document(io, &name, &options) {
-                    Ok(document) => document,
-                    Err(error) => {
-                        self.slots[at].preparing = Some(Preparation::Open { name, options });
-                        return Err(error);
-                    }
-                };
+                let document =
+                    (self.opener)(io, &name, &options).map_err(|e| i32::from(document_error(&e)));
                 let record = match &document {
                     Ok(_) => {
                         self.slots[at].preparing = Some(Preparation::Convert);
@@ -464,11 +458,9 @@ impl FormatProvider {
                     Err(status) => self.state(id, conversion, Some(*status)),
                 };
                 self.slots[at].document = document;
-                Ok(record)
+                record
             }
-            Preparation::Convert => {
-                Ok(self.opened(io, id, conversion, &self.slots[at].document, true))
-            }
+            Preparation::Convert => self.opened(io, id, conversion, &self.slots[at].document, true),
         }
     }
 
