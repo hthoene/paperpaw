@@ -78,6 +78,88 @@ pub fn wipe_text(text: String) {
 /// The least a full vector grows by at one push.
 const GROW_LEAST: usize = 16;
 
+/// Reserves room for one more item, as [`push`] says.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the vector cannot grow; it is left unchanged.
+#[inline(never)]
+fn reserve_one<T>(items: &mut Vec<T>) -> Result<(), Error> {
+    let len = items.len();
+    if len < items.capacity() {
+        return Ok(());
+    }
+    // The growth is done on the vector's parts by `grow`, one function for
+    // every item type (each `Vec<T>` has its own growth code, #501).
+    let mut parts = core::mem::ManuallyDrop::new(core::mem::take(items));
+    // SAFETY: the parts are those of a vector of `T` with the global
+    // allocator, which `grow` keeps or reallocates for `T`; the vector is
+    // made again of what it returns, its first `len` items unchanged.
+    unsafe {
+        let (start, capacity) = grow(
+            parts.as_mut_ptr().cast(),
+            parts.capacity(),
+            core::alloc::Layout::new::<T>(),
+        );
+        core::ptr::write(items, Vec::from_raw_parts(start.cast(), len, capacity));
+        if capacity == len {
+            return Err(Error::NoMemory);
+        }
+    }
+    Ok(())
+}
+
+/// The block and capacity of a vector of items of `item`'s layout at `start`
+/// with `capacity` items, all used, grown as [`push`] says; the same two
+/// where the heap refuses (or an item has no size, so a vector of them is
+/// never full).
+///
+/// # Safety
+/// `start` and `capacity` are those of a vector of items of `item`'s layout
+/// that the global allocator gave (any `start` where `capacity` is 0).
+#[inline(never)]
+pub(crate) unsafe fn grow(
+    start: *mut u8,
+    capacity: usize,
+    item: core::alloc::Layout,
+) -> (*mut u8, usize) {
+    if item.size() == 0 {
+        return (start, capacity);
+    }
+    let more = capacity.clamp(1, GROW_LEAST).max(capacity / 8);
+    for more in [more, 1] {
+        let Some(grown) = capacity.checked_add(more) else {
+            continue;
+        };
+        let Some(Ok(layout)) = item
+            .size()
+            .checked_mul(grown)
+            .map(|size| core::alloc::Layout::from_size_align(size, item.align()))
+        else {
+            continue;
+        };
+        // SAFETY: the layout has a size; a vector's block with items is
+        // that of its capacity of items, which `realloc` is given.
+        let block = unsafe {
+            if capacity == 0 {
+                alloc::alloc::alloc(layout)
+            } else {
+                alloc::alloc::realloc(
+                    start,
+                    core::alloc::Layout::from_size_align_unchecked(
+                        item.size() * capacity,
+                        item.align(),
+                    ),
+                    layout.size(),
+                )
+            }
+        };
+        if !block.is_null() {
+            return (block, grown);
+        }
+    }
+    (start, capacity)
+}
+
 /// Appends `item` after reserving room for it. A full vector grows by its
 /// length up to 16 elements, and by an eighth of its length where that is more,
 /// not by doubling: a list of a few hundred never holds the half again that
@@ -88,13 +170,15 @@ const GROW_LEAST: usize = 16;
 /// # Errors
 /// [`Error::NoMemory`] when the vector cannot grow; it is left unchanged.
 pub fn push<T>(items: &mut Vec<T>, item: T) -> Result<(), Error> {
-    if items.len() == items.capacity() {
-        let more = items.len().clamp(1, GROW_LEAST).max(items.len() / 8);
-        if items.try_reserve_exact(more).is_err() {
-            items.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
-        }
+    reserve_one(items)?;
+    let len = items.len();
+    // SAFETY: room for one more item was reserved: it is written into the
+    // spare capacity and then counted (`Vec::push` would check the room
+    // again, with a growth path of its own for every `T`).
+    unsafe {
+        items.as_mut_ptr().add(len).write(item);
+        items.set_len(len + 1);
     }
-    items.push(item);
     Ok(())
 }
 
