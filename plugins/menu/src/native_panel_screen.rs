@@ -815,20 +815,9 @@ impl PanelView {
             CommandSender::new(host, &mut [0; 64]).back()?;
             return Ok(Outcome::Handled(Handled::Yes));
         }
-        match self.header.action(at) {
-            Some("core.next-page") => {
-                self.page = (self.page + 1).min(layout.pages().saturating_sub(1));
-                self.focus = None;
-                self.redraw(host)?;
-                return Ok(Outcome::Handled(Handled::Yes));
-            }
-            Some("core.prev-page") => {
-                self.page = self.page.saturating_sub(1);
-                self.focus = None;
-                self.redraw(host)?;
-                return Ok(Outcome::Handled(Handled::Yes));
-            }
-            _ => {}
+        if let Some(action @ ("core.next-page" | "core.prev-page")) = self.header.action(at) {
+            self.turn(host, layout, action == "core.next-page")?;
+            return Ok(Outcome::Handled(Handled::Yes));
         }
         if let Some((row, track)) = layout.track_at(self.page, at) {
             return self.set_by_tap(host, row, track, at);
@@ -907,6 +896,13 @@ impl PanelView {
                 self.move_focus(host, layout, if on { 1 } else { -1 })?;
                 yes
             }
+            // While no focus is shown (touch screens), turning pages (also by
+            // swiping) turns the panel's pages, as its pager does; with the
+            // focus shown, they step it.
+            "core.next-page" | "core.prev-page" if self.focus.is_none() => {
+                self.turn(host, layout, action == "core.next-page")?;
+                yes
+            }
             "core.up" | "core.previous" | "core.prev-page" => {
                 self.move_focus(host, layout, -1)?;
                 yes
@@ -917,6 +913,22 @@ impl PanelView {
             }
             _ => Ok(Outcome::Handled(Handled::No)),
         }
+    }
+
+    /// Turns to the next page (`forward`) or the previous one, where there is
+    /// one; the focus shown goes, as after other taps.
+    fn turn(&mut self, host: &Host<'_>, layout: &Layout, forward: bool) -> Result<(), Error> {
+        let page = if forward {
+            (self.page + 1).min(layout.pages().saturating_sub(1))
+        } else {
+            self.page.saturating_sub(1)
+        };
+        let unfocused = self.focus.take().is_some();
+        if page != self.page || unfocused {
+            self.page = page;
+            self.redraw(host)?;
+        }
+        Ok(())
     }
 
     fn move_focus(&mut self, host: &Host<'_>, layout: &Layout, delta: isize) -> Result<(), Error> {
