@@ -161,12 +161,15 @@ impl Serving {
     }
 
     /// `ShellHttp::listen`. The sockets are opened here (the engine binds at
-    /// once); core is told `started` at the next pump.
+    /// once); core is told `started` at the next pump, with the address the
+    /// server is shown at (in the device's own network while it is open,
+    /// `hosting`: the device's there, as on the X4).
     pub(crate) fn listen(
         &self,
         server: u32,
         port: u32,
         address: &mut [u8],
+        hosting: bool,
     ) -> Result<usize, ServerReason> {
         // The cable server is not offered; a port is 1 to 65535.
         let port = u16::try_from(port)
@@ -183,7 +186,9 @@ impl Serving {
                 return Err(ServerReason::Refused);
             };
             match event {
-                ServerEvent::Started { server: s, address } if s == server => break address,
+                ServerEvent::Started { server: s, address } if s == server => {
+                    break crate::wifi::served_at(&address, hosting);
+                }
                 ServerEvent::Failed { server: s, .. } if s == server => {
                     return Err(ServerReason::Refused);
                 }
@@ -642,7 +647,7 @@ mod tests {
     /// Opens a server on `port` and returns the port it got.
     fn open(serving: &Serving, core: &Core, port: u32) -> u16 {
         let mut address = [0u8; 64];
-        let used = serving.listen(1, port, &mut address).unwrap();
+        let used = serving.listen(1, port, &mut address, false).unwrap();
         let text = std::str::from_utf8(&address[..used]).unwrap();
         let port = text.rsplit_once(':').unwrap().1.parse().unwrap();
         serving.pump(core);
@@ -810,13 +815,13 @@ mod tests {
         let core = Core::new();
         let mut address = [0u8; 64];
         assert!(matches!(
-            serving.listen(1, 0, &mut address),
+            serving.listen(1, 0, &mut address, false),
             Err(ServerReason::Refused)
         ));
         // An address that does not fit ends the listener it opened.
         let mut small = [0u8; 4];
         assert!(matches!(
-            serving.listen(2, 19_031, &mut small),
+            serving.listen(2, 19_031, &mut small, false),
             Err(ServerReason::Refused)
         ));
         let port = open_second(&serving, &core, 19_051);
@@ -825,9 +830,22 @@ mod tests {
         let _ = port;
     }
 
+    /// In the device's own network a server is shown at the device's
+    /// address there, as interface 6's are and as on the X4 (a phone in
+    /// that network reaches no other).
+    #[test]
+    fn a_server_in_the_own_network_is_shown_at_the_devices_address() {
+        let (serving, _) = serving();
+        let mut address = [0u8; 64];
+        let used = serving.listen(1, 19_061, &mut address, true).unwrap();
+        let text = std::str::from_utf8(&address[..used]).unwrap();
+        assert!(text.starts_with("192.168.4.1:"), "{text}");
+        serving.unlisten(1);
+    }
+
     fn open_second(serving: &Serving, core: &Core, port: u32) -> u16 {
         let mut address = [0u8; 64];
-        let used = serving.listen(1, port, &mut address).unwrap();
+        let used = serving.listen(1, port, &mut address, false).unwrap();
         let text = std::str::from_utf8(&address[..used]).unwrap();
         let port = text.rsplit_once(':').unwrap().1.parse().unwrap();
         serving.pump(core);

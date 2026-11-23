@@ -22,10 +22,9 @@
 //! its first start.
 //!
 //! **The network on demand:** core tells the network manager plugin of a
-//! wanted network (`event.network_wanted`) and the shell hears of it
-//! ([`NativeNet::wanted`]). No manager plugin is linked on the desktop, so
-//! `Device::poll_native_net` brings the emulated Wi-Fi up for it, as
-//! `--wifi online` does, on a profile where PaperPaw manages Wi-Fi.
+//! wanted network (`event.network_wanted`); the linked Wi-Fi plugin decides
+//! whether the emulated radio goes on, as on the X4, where the radio is the
+//! user's and the shell never turns it on by itself (`network.md` 3.2).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -65,6 +64,10 @@ struct Pending {
     /// Redirected to `https` and told to core: it goes on when core starts
     /// it again.
     parked: bool,
+    /// Whether the answer's body was appended to the staged file
+    /// ([`done_of`]), once: an end core was too busy to take is told again
+    /// without writing the file twice.
+    saved: Option<bool>,
 }
 
 impl Pending {
@@ -85,11 +88,15 @@ pub struct NativeNet {
     storage: Rc<dyn Storage>,
     view: Rc<DeviceView>,
     pending: RefCell<HashMap<u32, Pending>>,
-    demand: Cell<bool>,
     /// A network was up at the last pump.
     was_up: Cell<bool>,
-    /// Redirects to `https` core was too busy to take.
+    /// Redirects core was too busy to take.
     upgrades: RefCell<Vec<u32>>,
+    /// Ends of requests core was too busy to take (`finished`): told again
+    /// at the next pump, before anything newer.
+    ended: RefCell<Vec<(HttpResponse, Pending)>>,
+    /// The network went and core was too busy to hear it: told again.
+    lost: Cell<bool>,
     /// The servers (`native_serve`).
     serving: crate::native_serve::Serving,
 }
@@ -112,17 +119,18 @@ impl NativeNet {
             storage: storage.clone(),
             view,
             pending: RefCell::new(HashMap::new()),
-            demand: Cell::new(false),
             was_up: Cell::new(false),
             upgrades: RefCell::new(Vec::new()),
+            ended: RefCell::new(Vec::new()),
+            lost: Cell::new(false),
             serving: crate::native_serve::Serving::new(storage),
         }
     }
 
-    /// Requests started and not answered yet.
+    /// Requests started and not answered yet (core not told their end).
     #[must_use]
     pub fn in_flight(&self) -> usize {
-        self.pending.borrow().len()
+        self.pending.borrow().len() + self.ended.borrow().len()
     }
 
     /// Whether a server runs (the loop looks again soon: nothing wakes it).
@@ -131,31 +139,28 @@ impl NativeNet {
         self.serving.any()
     }
 
-    /// Whether a network is wanted now (a request or server is open).
-    #[must_use]
-    pub fn wanted(&self) -> bool {
-        self.demand.get()
-    }
-
     /// Hands core the answers that have come (waiting up to `wait` for the
     /// first), then lets it take its turn (`tick`). `true` when core was
     /// told anything: the kernel must then tick, as its pass delivers the
     /// events (the X4's shell does the same, `host_net::Bridge::report`).
     pub fn pump(&self, reports: &NetReports, wait: Option<std::time::Duration>) -> bool {
-        // A network gone since the last pump ends every request.
+        // A network gone since the last pump ends every request; where core
+        // is too busy to hear it, it is told at the next pump.
         let up = ShellNetwork::network_up(self);
-        let lost = self.was_up.replace(up) && !up;
+        if self.was_up.replace(up) && !up {
+            self.lost.set(true);
+        }
+        let lost = self.lost.get() && reports.network_lost() != Err(ERR_BUSY);
         if lost {
-            let _ = reports.network_lost();
+            self.lost.set(false);
         }
         let served = self.serving.pump(reports);
         let progressed = self.report_progress(reports);
         let told = self.pump_with(
             wait,
-            &|id, done| {
-                // A request core no longer knows is answered `ERR_NOT_FOUND`: no one to tell.
-                let _ = reports.finished(id, done);
-            },
+            // A request core no longer knows is answered `ERR_NOT_FOUND`:
+            // no one to tell; `ERR_BUSY` is told again.
+            &|id, done| reports.finished(id, done),
             &|id| reports.redirected_to_https(id),
         );
         let _ = reports.tick();
@@ -190,21 +195,24 @@ impl NativeNet {
     fn pump_with(
         &self,
         wait: Option<std::time::Duration>,
-        finish: &dyn Fn(u32, HttpDone<'_>),
+        finish: &dyn Fn(u32, HttpDone<'_>) -> Result<(), i32>,
         to_https: &dyn Fn(u32) -> Result<(), i32>,
     ) -> bool {
         let told = Cell::new(false);
         let finish = |id, done: HttpDone<'_>| {
             told.set(true);
-            finish(id, done);
+            finish(id, done)
         };
         let to_https = |id| {
             told.set(true);
             to_https(id)
         };
-        let finish: &dyn Fn(u32, HttpDone<'_>) = &finish;
+        let finish: &dyn Fn(u32, HttpDone<'_>) -> Result<(), i32> = &finish;
         let to_https: &dyn Fn(u32) -> Result<(), i32> = &to_https;
-        // Redirects core was too busy to take: again.
+        // Ends and redirects core was too busy to take: again.
+        for (response, pending) in std::mem::take(&mut *self.ended.borrow_mut()) {
+            self.end(response, pending, finish);
+        }
         for id in std::mem::take(&mut *self.upgrades.borrow_mut()) {
             self.upgrade(id, finish, to_https);
         }
@@ -223,9 +231,7 @@ impl NativeNet {
             };
             let id = response.id;
             match followed(&mut pending, response) {
-                Outcome::Done(response) => {
-                    finish(id, done_of(&response, &pending, &*self.storage));
-                }
+                Outcome::Done(response) => self.end(response, pending, finish),
                 Outcome::Send => {
                     self.resume(&mut pending);
                     self.pending.borrow_mut().insert(id, pending);
@@ -241,13 +247,28 @@ impl NativeNet {
         told.get()
     }
 
+    /// Tells core that the request of `response` ended; where core is too
+    /// busy, it is kept to be told again at the next pump.
+    fn end(
+        &self,
+        response: HttpResponse,
+        mut pending: Pending,
+        finish: &dyn Fn(u32, HttpDone<'_>) -> Result<(), i32>,
+    ) {
+        let id = response.id;
+        let told = finish(id, done_of(&response, &mut pending, &*self.storage));
+        if told == Err(ERR_BUSY) {
+            self.ended.borrow_mut().push((response, pending));
+        }
+    }
+
     /// Tells core that request `id` was redirected to `https` and is parked
     /// (no entry is borrowed: core starts it again from inside the report
     /// where the session is free).
     fn upgrade(
         &self,
         id: u32,
-        finish: &dyn Fn(u32, HttpDone<'_>),
+        finish: &dyn Fn(u32, HttpDone<'_>) -> Result<(), i32>,
         to_https: &dyn Fn(u32) -> Result<(), i32>,
     ) {
         match to_https(id) {
@@ -263,7 +284,7 @@ impl NativeNet {
                 };
                 let failed =
                     HttpResponse::failed(id, HttpError::Io, "the redirect to https was not taken");
-                finish(id, done_of(&failed, &pending, &*self.storage));
+                self.end(failed, pending, finish);
             }
         }
     }
@@ -288,6 +309,7 @@ impl NativeNet {
             hops: 0,
             started: Instant::now(),
             parked: false,
+            saved: None,
         };
         self.resume(&mut pending);
         self.pending.borrow_mut().insert(id, pending);
@@ -349,7 +371,8 @@ impl ShellHttp for NativeNet {
         if !ShellNetwork::network_up(self) {
             return Err(ServerReason::NoNetwork);
         }
-        self.serving.listen(server, port, address)
+        self.serving
+            .listen(server, port, address, self.view.hosting())
     }
 
     fn unlisten(&self, server: u32) {
@@ -376,9 +399,9 @@ impl ShellNetwork for NativeNet {
         self.view.network_up()
     }
 
-    fn network_demand(&self, wanted: bool) {
-        self.demand.set(wanted);
-    }
+    /// The radio is the user's (and the Wi-Fi plugin's, which core tells of
+    /// the demand): the shell does nothing with it, as the X4's.
+    fn network_demand(&self, _wanted: bool) {}
 }
 
 /// What a request's answer comes to.
@@ -466,7 +489,7 @@ fn reason_of(error: Option<&HttpError>) -> HttpReason {
 /// its staged file here (`saved`); an error's body is not the file.
 fn done_of<'a>(
     response: &'a HttpResponse,
-    pending: &Pending,
+    pending: &mut Pending,
     storage: &dyn Storage,
 ) -> HttpDone<'a> {
     let reason = reason_of(response.error.as_ref());
@@ -488,10 +511,14 @@ fn done_of<'a>(
             if response.body.len() as u64 > pending.max_file {
                 return HttpDone::new(0, HttpReason::TooLarge);
             }
-            for piece in response.body.chunks(CHUNK) {
-                if storage.append(path, piece).is_err() {
-                    return HttpDone::new(0, HttpReason::Io);
-                }
+            let saved = *pending.saved.get_or_insert_with(|| {
+                response
+                    .body
+                    .chunks(CHUNK)
+                    .all(|piece| storage.append(path, piece).is_ok())
+            });
+            if !saved {
+                return HttpDone::new(0, HttpReason::Io);
             }
             done.saved = true;
         }
@@ -541,6 +568,7 @@ mod tests {
             started: Instant::now(),
             timeout_ms: 30_000,
             parked: false,
+            saved: None,
         }
     }
 
@@ -576,9 +604,9 @@ mod tests {
     #[test]
     fn a_memory_answer_carries_its_body_and_its_headers() {
         let storage = MemoryStorage::new();
-        let pending = pending(None, 0);
+        let mut pending = pending(None, 0);
         let response = answer(200, b"hello");
-        let done = done_of(&response, &pending, &storage);
+        let done = done_of(&response, &mut pending, &storage);
         assert_eq!((done.status, done.reason), (200, HttpReason::Ok));
         assert_eq!(done.body, b"hello");
         assert_eq!((done.etag, done.content_type), ("\"e\"", "text/plain"));
@@ -589,10 +617,10 @@ mod tests {
     fn a_download_is_appended_to_its_staged_file_in_pieces_and_not_in_the_body() {
         let storage = MemoryStorage::new();
         storage.write("a.pp-staged", b"").unwrap();
-        let pending = pending(Some("a.pp-staged"), 100_000);
+        let mut pending = pending(Some("a.pp-staged"), 100_000);
         let big = vec![7u8; CHUNK * 2 + 10];
         let response = answer(200, &big);
-        let done = done_of(&response, &pending, &storage);
+        let done = done_of(&response, &mut pending, &storage);
         assert!(done.saved && done.body.is_empty());
         assert_eq!(storage.size("a.pp-staged").unwrap(), big.len() as u64);
     }
@@ -601,14 +629,14 @@ mod tests {
     fn an_error_answer_or_a_too_large_file_does_not_touch_the_staged_file() {
         let storage = MemoryStorage::new();
         storage.write("a.pp-staged", b"").unwrap();
-        let pending = pending(Some("a.pp-staged"), 4);
+        let mut pending = pending(Some("a.pp-staged"), 4);
         // 404: the body is the answer's, the file stays empty.
         let response = answer(404, b"nope");
-        let done = done_of(&response, &pending, &storage);
+        let done = done_of(&response, &mut pending, &storage);
         assert!(!done.saved && done.body == b"nope");
         // Over the file limit.
         let response = answer(200, b"too long");
-        let done = done_of(&response, &pending, &storage);
+        let done = done_of(&response, &mut pending, &storage);
         assert_eq!((done.status, done.reason), (0, HttpReason::TooLarge));
         assert_eq!(storage.size("a.pp-staged").unwrap(), 0);
     }
@@ -616,7 +644,7 @@ mod tests {
     #[test]
     fn failures_keep_their_reason() {
         let storage = MemoryStorage::new();
-        let pending = pending(None, 0);
+        let mut pending = pending(None, 0);
         for (error, reason) in [
             (HttpError::Dns, HttpReason::Dns),
             (HttpError::Tls, HttpReason::Tls),
@@ -625,7 +653,7 @@ mod tests {
             (HttpError::Refused, HttpReason::Refused),
         ] {
             let response = HttpResponse::failed(1, error, "why");
-            let done = done_of(&response, &pending, &storage);
+            let done = done_of(&response, &mut pending, &storage);
             assert_eq!((done.status, done.reason), (0, reason));
         }
     }
@@ -829,7 +857,10 @@ mod tests {
         let told = Cell::new(0);
         net.pump_with(
             None,
-            &|id, done| ended.borrow_mut().push((id, done.status, done.reason)),
+            &|id, done| {
+                ended.borrow_mut().push((id, done.status, done.reason));
+                Ok(())
+            },
             &|id| {
                 told.set(told.get() + 1);
                 // Core starts the parked request again from inside the report.
@@ -857,7 +888,7 @@ mod tests {
     fn the_pump_says_whether_core_was_told_anything() {
         crate::http::set_route(Some(Box::new(Upgrading(Rc::default()))));
         let net = NativeNet::new(Rc::new(MemoryStorage::new()), Rc::default());
-        let nothing = |_, _: HttpDone<'_>| {};
+        let nothing = |_, _: HttpDone<'_>| Ok(());
         assert!(
             !net.pump_with(None, &nothing, &|_| Ok(())),
             "nothing in flight"
@@ -877,8 +908,10 @@ mod tests {
         let first = flight("GET", "http://a.example/x", &[], None, None, 0).call;
         net.begin(first, None, 0).unwrap();
         let ended = RefCell::new(Vec::new());
-        let finish =
-            |id, done: HttpDone<'_>| ended.borrow_mut().push((id, done.status, done.reason));
+        let finish = |id, done: HttpDone<'_>| {
+            ended.borrow_mut().push((id, done.status, done.reason));
+            Ok(())
+        };
         // Busy: parked, tried again at the next pump, which starts it and
         // takes its answer.
         net.pump_with(None, &finish, &|_| Err(ERR_BUSY));
@@ -906,6 +939,34 @@ mod tests {
         crate::http::set_route(None);
     }
 
+    /// An end core is too busy to take is told again at the next pump, and
+    /// a download's file is written once for it.
+    #[test]
+    fn a_busy_end_is_told_again_and_the_file_written_once() {
+        crate::http::set_route(Some(Box::new(Upgrading(Rc::default()))));
+        let storage = Rc::new(MemoryStorage::new());
+        storage.write("a.pp-staged", b"").unwrap();
+        let net = NativeNet::new(storage.clone(), Rc::default());
+        let call = flight("GET", "https://a.example/x", &[], None, None, 0).call;
+        net.begin(call, Some("a.pp-staged"), 100).unwrap();
+        let busy = Cell::new(true);
+        let ended = RefCell::new(Vec::new());
+        let finish = |id, done: HttpDone<'_>| {
+            if busy.replace(false) {
+                return Err(ERR_BUSY);
+            }
+            ended.borrow_mut().push((id, done.status, done.saved));
+            Ok(())
+        };
+        net.pump_with(None, &finish, &|_| Ok(()));
+        assert!(ended.borrow().is_empty() && net.in_flight() == 1);
+        net.pump_with(None, &finish, &|_| Ok(()));
+        crate::http::set_route(None);
+        assert_eq!(*ended.borrow(), [(1, 200, true)]);
+        assert_eq!(net.in_flight(), 0);
+        assert_eq!(storage.size("a.pp-staged").unwrap(), 2, "\"ok\" once");
+    }
+
     #[test]
     fn the_final_address_and_an_ordinary_answer_are_kept() {
         let mut p = flight("GET", "https://a.example/0", &[], None, None, 0);
@@ -928,13 +989,16 @@ mod tests {
     #[test]
     fn an_oversized_download_is_too_large_and_not_refused() {
         let storage = MemoryStorage::new();
-        let p = pending(Some("a.pp-staged"), 4);
+        let mut p = pending(Some("a.pp-staged"), 4);
         let cut = HttpResponse::failed(1, HttpError::Refused, "the answer is larger than 4 bytes");
-        let done = done_of(&cut, &p, &storage);
+        let done = done_of(&cut, &mut p, &storage);
         assert_eq!((done.status, done.reason), (0, HttpReason::TooLarge));
         // Another refusal stays a refusal.
         let other = HttpResponse::failed(1, HttpError::Refused, "too many redirects");
-        assert_eq!(done_of(&other, &p, &storage).reason, HttpReason::Refused);
+        assert_eq!(
+            done_of(&other, &mut p, &storage).reason,
+            HttpReason::Refused
+        );
     }
 
     #[test]

@@ -156,6 +156,9 @@ impl Shop {
         paperpaw_emulator::budget::override_limit(None);
         let profile = profiles::find("xteink-x4").expect("the X4 profile");
         let mut device = Device::in_memory(profile, None, card.clone(), true, None).unwrap();
+        // On USB in a network joined before, as a reader opens the store: the
+        // emulator brings no network up for a request by itself (as the X4).
+        device.set_wifi_online(true);
         device.start();
         let mut shop = Self { device };
         shop.settle(3000);

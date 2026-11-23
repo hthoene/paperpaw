@@ -167,11 +167,11 @@ Text "it." at 35,694 17x29
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Heading "Wi-Fi transfer" at 0,0 480x58
-Text "No Wi-Fi" at 191,336 98x40
-Text "Join a Wi-Fi network in the settings" at 94,392 292x29
-Text "under Wi-Fi, then open Wi-Fi transfer" at 86,420 307x29
-Text "again." at 214,448 52x29
-Text "Without a router" at 171,684 138x29
+Text "<address with a key>"
+Text "<key>"
+Text "Open this address in a browser on a phone or" at 51,586 377x29
+Text "computer in the same Wi-Fi, or scan the code." at 50,614 380x29
+Text "The transfer runs while this page is open." at 69,642 342x29
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Heading "Plugin store" at 0,0 480x58
