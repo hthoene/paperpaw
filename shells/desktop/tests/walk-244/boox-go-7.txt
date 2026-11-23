@@ -214,13 +214,13 @@ Text "New" at 1123,697 47x36
 Text "Franz Kafka" at 164,697 122x36
 Text "D" at 78,676 31x71
 Text "<time>"
-Text "0 %" at 1178,1617 39x36
+Text "1 / 185" at 1148,1617 69x36
 Text "Alice's Adventures in Wonderland" at 47,1617 349x36
 Text "<time>"
-Text "0 %" at 1178,1617 39x36
+Text "2 / 185" at 1148,1617 69x36
 Text "Contents" at 47,1617 95x36
 Text "<time>"
-Text "0 %" at 1178,1617 39x36
+Text "1 / 185" at 1148,1617 69x36
 Text "Alice's Adventures in Wonderland" at 47,1617 349x36
 Text "Library" at 109,16 114x55
 Text "All books" at 94,128 128x48
