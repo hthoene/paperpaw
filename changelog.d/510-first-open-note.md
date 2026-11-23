@@ -5,3 +5,6 @@
   moment." at once while an EPUB book is prepared for its first reading,
   instead of a screen that seemed to hang; books opened before open at once,
   without the note.
+- **Store plugins on the same book opening** (#510). "EPUB: picture books and
+  math" 1.1.1 and "Notes vault" 1.0.6 are built with the changed EPUB
+  conversion they share with the reader.
