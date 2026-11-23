@@ -429,10 +429,11 @@ impl Firmware {
         let light = self.light();
         self.panel_idle();
         // Not while the radio is on: its tasks run in between. Nor while
-        // the X4 Pro's light is on: its PWM stops in a light sleep.
+        // the X4 Pro's light is on: its PWM stops in a light sleep (the
+        // Picco's driver makes its own, `paperpaw_x4::picco`).
         let battery = !self.network.radio_on()
             && !installing
-            && !light
+            && !(light && cfg!(not(feature = "picco")))
             && ((!self.usb_power.cable() && self.kernel.settings().read(&device::LIGHT_SLEEP))
                 || self.trying_sleep());
         power::allow(battery);
@@ -649,8 +650,6 @@ impl Firmware {
         }
     }
 
-    /// Restarts the X4 once what plugins keep is saved and all written
-    /// is on the card (the kernel's stop writes it back): no sleep.
     /// Whether a book is open in the reader, shown now.
     fn reading(&self) -> bool {
         // The reader plugin's screen (`paperpaw_plugin_reader::SCREEN`).
@@ -659,6 +658,8 @@ impl Firmware {
             .is_some_and(|screen| screen.as_str() == "reader.screen")
     }
 
+    /// Restarts the X4 once what plugins keep is saved and all written
+    /// is on the card (the kernel's stop writes it back): no sleep.
     fn restart(&mut self) -> ! {
         info!("restarting");
         crate::safe_mode::clean_exit();

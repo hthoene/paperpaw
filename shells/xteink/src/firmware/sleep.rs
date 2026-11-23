@@ -12,6 +12,10 @@ use crate::usb_power::Sense;
 use crate::{input, now, power};
 use esp_hal::gpio::{Event, WakeupConfig};
 
+/// The light sleeps a switch-off waits in for the power button to be let go:
+/// it is seen up to this late, a reader switched off notices nothing of it.
+const RELEASE_NAP_MS: u64 = 250;
+
 impl Firmware {
     /// On battery the processor sleeps until there is something to do or
     /// the buttons are to be read again; on USB it stays in reach of the
@@ -199,7 +203,12 @@ impl Firmware {
             self.power_latch.set_low();
         }
         power.listen(Event::LowLevel);
-        let _ = power.apply_wakeup_config(&WakeupConfig::default().with_low_power_path(true));
+        if let Err(e) =
+            power.apply_wakeup_config(&WakeupConfig::default().with_low_power_path(true))
+        {
+            // Said before the deep sleep, which then has no way to wake.
+            log::warn!("sleeping: the power button cannot wake it ({e:?})");
+        }
         power::deep();
     }
 
@@ -303,10 +312,15 @@ impl Firmware {
         true
     }
 
+    /// Until the power button is let go, in light sleeps of
+    /// [`RELEASE_NAP_MS`]: a case or a sleeve may hold it down for hours,
+    /// which a wait at full clock would spend the battery on.
     pub(super) fn wait_for_power_release(&self) {
         while input::power_down() {
-            power::feed();
-            self.delay.delay_millis(10);
+            if !power::nap_switching_off(RELEASE_NAP_MS) {
+                power::feed();
+                self.delay.delay_millis(10);
+            }
         }
     }
 }

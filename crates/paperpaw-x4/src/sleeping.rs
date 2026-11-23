@@ -311,8 +311,11 @@ pub trait Board {
     }
     /// Shows the sleep screen again, with the watchdogs awake, the readings
     /// going and the panel up for as long as it takes (the caller puts the
-    /// sleep back).
-    fn show_again(&mut self) {}
+    /// sleep back); `true` where the power button was pressed meanwhile (the
+    /// reader is awake then).
+    fn show_again(&mut self) -> bool {
+        false
+    }
 }
 
 /// Whether the battery lets the screen be drawn again: on the cable, or
@@ -329,14 +332,18 @@ fn show_due(board: &mut impl Board, allowed: bool, last: Option<u64>) -> Option<
     Some(last.map_or(at, |last| at.max(last.saturating_add(SHOW_MIN_MS))))
 }
 
-/// The sleep screen shown again, then asleep as before.
-fn show_again(board: &mut impl Board) {
+/// The sleep screen shown again, then asleep as before; `true` where the
+/// power button was pressed meanwhile: awake then, the readings going.
+fn show_again(board: &mut impl Board) -> bool {
     board.watchdog_awake();
     board.resume_inputs();
-    board.show_again();
+    if board.show_again() {
+        return true;
+    }
     board.panel_down();
     board.pause_inputs();
     board.watchdog_for_sleep();
+    false
 }
 
 /// How a light sleep ended.
@@ -491,7 +498,10 @@ pub fn run(off: Off, board: &mut impl Board) -> Ended {
                         let now = board.now_ms();
                         if show_due(board, allowed, shown_at).is_some_and(|due| due <= now) {
                             board.say("showing the sleep screen again");
-                            show_again(board);
+                            if show_again(board) {
+                                board.say("the power button woke it while shown");
+                                break Ended::Woken;
+                            }
                             shown_at = Some(board.now_ms());
                         }
                     }
@@ -847,6 +857,8 @@ mod tests {
         asleep: bool,
         /// When the sleep screen is wanted again; cleared once it is shown.
         show_at: Option<u64>,
+        /// The power button is pressed while the sleep screen is shown again.
+        pressed_while_shown: bool,
     }
 
     impl Fake {
@@ -865,6 +877,7 @@ mod tests {
                 radios_stay_on: false,
                 asleep: false,
                 show_at: None,
+                pressed_while_shown: false,
             }
         }
 
@@ -959,10 +972,11 @@ mod tests {
         fn show_again_at(&mut self) -> Option<u64> {
             self.show_at
         }
-        fn show_again(&mut self) {
+        fn show_again(&mut self) -> bool {
             assert!(!self.asleep, "drawn with the watchdogs of the sleep");
             self.calls.push("show".into());
             self.show_at = None;
+            self.pressed_while_shown
         }
     }
 
@@ -989,6 +1003,27 @@ mod tests {
         let after: Vec<_> = board.calls[show + 1..].iter().map(String::as_str).collect();
         assert_eq!(&after[..3], ["panel", "pause", "wd-sleep"]);
         assert!(after.contains(&"nap"));
+    }
+
+    /// The power button pressed while the sleep screen is drawn again wakes
+    /// the reader there, as in a nap: no nap after it, the readings going
+    /// and the watchdogs awake.
+    #[test]
+    fn a_press_while_the_sleep_screen_is_shown_again_wakes_the_reader() {
+        let mut board = Fake::new(vec![
+            (Napped::Ended, 10 * MIN),
+            (Napped::Ended, 5 * MIN),
+            (Napped::Ended, 10 * MIN),
+        ]);
+        board.show_at = Some(15 * MIN);
+        board.pressed_while_shown = true;
+        assert_eq!(run(Off::of(NEVER), &mut board), Ended::Woken);
+        let show = board.at("show").unwrap();
+        let after: Vec<_> = board.calls[show + 1..].iter().map(String::as_str).collect();
+        assert!(!after.contains(&"nap"), "{after:?}");
+        assert!(!after.contains(&"pause"), "{after:?}");
+        assert_eq!(after.last(), Some(&"resume"));
+        assert!(!board.asleep);
     }
 
     #[test]

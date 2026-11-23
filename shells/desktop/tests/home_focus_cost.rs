@@ -151,8 +151,12 @@ fn a_minute_does_not_draw_the_page_again() {
         .shown
         .iter()
         .filter(|(rect, mode)| {
-            *mode != paperpaw_platform::RefreshMode::Full
-                && u32::from(rect.width) * u32::from(rect.height) * 2 > 480 * 755
+            // The whole screen refreshed (in black and white, or the covers
+            // in grays again after a move, as on the X4) is no page laid out.
+            !matches!(
+                mode,
+                paperpaw_platform::RefreshMode::Full | paperpaw_platform::RefreshMode::Gray
+            ) && u32::from(rect.width) * u32::from(rect.height) * 2 > 480 * 755
                 && rect.x == 0
         })
         .collect();

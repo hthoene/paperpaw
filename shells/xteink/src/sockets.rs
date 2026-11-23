@@ -271,6 +271,11 @@ impl Sockets {
                 if let Some(at) = self.sockets.iter().position(|s| s.number == socket) {
                     self.sockets.remove(at).release(net);
                 }
+                // Interface 7 ends a broadcast so, once its plugin's wait is
+                // over (one number space for both): nothing more is told.
+                if let Some(at) = self.broadcasts.iter().position(|b| b.number == socket) {
+                    net.release_udp(self.broadcasts.remove(at).udp);
+                }
                 None
             }
             SocketCall::Broadcast {

@@ -22,7 +22,8 @@ use smoltcp::socket::tcp;
 
 use crate::net::{Handle, Net};
 use crate::serve::{
-    BUFFERS, CLOSE_MS, HEAD_MS, MORE_PORTS, SLOTS, STALL_MS, drop_received, lost, part_done,
+    ANSWER_MS, BUFFERS, CLOSE_MS, HEAD_MS, MORE_PORTS, SLOTS, STALL_MS, drop_received, lost,
+    part_done,
 };
 
 /// Bytes of a request's body gathered before they are appended to its file
@@ -294,7 +295,9 @@ impl Servers7 {
             // The head promised `length` bytes: where the body cannot be had,
             // the answer is 503, never a head with no body behind it.
             if out.try_reserve(reply.body.len()).is_err() {
-                slot.refuse(503, now);
+                // Core holds the request (and its pool bytes) until it hears
+                // it has gone.
+                slot.refuse_told(503, Some(reply.request), now);
                 return;
             }
             out.extend_from_slice(&reply.body);
@@ -378,12 +381,18 @@ impl Slot {
 
     /// Answers at once, without the plugin.
     fn refuse(&mut self, status: u16, now: Instant) {
+        self.refuse_told(status, None, now);
+    }
+
+    /// As [`Slot::refuse`], for a request core still knows (`Some`): it hears
+    /// the request has gone once the answer went (`served_gone`).
+    fn refuse_told(&mut self, status: u16, request: Option<u32>, now: Instant) {
         self.phase = Phase::Sending {
             out: http::response_head(status, "text/plain", &[], 0),
             sent: 0,
             file: None,
             at: 0,
-            request: None,
+            request,
         };
         self.since = now.0;
     }
@@ -415,14 +424,25 @@ impl Slot {
             Phase::Receiving { .. } => self.receive(port, net, storage, now, verdicts, events),
             Phase::Answer { request } => {
                 let request = *request;
-                if matches!(
-                    verdict(verdicts, Key::Request(request)),
-                    Some(Verdict::Drop)
-                ) {
-                    self.again(net, port);
-                } else if lost(net.socket(self.socket)) {
-                    let _ = tell(events, Event::Gone { request });
-                    self.again(net, port);
+                match verdict(verdicts, Key::Request(request)) {
+                    Some(Verdict::Drop) => self.again(net, port),
+                    // The upload's last part refused (a full card, told in the
+                    // step that told it whole): answered so.
+                    Some(Verdict::Reject(status)) => {
+                        self.refuse(u16::try_from(status).unwrap_or(503), now);
+                    }
+                    _ if lost(net.socket(self.socket)) => {
+                        let _ = tell(events, Event::Gone { request });
+                        self.again(net, port);
+                    }
+                    // Core answers within its `ANSWER_MS`, or closes it; one
+                    // it forgot (an answer it could not hand over) is not
+                    // kept waiting for ever.
+                    _ if now.0 > self.since + ANSWER_MS => {
+                        let _ = tell(events, Event::Gone { request });
+                        self.refuse(503, now);
+                    }
+                    _ => {}
                 }
             }
             Phase::Sending { .. } => self.send(port, net, storage, now.0, events),

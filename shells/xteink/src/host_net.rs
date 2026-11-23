@@ -314,6 +314,10 @@ impl Bridge {
         inner.forget_all();
         inner.calls.clear();
         inner.connects.clear();
+        // Reports core was busy for are of what the network lost ends: kept,
+        // they would hold the device awake (`moving`) until a network came,
+        // and then be told of what is long over.
+        inner.retry.clear();
         inner.was_up = false;
         if had {
             inner.lost.raise_sockets();

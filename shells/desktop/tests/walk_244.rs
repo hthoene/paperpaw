@@ -151,6 +151,14 @@ fn is_time(label: &str) -> bool {
             .all(|b| b.is_ascii_digit())
 }
 
+/// Whether `label` is the transfer's key (`w3k7a`).
+fn is_key(label: &str) -> bool {
+    (4..=12).contains(&label.len())
+        && label
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+}
+
 /// Whether `label` is the date line (`Wednesday, 14 October`).
 fn is_date(label: &str) -> bool {
     [
@@ -166,18 +174,27 @@ fn is_date(label: &str) -> bool {
     .any(|day| label.starts_with(&format!("{day}, ")))
 }
 
-/// What the run printed, the computer's clock and date taken out, and the
-/// summary reduced to the screen it ends on (its heap numbers are not the walk's).
+/// What the run printed, the computer's clock and date taken out, the
+/// transfer's address and its key (new at each start) too, and the summary
+/// reduced to the screen it ends on (its heap numbers are not the walk's).
 fn walk_text(stdout: &str) -> String {
     let mut text = String::new();
+    // The line after the address on the X4 is its key, as the reader types
+    // it: a short word of small letters and digits (the Boox says more there).
+    let mut after_address = false;
     for line in stdout.lines() {
+        let key = std::mem::take(&mut after_address);
         let label = line.split('"').nth(1).unwrap_or_default();
         if line.starts_with("Text \"") && is_time(label) {
             text.push_str("Text \"<time>\"\n");
         } else if line.starts_with("Text \"") && is_date(label) {
             text.push_str("Text \"<date>\"\n");
         } else if line.starts_with("Text \"http://") && label.contains("?k=") {
+            after_address = true;
             text.push_str("Text \"<address with a key>\"\n");
+        } else if line.starts_with("Text \"") && key && is_key(label) {
+            // Its place too: it is as wide as its letters.
+            text.push_str("Text \"<key>\"\n");
         } else if let Some((profile, rest)) = line.split_once(": screen ") {
             let screen = rest.split(',').next().unwrap_or_default();
             text.push_str(&format!("{profile}: screen {screen}\n"));
@@ -199,6 +216,10 @@ fn run(profile: &str, script: &str) -> String {
             "--headless",
             "--network",
             "fixtures",
+            // In a network joined before (the store lists its plugins): the
+            // emulator brings no network up for a request by itself.
+            "--wifi",
+            "online",
             "--library",
         ])
         .arg(&library)

@@ -133,6 +133,12 @@ struct Took {
     hot: u32,
 }
 
+/// Plugin servers open at once (`network.md` 5.1, `SERVERS`): 1 on the
+/// X4 and X3, 2 on the ESP32-S3 devices (two sockets of 12 KiB each, the
+/// heap checked at `listen`).
+#[cfg(feature = "ppn5")]
+const SERVERS: u32 = if cfg!(feature = "esp32s3") { 2 } else { 1 };
+
 /// Every image loaded, for naming the plugin a panic's call was in.
 static IMAGES: Mutex<RefCell<Vec<Image>>> = Mutex::new(RefCell::new(Vec::new()));
 
@@ -484,6 +490,7 @@ impl Loader {
         // small (the pool is 48 KiB, and the sockets' two buffers take 16).
         let http: Rc<dyn ShellHttp> = bridge.clone();
         let net_limits = NetLimits::new(crate::host_net::POOL_BYTES, 2)
+            .servers(SERVERS)
             .tls_sessions(crate::tls_slots::SESSIONS)
             // The computer's lines over the cable (`PPT/1`, `usb_lines`) reach the
             // plugin that serves `net_serve` port 0 (the transfer, #900).
