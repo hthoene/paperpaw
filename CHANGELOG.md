@@ -3676,6 +3676,13 @@ change the plugin SDK.
 
 - **"Plugins may keep awake" is no longer offered** (#459). Plugins of Beta 4 cannot keep the device awake, so the switch in the power settings did nothing. Reading aloud, downloads and the library's indexing keep it awake as before.
 
+- **Moving the focus in long lists redraws two rows, not the screen**
+  (#484). In the store's lists, the vocabulary list and the notes vault, a
+  step of the focus on the page now redraws only the row it leaves and the
+  row it reaches, as other lists already did.
+
+- **Moving the focus in the status items editor redraws two rows, not the screen** (#484); a button that moves nothing (at the end of the list, or a held item at the end of the shown ones) redraws nothing.
+
 ### Fixed
 
 - `paperpaw-sqlite` never copies over a database: a storage that cannot move files is refused
@@ -5100,6 +5107,231 @@ change the plugin SDK.
 - **X4 Pro and X4 Classic: two plugin pages can be served at once** (#485), as the plugin interface describes; the X4 and the X3 keep one.
 
 - **Emulator: behaves as the Xteink devices do** (#485). Downloads show their progress; the Xteink profiles have the devices' network limits, do not join a network by themselves for a request, switch their radios off for a sleep, start anew after a switch-off, tell plugins when a card comes back, offer the USB link (and refuse the USB drive as a device without a cable does), and show plugin pages served in the device's own network at its address there.
+
+- **A slow computer on the USB cable no longer loses an answer** (#483).
+  When the device's answers waited to be sent, the next one was dropped and
+  the computer waited for it in vain; now the plugin answers again once
+  there is room.
+
+- **Transfer over the USB cable no longer asks for Wi-Fi** (#483). While a
+  plugin served the computer over the cable, the device asked for the
+  network every half minute, and kept Wi-Fi up when it was on. That cost
+  battery; the cable needs no network.
+
+- **A tap is not lost after a touch at the screen's edge** (#483). Where
+  the lifting of a finger at an edge was not seen (a plugin took it, the
+  device slept between), the next touch was swallowed or taken for a
+  swipe from that edge.
+
+- **Settings that change how an open page looks take effect at once again**
+  (#483). A plugin could not set its screen's look from an event: the
+  reader's *Smooth text* switched on or off while a book was open, and the
+  home screen's *Buttons row*, applied only after the book or the screen
+  was opened again. A preset a plugin applied from an event or an action
+  was accepted and then left out.
+
+- **Buttons answer right after a plugin used a press of them** (#483).
+  Where a plugin's input filter (a keyboard, a lock) took the release of a
+  button, the device thought it still held: the next press did nothing, or
+  a long press came that nobody made.
+
+- **Plugins that read keys see a page as private only while it is on
+  top** (#483). A password page left open further down made the keyboard
+  and other key plugins treat every screen above it as private, and only
+  that page's plugin could read the keys.
+
+- **The row of button hints goes away cleanly** (#483). Where a window
+  that has no hints opened over a page while the row showed after a press,
+  the old labels stayed on the screen for buttons that now did something
+  else. A press while the row shows no longer redraws it each time (over a
+  page in grays that was the whole screen): it only stays a little longer.
+
+- **Pages in a book with several languages turn as quickly as the
+  others** (#483). Where a third language had no room for its hyphenation
+  table, the device read the card for every word of it on every page;
+  it now tries again only once there can be room.
+
+- **The device no longer stays busy while a plugin waits for memory to
+  start** (#483). When a sleeping plugin could not be started again at
+  once (for example after waking up with a large book open), the reader
+  kept working without a pause until it could, instead of waiting quietly
+  for the next try. That cost battery.
+
+- **Buttons work at once after waking up** (#483). A button held as the
+  device went to sleep could stay held for the device after it woke: the
+  first press then did nothing, or a long press came that nobody made.
+
+- **Plugins learn how long the device slept** (#483). `core.device` op 1 now reports the time asleep that the kernel itself measured from suspend to resume. Before, it reported "unknown" on every device, because no shell kept a figure of its own.
+
+- **Wi-Fi switches off sooner after a plugin's page closes** (#483). A
+  connection a page opened while the quick panel covered it stayed open
+  after the page closed, and kept Wi-Fi on, until its idle time ran out.
+
+- **Formulas in books** (#484): a formula with an element left open inside it
+  no longer swallows the rest of its chapter, and a formula nested very deeply
+  no longer runs out of memory.
+- **Books after a power cut** (#484): a chapter, a book's contents and long
+  cache files are no longer kept cut short when the power goes while a book is
+  converted; the part cut off is converted again.
+- **Pictures in books** (#484): when the card refuses the list of a chapter's
+  pictures (it is full), the chapter is converted again later instead of
+  showing those pictures as their descriptions for good.
+- **Printed page numbers** (#484): when the card refuses the list of a book's
+  printed pages, the book is read again later instead of keeping no page
+  numbers for good.
+- **Book styles** (#484): a book with very many or very long style rules keeps
+  the first of them instead of losing all its styles.
+- **Picture books** (#484): a fixed-layout book of pictures shows the same
+  title, authors and subjects as any other book; words of a name are no longer
+  run together, and up to 16 authors are listed.
+
+- **Appends written back after the card refused them** (#484). Where the SD card refused to write back what was appended to a file (a timeout), the next sync said all was written while the file's entry on the card kept its old size; the next sync now writes it.
+- **A card that could not be read is no longer called unformatted** (#484). Where the SD card stopped answering while its file system was read (a glitch on its bus), the X4 said it held neither FAT nor exFAT and should be formatted; it now says the card could not be read.
+- **Hyphenation tables are charged the memory they take** (#484). Opening a hyphenation table counted 8 bytes a block for its index and fences where about 6.25 are kept (4 KB too much for German), so a second language could be refused for memory it would not have used.
+
+- Highlights and bookmarks with a long note or text (over 4 KB) are no longer cut, and so lost, when another annotation of the same book is added, changed or removed: such a change is refused and the file stays as it was (#484).
+- An annotations file saved by an editor with a byte order mark or Windows line breaks reads as one without them: its version is not misread after a change, and notes no longer end in a stray character (#484).
+- Annotations kept before conversions were (older PaperPaw) stay marked as such when their file is upgraded, so they are never moved to the wrong place when a book is opened with other options (#484).
+- Where the device left a book is read even when the half of its position file being written was cut off (#484).
+
+- **A long setting text is encoded for a preview** (#484): `settings::encode_value`
+  refused any text over about 50 bytes with `NoSpace`, however large the caller's
+  buffer; it now encodes every value that fits the buffer.
+- **A screen's last word on the row of button hints counts** (#484):
+  `ScreenDecl::hints_hidden()` followed by `.hints(..)` (or the other way round)
+  declared both, which the host refuses; the later call now replaces the earlier.
+- **`show_again` refuses a time under a minute** (#484): as documented,
+  `CommandSender::show_again` now returns `Invalid` for `after_ms` (or a non-zero
+  `every_ms`) under `SHOW_AGAIN_MIN_MS`; `after_ms` 0 no longer quietly cancels
+  the request that waits.
+- **A malformed `document_changed` event is refused** (#484): an event naming
+  document 0 or a progress over 1,000,000 now decodes as `Invalid`, as
+  `document_closed` and the book events already did.
+- **A too-long path is no longer "card full"** (#484): `DataStorage` reported a
+  path over its length cap as `StorageError::Full`; it is now `InvalidPath`.
+- **A secrets reply of the wrong kind is `Invalid`** (#484): it was `State`,
+  which plugins read as "the handle is not open".
+
+- **Khmer, Lao, Burmese and Indic lines with a zero width space between their words are drawn shaped again**, as wide as line breaking measured them, instead of letter by letter (#484).
+- **Ruby and glosses that do not fit on a page's last line are cut there** instead of disappearing: a gloss does not go on over a page break, as on a paragraph's last line (#484).
+- **A position inside a table row too wide for its columns opens on its own page again** (a bookmark, a search hit or the place kept after a font change), not on the row's first page (#484).
+- **A gloss or ruby of a paragraph's first word is shown where the paragraph starts with a drop capital**, on the line beside the capital (#484).
+- **A damaged or crafted font pack with deflated bitmaps can no longer make the reader ask for a gigabyte of memory** for one glyph: a glyph larger than its size allows is drawn as nothing, as in packed strikes (#484).
+- **The paragraph after a table row of empty cells no longer runs off the bottom of the page**: such a row counts as something on the page (#484).
+- **Two tables one right after the other are set apart again**, each with the space and the rule above it of a table's start, instead of joined into one (#484).
+
+- **A tap on a list that just changed no longer stops the plugin** (#484).
+  A tap where a row was drawn before the list shrank (Wi-Fi rereading its
+  networks, for example) could end the plugin; now it does nothing. The −
+  and + of a faint number row no longer change it either.
+- **A faint row or small print with the focus is readable** (#484). Where
+  the focus rested on one (a page with nothing to choose), it was drawn on
+  the black focus bar in grey or invisible ink; now it is drawn as it is.
+- **The page keys turn to a page of text alone again** (#484). A page of a
+  list with nothing to choose on it (only text, such as the start of a
+  message) was skipped by the next and previous page keys; it is shown
+  again, as in Beta 3.
+- **A section card goes on closed under its repeated heading** (#484). With
+  section cards, a section that went on over a page break was drawn open at
+  the top of the next page although its heading is shown again above it;
+  it is closed there now, as in Beta 3.
+
+- **File sync with servers that answer with whole addresses** (#484). Where a WebDAV server (IIS, for example) lists a folder with whole addresses, the folder came back as a subfolder of itself and File sync and Picture frame went into `Photos/Photos/`; the folder is left out of its own listing again.
+- **The clock in the status bar is no longer cut beside a long centre** (#484). With a long text in the middle of a status bar, the gap before it was taken out of the item on the left (`12:…`); it now goes between them, and a bar without a right part keeps no gap at its end.
+- **Long screen titles wrap again before they are shortened** (#484). A title too long for the header at the small size is put on two lines (or three, a size smaller) where the bar holds them, as in Beta 3, before it ends in "…"; a long title is also sized with far fewer measurements.
+- **A dashboard widget with odd targets no longer moves the focus wrongly** (#484). Up and down on a widget whose touch areas reach past the screen's largest coordinate went to the wrong target.
+- **Note widgets keep the lines of a note** (#484). A note's line breaks were lost where the widget wraps its text to fit (the note ran on as one paragraph); each line of the note starts a line again.
+
+- **A folder that grows on a FAT card no longer shows old data after a power cut** (#484).
+  When a folder needed another cluster, the cluster was linked to the folder before it was
+  cleared; losing power between the two left what a deleted file had there in the folder,
+  read as entries that named other files' clusters (removing the folder then freed them).
+  The cluster is now cleared before it is linked, and one taken but not linked yet is freed
+  at the next start.
+- **A damaged FAT card can no longer have a file's data written over its FAT** (#484). A
+  file or a link in the FAT that named a cluster the card does not have (1, or one past its
+  end) was read and written at a place computed from it, which could be the FAT itself. It
+  now reads as a damaged card, and nothing is written.
+- **A FAT folder whose clusters run in a loop no longer hangs the reader** (#484). Listing
+  such a damaged folder went on for ever; it now stops with an error after the 65,536
+  entries a FAT folder can have, and a folder no longer grows past them.
+- **Removing a damaged file no longer marks the FAT card as not cleanly removed** (#484).
+  A file entry that named cluster 1 cleared the card's clean-shutdown mark in the FAT when it
+  was removed, so computers asked to check the card. Only the card's own clusters are freed
+  now.
+- **A FAT card whose boot sector does not add up is refused** (#484). Numbers in the boot
+  sector that overflowed could place the FAT over the data; such a card now reads as
+  damaged. A card whose FAT is too small for its clusters is read as before, with the
+  clusters its FAT maps (as Linux does), so looking for free space no longer fails on it.
+- **A damaged exFAT card no longer stalls the start** (#484). Mounting followed the free
+  space map as far as its length said, which on a damaged card could be practically for ever,
+  and searched a looping root folder through thousands of clusters; it now reads only what
+  the card's size needs.
+- **A damaged exFAT folder size no longer cuts off part of the folder** (#484). A folder whose
+  size was not whole clusters could, when it grew, link its new cluster in place of one it
+  already had, losing the entries there; such a folder now reads as damaged and is left
+  alone.
+- **One bad entry at the end of an exFAT folder no longer makes the whole folder unreadable**
+  (#484). An entry whose parts ran past the folder's end made listing the folder fail (on the
+  card's top folder: the whole library); it is now passed over, and nothing past the folder's
+  end is taken for a part of it.
+
+- **Reading: no place lost, whole notes, reading aloud goes on** (#486). A saved place that cannot be read is kept, not written over by the first page turned (it opened at the start and overwrote it). Editing a note no longer saves it cut to its first 512 bytes on one line, and the Markdown export writes long highlights and notes whole. Reading aloud turns on to a sentence that starts two pages later instead of pausing. Previous page after a chapter jump shows the page before the chapter. Highlights and bookmarks changed elsewhere show at once. Larger and smaller text skip sizes that look the same. After a change of the layout the page starts at a whole line. Look up gets the book's language. Up and Down move between a footnote's buttons. Skim book moves through the book again (pages, chapters, the bar, back, page number). Books with long paths open with their place and highlights. Larger devices count pages at their own pace.
+- **Menus and settings change numbers as in Beta 3** (#486). In a menu Up raises a number, each step is a preview, Select keeps it and Back cancels it. The quick panel steps the text size to sizes that look different and mirrors for right-to-left languages. In the settings a number being changed stays on its row and a tap elsewhere leaves it; a plugin's group action shows its badge; the mark of a value for this book follows a change; None among the themes says when there are too many settings to reset.
+- **Home: the clock, the date and the footer's items keep time** (#486). Home's own clock, date and status line now follow the minute, and the items chosen for More below the page show again. A page's setting opens that page to edit, the page dots show while editing, and a layout on the side that cannot be kept no longer resets anything.
+- **Widgets, statistics, lock and sleep** (#486). Highlight, Favourites and Next up show the newest books first again; a cover of a series shelf opens the book it shows; the chapter's time follows Time left. Statistics say when a book could not be saved instead of losing its reading, and today's reading follows a sync. A typed password waits after wrong tries like the keys, a tap off the pattern is no wrong try, and Back is named Delete again. The sleep screen's widget list can no longer be emptied by a long list, and waking closes only the sleep screen.
+
+- **The X4 says how long a typed text may be** (#489). A question said
+  24,576 bytes, but the X4 keeps only 2 KiB of texts, so a longer note was
+  refused while it was typed and could never be sent. The X4 and the
+  emulator of its profile now say 1,856 bytes, and the keyboard stops there.
+- **An interrupted download no longer stays on the card** (#489). A power
+  cut while a file was being downloaded (an update of several MB) left its
+  temporary file behind for good. It is removed at the next start.
+- **Messages from plugins show again when none of their screens is open**
+  (#489). A message a plugin sent in answer to an event, such as the Plugin
+  store's summary after the setup added plugins quietly, was dropped when
+  none of the plugin's screens was open. It shows over whatever is open
+  again, as in Beta 3; background work stays quiet.
+
+- **Lists move their focus quickly again, and OPDS folders no longer list themselves** (#490). A step of the focus within a page of a list refreshes only the two rows with the fast refresh, as Beta 3 did; a page turned is still refreshed more thoroughly. Holding Select or pressing the menu button holds the row in focus in every list whose rows offer more (Wi-Fi, Bluetooth, news, calendar, plugins), as a long press does on a touch screen; on other rows they open the menu as before. A WebDAV catalog in OPDS whose server names the folder with a whole address no longer shows the folder inside itself.
+
+- **Calendar: repeats from another time zone fall on the right days** (#491).
+  An event that repeats on Tuesdays at 18:00 in Los Angeles showed on
+  Tuesdays at 03:00 in Berlin; it now shows on Wednesdays at 03:00, as it
+  happens there.
+- **Mail: a folder made anew on the server shows its own mails** (#491).
+  When a folder was deleted and made again on the server, a mail read before
+  could be shown in place of a new one with the same number. A mail kept
+  from the old folder is now fetched again.
+- **Anki: cards of note types with long styles come over** (#491). Cards
+  whose note type has more than 4 KB of CSS were left out of every sync
+  without a word; they now come over whole.
+- **Anki: an answer never reaches Anki twice** (#491). When Anki's reply to
+  the answers sent did not come back in time, the next sync sent them again
+  and Anki counted them twice. Answers whose reply was lost are no longer
+  sent again; a card Anki did not get stays due and comes with the next
+  cards.
+- **Translate: a key that could not be saved is not asked for again at
+  once** (#491). On a device that cannot keep passwords, the key typed was
+  asked for again after *Go online*; it is now used as long as the plugin
+  runs.
+
+- **Storage errors say the same everywhere** (#492). The formats (pictures, Word, Mobi, RTF, text, XTC, the EPUB family), the dictionary, notes vault, vocabulary, file manager and store no longer keep their own diverged copies of how a refused storage call is told: they share one in the UI kit (`paperpaw_ui_kit::storage`: the SDK's mapping, the document cache's quota as "full", and reads in 4 KiB calls). A refused allocation is "out of memory" everywhere (the file manager says "not enough memory" instead of "did not work", the fonts browser and the update no longer miss it); a path over its cap no longer claims the card is full (store, formats, dictionary) or the deck too big (vocabulary); a change in a read-only root is "not supported" in the SDK's `DataStorage` too.
+
+- **The store no longer hangs on a full card** (#495). When the memory card
+  could not be written and a plugin's page could not be asked for, the store
+  tried the same plugin again and again and the device stopped responding.
+  The queue now waits until the card has room again; a plugin that asked for
+  others is told they were not installed.
+- **Calendar events stay while one calendar does not answer** (#495). On the
+  first sync after the update, the events of a calendar that failed right
+  then disappeared until it answered again. They now stay; the first sync in
+  which every calendar answers replaces them.
+- **The background mail check ends early without a network** (#495). When
+  the device had no network (or no clock, or no memory), the check still
+  tried every other account, the radio on for each. It now stops and tries
+  again at the next check.
 
 ## [0.6.0-beta.3] - 2026-11-05
 

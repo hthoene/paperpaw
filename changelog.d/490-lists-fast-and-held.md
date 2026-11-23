@@ -1,3 +1,0 @@
-### Fixed
-
-- **Lists move their focus quickly again, and OPDS folders no longer list themselves** (#490). A step of the focus within a page of a list refreshes only the two rows with the fast refresh, as Beta 3 did; a page turned is still refreshed more thoroughly. Holding Select or pressing the menu button holds the row in focus in every list whose rows offer more (Wi-Fi, Bluetooth, news, calendar, plugins), as a long press does on a touch screen; on other rows they open the menu as before. A WebDAV catalog in OPDS whose server names the folder with a whole address no longer shows the folder inside itself.
