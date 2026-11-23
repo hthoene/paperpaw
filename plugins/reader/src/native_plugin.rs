@@ -934,6 +934,7 @@ impl NativeReader {
     fn start_quiet(&mut self, host: &Host<'_>) {
         self.declare_work(host, (QUIET_KEY, WORK_DUE), QUIET_MS);
         self.declare_work(host, (ahead::KEY, WORK_DUE), ahead::AFTER_MS);
+        self.hold_count(host);
     }
 
     /// Declares the work `(key, token)` to be due after `after` milliseconds.

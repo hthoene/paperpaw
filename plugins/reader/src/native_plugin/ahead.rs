@@ -49,7 +49,7 @@ impl NativeReader {
     }
 
     /// The next page is laid out now, as the count's steps wait while another
-    /// screen covers the reader.
+    /// screen covers the reader; then the count goes on.
     fn ahead_step(&mut self, host: &Host<'_>) {
         if self.ui.is_some()
             && self.stack_top(host).ok().flatten() != self.screens.top_instance(SCREEN)
@@ -59,21 +59,33 @@ impl NativeReader {
         if let (Some(view), Some(docs)) = (self.screens.top(SCREEN), &self.docs) {
             view.lay_ahead(host, docs);
         }
+        self.start_count(host);
+    }
+
+    /// Whether the reading screen on top has steps of the count to make.
+    fn count_due(&mut self) -> bool {
+        self.screens
+            .top(SCREEN)
+            .is_some_and(|view| view.counting() || view.marks_due() || view.packs_due())
     }
 
     /// The pages of the reading screen on top are counted in the background:
-    /// a step now, then one after the other.
+    /// the first step once the screen is drawn, then one after the other. The
+    /// host runs the work due at the end of a callback before it draws the
+    /// frame (`Kernel::finish`): a step due at once would hold up the book's
+    /// first page, or the page turned to, by a whole step (#515).
     pub(super) fn start_count(&mut self, host: &Host<'_>) {
-        if self
-            .screens
-            .top(SCREEN)
-            .is_some_and(|view| view.counting() || view.marks_due() || view.packs_due())
-        {
-            self.declare_work(
-                host,
-                (native_index::WORK_KEY, WORK_DUE),
-                native_index::DELAY_MS,
-            );
+        if self.count_due() {
+            self.declare_work(host, (native_index::WORK_KEY, WORK_DUE), AFTER_MS);
+        }
+    }
+
+    /// A page was turned: the count waits for the quiet time after it, so that
+    /// no step runs before the turned page is drawn; the step after the next
+    /// page is laid out goes on with it (`ahead_step`, #515).
+    pub(super) fn hold_count(&mut self, host: &Host<'_>) {
+        if self.count_due() {
+            self.cancel_work(host, native_index::WORK_KEY);
         }
     }
 

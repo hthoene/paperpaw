@@ -32,6 +32,8 @@ struct Fake {
     up: Cell<bool>,
     level: Cell<u32>,
     denied: Cell<bool>,
+    /// What the kernel holds work for (`kernel_state`).
+    hold: Cell<bool>,
     /// The events the plugins subscribed to (all of them the same).
     tags: Vec<u32>,
 }
@@ -48,7 +50,7 @@ impl WorkEnv for Fake {
         }
     }
     fn screen_hold(&self) -> bool {
-        false
+        self.hold.get()
     }
     fn network_up(&self) -> bool {
         self.up.get()
@@ -61,6 +63,9 @@ impl WorkEnv for Fake {
     }
     fn subscribed(&self, _: u64, tag: u32) -> bool {
         self.tags.contains(&tag)
+    }
+    fn kernel_state(&self, _: u32, _: u32, hold: bool) {
+        self.hold.set(hold);
     }
 }
 
@@ -203,6 +208,7 @@ fn world_with(tags: &[u32], plugins: usize) -> World {
         up: Cell::new(true),
         level: Cell::new(0),
         denied: Cell::new(false),
+        hold: Cell::new(false),
         tags: tags.to_vec(),
     });
     let (mut owners, mut told) = (Vec::new(), Vec::new());
@@ -322,6 +328,26 @@ fn due_work_reaches_its_plugin_once_under_the_runs_guard() {
     w.env.now.set(5_000);
     w.pump();
     assert!(w.told(0).is_empty(), "told once");
+}
+
+#[test]
+fn work_due_waits_while_a_press_is_still_to_be_told() {
+    use paperpaw_platform::ButtonState;
+    let mut w = world();
+    w.declare(0, &spec("step", 5));
+    // A button with a long press bound to it: its click comes at the release.
+    let recognizer = &mut w.kernel.input.recognizer;
+    recognizer.button("right", ButtonState::Pressed, Instant(1_000), false);
+    assert!(!w.pump());
+    assert!(
+        w.told(0).is_empty(),
+        "no step between the press and its click"
+    );
+    assert_eq!(w.kernel.work_pump_due(), None, "nothing wakes for it");
+    let recognizer = &mut w.kernel.input.recognizer;
+    recognizer.button("right", ButtonState::Released, Instant(1_100), false);
+    w.pump();
+    assert_eq!(w.told(0), [due(5, why::TIME, "step", true)]);
 }
 
 #[test]
