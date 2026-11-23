@@ -598,7 +598,8 @@ fn covers_of(
 }
 
 /// One target for each book that shows: its cover and its label together. The
-/// target is [`BOOK_TARGET`] and the book's index among those that show.
+/// target is [`BOOK_TARGET`] and the book's index in `shown.books` (where the
+/// books round the one being read show, the first on show is not the first).
 ///
 /// # Errors
 /// Font refusals and [`Error::NoMemory`].
@@ -612,15 +613,31 @@ pub fn targets(
     let mut targets = Vec::new();
     for (i, place) in laid.iter().take(range.len()).take(MOST_TARGETS).enumerate() {
         let at = place.cover.union(&place.label);
-        let id = BOOK_TARGET | u32::try_from(i).unwrap_or(0);
+        let id = book_target(&range, i);
         mem::push(&mut targets, WidgetTarget::new(id, paint::frame_rect(at)))?;
     }
     Ok(targets)
 }
 
+/// The target of the `i`th cover on show, the books of `shown` being on show.
+fn book_target(shown: &core::ops::Range<usize>, i: usize) -> u32 {
+    BOOK_TARGET | u32::try_from(shown.start + i).unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cover_taps_the_book_it_shows_where_the_shelf_starts_on() {
+        // Six books of a series, three fit, the fifth being read: the fourth
+        // to the sixth show, and the first cover is the fourth book.
+        let shown = window(6, 3, Some(4));
+        assert_eq!(shown, 3..6);
+        assert_eq!(book_target(&shown, 0), BOOK_TARGET | 3);
+        assert_eq!(book_target(&shown, 2), BOOK_TARGET | 5);
+        assert_eq!(book_target(&window(6, 3, None), 0), BOOK_TARGET);
+    }
 
     fn sizes() -> Sizes {
         Sizes {

@@ -409,6 +409,11 @@ impl Flow {
         if matches!(self.step, Step::Choose) || self.kind != "password" {
             return Ok(());
         }
+        // While the wait after wrong tries runs, a typed password is not
+        // tried, as no key or tap is (`Flow::waiting`).
+        if self.released(lock, room, fx) || Self::waiting(lock, room.now_ms) {
+            return Ok(());
+        }
         self.submit(password, lock, room, fx)
     }
 
@@ -611,7 +616,13 @@ impl Flow {
         Ok(true)
     }
 
-    /// The finger moved, to dot `dot` if on one.
+    /// Whether `id` is the finger that went down on a dot: only it draws and
+    /// enters the pattern.
+    fn drawing(&self, id: u32) -> bool {
+        self.finger.is_some_and(|(finger, _)| finger == id)
+    }
+
+    /// The finger moved, to dot `dot` if on one; whether it is the one drawing.
     ///
     /// # Errors
     /// `NoMemory` when the dot cannot be kept.
@@ -621,7 +632,10 @@ impl Flow {
         at: Point,
         dot: Option<usize>,
         fx: &mut Effects,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
+        if !self.drawing(id) {
+            return Ok(false);
+        }
         if let Some(dot) = dot {
             self.add_dot(dot)?;
         }
@@ -632,21 +646,27 @@ impl Flow {
             self.finger = Some((id, at));
             fx.push(Effect::Redraw);
         }
-        Ok(())
+        Ok(true)
     }
 
-    /// The finger was lifted: the pattern is the code.
+    /// The finger was lifted: the pattern is the code. A finger that never
+    /// went down on a dot (a tap on the clock or between the dots) enters
+    /// nothing, and is no wrong try; whether it was the one drawing.
     ///
     /// # Errors
     /// As [`Flow::submit`].
     pub fn finger_up(
         &mut self,
+        id: u32,
         lock: &mut Lockstate,
         room: &Context<'_>,
         fx: &mut Effects,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
+        if !self.drawing(id) {
+            return Ok(false);
+        }
         let entered = Code::new(core::mem::take(&mut self.dots));
-        self.submit(entered, lock, room, fx)
+        self.submit(entered, lock, room, fx).map(|()| true)
     }
 
     /// The contact was cancelled: the pattern is dropped.

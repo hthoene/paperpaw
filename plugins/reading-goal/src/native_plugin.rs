@@ -388,9 +388,13 @@ impl NativeReadingGoal {
     /// Asks for the picture of the mood shown, where there is none yet and
     /// none is asked for. A failure is tried again at the next minute.
     fn want_picture(&mut self, host: &Host<'_>) {
-        let Ok(today) = native_widget::facts(host, &self.kept, self.statistics) else {
-            return;
-        };
+        if let Ok(today) = native_widget::facts(host, &self.kept, self.statistics) {
+            self.want_picture_of(host, &today);
+        }
+    }
+
+    /// [`Self::want_picture`] for `today` as it is known already.
+    fn want_picture_of(&mut self, host: &Host<'_>, today: &Today) {
         if self.pictures.wants(today.mood) {
             self.ask_picture(host, today.mood, 0).ok();
         }
@@ -604,13 +608,18 @@ impl NativeReadingGoal {
             self.flush(host);
         }
         self.statistics = read_statistics(host).unwrap_or(self.statistics);
-        self.want_picture(host);
-        let (kept, statistics) = (self.kept, self.statistics);
+        // What today is, once for the minute: the same for the picture and
+        // every widget (each read settings, and `today.txt` where the
+        // statistics told nothing yet).
+        let today = native_widget::facts(host, &self.kept, self.statistics);
+        if let Ok(today) = &today {
+            self.want_picture_of(host, today);
+        }
+        let shown = today.map(|today| native_widget::mark(&today));
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);
         for item in &mut self.items {
             let instance = item.instance;
-            let shown = native_widget::shows(host, &kept, statistics);
             settle(&mut item.shown, shown, || commands.widget_changed(instance));
         }
         Ok(())

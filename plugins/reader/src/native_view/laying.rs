@@ -302,7 +302,8 @@ impl Open {
             setup.display.display_gray_levels(),
             setup.display.display_is_colour(),
         );
-        let painted = Painted::new(host, &self.marks, &self.words, hit, gauge).unwrap_or_default();
+        let looks = || self.settings.mark_looks(host);
+        let painted = Painted::new(looks, &self.marks, &self.words, hit, gauge).unwrap_or_default();
         self.draw_behind(&canvas, gauge, (rect.x, rect.y)).ok();
         painted.behind(&mut CanvasPen(&canvas)).ok();
         let pictures = self.pictures.drawing(follow_up);

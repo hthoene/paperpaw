@@ -10,6 +10,7 @@ use crate::{
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use paperpaw_sdk::{
+    decorations::Decoration,
     layout::{BookStyles, Style},
     native::{
         Error, Host,
@@ -60,6 +61,10 @@ struct State {
     tables: Option<Tables>,
     /// Where the words met may be broken (`Breaks`).
     breaks: Option<Breaks>,
+    /// The looks of a highlight and of a search hit (`native_marks::read_looks`):
+    /// some fourteen settings, not read again for every draw of a page with
+    /// marks (and every step of a selection).
+    marks: Option<(Decoration, Decoration)>,
 }
 
 impl Kept {
@@ -177,6 +182,22 @@ impl Kept {
     pub(super) fn forget(&self) {
         *self.0.borrow_mut() = State::default();
     }
+
+    /// The looks of a highlight and of a search hit: kept, or read (and kept
+    /// where both were read).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub(super) fn mark_looks(&self, host: &Host<'_>) -> Result<(Decoration, Decoration), Error> {
+        if let Some(looks) = self.0.borrow().marks {
+            return Ok(looks);
+        }
+        let (looks, whole) = crate::native_marks::read_looks(host)?;
+        if whole {
+            self.0.borrow_mut().marks = Some(looks);
+        }
+        Ok(looks)
+    }
 }
 
 /// The tables made, or none where there was no room for them.
@@ -271,10 +292,6 @@ fn text_of(host: &Host<'_>, reading: Reading) -> Result<Reading, Error> {
 }
 
 impl Setup {
-    pub(super) fn read(host: &Host<'_>) -> Result<Self, Error> {
-        Self::read_on(host, snapshot::capture_snapshot(host)?)
-    }
-
     /// The setup of the settings now on `display`.
     // Out of line: a Setup is large, and its copies in the callers' frames made
     // the frames of `open` and `screen_shown` pass the limit of 2,048 bytes.

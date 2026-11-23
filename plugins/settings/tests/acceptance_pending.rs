@@ -119,13 +119,13 @@ const CASES: [Case; 18] = [
     },
     // An action a plugin adds to a group is its first row, with the state its
     // item shows at the right (a badge such as *New*). The native page shows
-    // the row and runs the action (`scripted_pages.rs`) but not the item's
-    // state: `Row::Action` takes no badge from the registry's menu row yet.
+    // the row, runs the action (`scripted_pages.rs`) and puts the registry's
+    // badge at the right; the drawing waits for the kit's qualification.
     // Interface-6 `groups.rs`.
     Case {
         name: "settings-group-action-state",
         golden: None,
-        blocked_by: &["menu-row-badge", "H1"],
+        blocked_by: &["H1"],
     },
     // The rows of a choice stand in the readable column on a wide screen, not
     // from edge to edge. Kit drawing. Interface-6 `pages.rs`.
@@ -260,7 +260,7 @@ fn settings_covered_by_foreign_screen() {
 }
 
 #[test]
-#[ignore = "BLOCKED menu-row-badge/H1: the group's action row shows no state (badge) of its item yet"]
+#[ignore = "BLOCKED H1: kit drawing of the group's action row with its badge is not qualified"]
 fn settings_group_action_state() {
     CASES[13].refuse().unwrap();
 }

@@ -25,8 +25,10 @@ use paperpaw_ui_kit::{
 pub fn height(cx: &mut Cx<'_>, width: u16) -> Result<u16, Error> {
     let months: u16 = if cx.settings.shows("next")? { 2 } else { 1 };
     let row = cx.style().row;
-    Ok((width * 6 / 7)
-        .min((u32::from(row) * 6) as u16)
+    // In u32: a host's width goes up to `u16::MAX`, six of it would not fit.
+    let tall = (u32::from(width) * 6 / 7).min(u32::from(row) * 6);
+    Ok(u16::try_from(tall)
+        .unwrap_or(u16::MAX)
         .saturating_mul(months)
         .saturating_add(cx.shape.frame_height()))
 }
@@ -67,7 +69,7 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
     // Two months: side by side where the place is wide, else one below the
     // other; this one alone where two have no room for a whole month each.
     let gap = cx.style().gap * 2;
-    let wide = area.width > area.height * 5 / 4;
+    let wide = u32::from(area.width) > u32::from(area.height) * 5 / 4;
     let two = if cx.settings.shows("next")? {
         Some(if wide {
             let w = share(area.width, gap, 2);

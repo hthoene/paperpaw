@@ -145,13 +145,16 @@ struct Texts {
     chapter_left: Option<String>,
 }
 
-/// "12 pages left in the chapter · about 9 min", the same without the time,
-/// "12 pages left", or "Last page of the chapter" ("End of chapter") - the
-/// longest that fits `width` - where the chapter's end is known (as Beta 3
-/// said it).
+/// What is left of the chapter, the longest way that fits `width`, as Beta 3
+/// said it: "12 pages left in the chapter · about 9 min" where the time is
+/// known and wanted (`timed`: the time left is shown), "12 pages left · about
+/// 9 min" below the chapter's title (`titled`), either without the time, or
+/// "Last page of the chapter" ("End of chapter") on its last; none where the
+/// chapter's end is not known.
 fn chapter_left_text(
     cx: &mut Cx<'_>,
     position: &Position,
+    (timed, titled): (bool, bool),
     width: u16,
 ) -> Result<Option<String>, Error> {
     let Some(left) = position.chapter_left else {
@@ -170,49 +173,65 @@ fn chapter_left_text(
     }
     let count = i64::from(left);
     let long = cx.plural("widgets.reading.chapter-left", count, &[])?;
-    if let Some(seconds) = position.chapter_seconds() {
-        let minutes = i64::try_from(seconds.div_ceil(60).max(1)).unwrap_or(i64::MAX);
-        let time = cx.format(
-            "widgets.reading.chapter-minutes",
-            &[Arg::Int {
-                name: "minutes",
-                value: minutes,
-            }],
-        )?;
-        let timed = cx.format(
-            "widgets.reading.chapter-time",
-            &[
-                Arg::Text {
-                    name: "left",
-                    value: &long,
-                },
-                Arg::Text {
-                    name: "time",
-                    value: &time,
-                },
-            ],
-        )?;
-        if fits(cx, &timed)? {
-            return Ok(Some(timed));
+    let short = cx.plural("widgets.reading.chapter-short", count, &[])?;
+    let time = match position.chapter_seconds().filter(|_| timed) {
+        Some(seconds) => Some(duration(
+            cx,
+            seconds,
+            (
+                "widgets.reading.chapter-minutes",
+                "widgets.reading.chapter-hours",
+            ),
+        )?),
+        None => None,
+    };
+    if let Some(time) = &time {
+        for pages in [Some(&long), titled.then_some(&short)]
+            .into_iter()
+            .flatten()
+        {
+            let timed = cx.format(
+                "widgets.reading.chapter-time",
+                &[
+                    Arg::Text {
+                        name: "left",
+                        value: pages,
+                    },
+                    Arg::Text {
+                        name: "time",
+                        value: time,
+                    },
+                ],
+            )?;
+            if fits(cx, &timed)? {
+                return Ok(Some(timed));
+            }
         }
     }
-    if fits(cx, &long)? {
-        return Ok(Some(long));
-    }
-    Ok(Some(cx.plural(
-        "widgets.reading.chapter-short",
-        count,
-        &[],
-    )?))
+    Ok(Some(if fits(cx, &long)? { long } else { short }))
 }
 
 /// "About 2 h 5 min left", "About 40 min left".
 fn left_text(cx: &mut Cx<'_>, seconds: u64) -> Result<String, Error> {
+    duration(
+        cx,
+        seconds,
+        ("widgets.reading.left-minutes", "widgets.reading.left-hours"),
+    )
+}
+
+/// `seconds` in whole minutes (at least one) with the message `minutes`, or
+/// in hours and minutes with `hours` from an hour on.
+fn duration(
+    cx: &mut Cx<'_>,
+    seconds: u64,
+    (minutes_key, hours_key): (&str, &str),
+) -> Result<String, Error> {
     let minutes = i64::try_from(seconds.div_ceil(60).max(1)).unwrap_or(i64::MAX);
     let (hours, minutes) = (minutes / 60, minutes % 60);
     if hours == 0 {
         cx.format(
-            "widgets.reading.left-minutes",
+            minutes_key,
             &[Arg::Int {
                 name: "minutes",
                 value: minutes,
@@ -220,7 +239,7 @@ fn left_text(cx: &mut Cx<'_>, seconds: u64) -> Result<String, Error> {
         )
     } else {
         cx.format(
-            "widgets.reading.left-hours",
+            hours_key,
             &[
                 Arg::Int {
                     name: "hours",
@@ -508,13 +527,16 @@ pub fn draw_with(
     let parts = wanted(cx, book, &position, left.is_some())?;
     let title_size = cx.settings.size()?.text(cx.style());
     let (parts, title) = fit(cx, &m, parts, (rest, &book.title), title_size)?;
+    // The chapter's time where the time left is wanted, its short way under
+    // the chapter's title (Beta 3).
+    let shape = (left.is_some(), parts.contains(&Part::Chapter));
     let texts = Texts {
         caption: cx.tr(CAPTION)?,
         author: copy(&book.author)?,
         pages: pages_text(cx, book, &position, rest.width)?,
         left,
         chapter_left: if parts.contains(&Part::ChapterLeft) {
-            chapter_left_text(cx, &position, rest.width)?
+            chapter_left_text(cx, &position, shape, rest.width)?
         } else {
             None
         },

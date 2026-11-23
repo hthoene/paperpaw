@@ -10,8 +10,10 @@ use core::fmt::Write as _;
 
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::native::Error;
-use paperpaw_sdk::native::device::DeviceClass;
+use paperpaw_sdk::native::Host;
+use paperpaw_sdk::native::device::{Device, DeviceClass};
 use paperpaw_sdk::reading::PageIndex;
+use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
 use crate::native_pages::Reading;
 use paperpaw_sdk::Storage;
@@ -71,6 +73,16 @@ pub const fn pace(class: Option<DeviceClass>) -> (usize, u32) {
         Some(DeviceClass::Medium | DeviceClass::Large) => (PAGES_PER_STEP, DELAY_MS),
         _ => (PAGES_PER_STEP_SMALL, DELAY_SMALL_MS),
     }
+}
+
+/// The memory class `core.device` tells, for [`pace`]; none when the host does
+/// not answer. The reply buffer is the op's whole `max_reply` (4,096 bytes,
+/// `device.md` 6.1): the host refuses a smaller one with `NoSpace`.
+pub fn device_class(host: &Host<'_>) -> Option<DeviceClass> {
+    let device = Device::open(host).ok()?;
+    let (mut input, mut out) = (buffer(256).ok()?, buffer(SERVICE_BUFFER).ok()?);
+    let identity = device.device(host, &mut input, &mut out).ok()?;
+    Some(identity.class())
 }
 
 /// What a layout is made of, as text: the settings (the reading font and the
