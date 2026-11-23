@@ -23,7 +23,7 @@ use paperpaw_sdk::{
         registrations,
         reply::Reply,
         settings::SettingValue,
-        ui::{HandoverId, Instance, Open, Param, Ui},
+        ui::{HandoverId, Instance, Open, Param, Ui, UiCursor},
     },
 };
 use paperpaw_ui_kit::read_event;
@@ -587,31 +587,59 @@ impl NativeMenu {
     /// The setting or the registry changed: the menu on top is made anew, the
     /// others when they show.
     fn changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // Every view is read anew when it shows again; only the one on top of
+        // the screen now is read at once and drawn. A menu under another
+        // screen (Settings opened from one of its rows) waits (#375).
         for panel in self.panels.all() {
             panel.mark_stale();
-        }
-        if let Some(panel) = self.panels.top(PANEL) {
-            panel.read(host)?;
-            Self::redraw(host)?;
         }
         for bar in self.bars.all() {
             bar.mark_stale();
         }
-        if let Some(bar) = self.bars.top(LIST) {
-            bar.read(host)?;
-            Self::redraw(host)?;
-        }
-        let top = self.screens.top_instance(LIST);
         for view in self.screens.all() {
             view.stale = true;
         }
-        if let Some(top) = top
-            && let Some(view) = self.screens.get(top)
-        {
+        let tops = match self.top_of_stack(host) {
+            Ok(Some(top)) => [Some(top); 3],
+            Ok(None) => return Ok(()),
+            // Where the stack cannot be asked: each kind's own top, as before.
+            Err(_) => [
+                self.panels.top_instance(PANEL),
+                self.bars.top_instance(LIST),
+                self.screens.top_instance(LIST),
+            ],
+        };
+        if let Some(panel) = tops[0].and_then(|top| self.panels.get(top)) {
+            panel.read(host)?;
+            return Self::redraw(host);
+        }
+        if let Some(bar) = tops[1].and_then(|top| self.bars.get(top)) {
+            bar.read(host)?;
+            return Self::redraw(host);
+        }
+        if let Some(view) = tops[2].and_then(|top| self.screens.get(top)) {
             Self::rebuild(host, view)?;
-            Self::redraw(host)?;
+            return Self::redraw(host);
         }
         Ok(())
+    }
+
+    /// The instance on top of the screen (none where the host lists none).
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
+    fn top_of_stack(&mut self, host: &Host<'_>) -> Result<Option<Instance>, Error> {
+        self.ensure_ui(host)?;
+        // The request is a cursor and no more; the reply is a page of rows.
+        let (mut input, mut output) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
+        let page = self
+            .ui()?
+            .stack(host, UiCursor::start(), &mut input, &mut output)?;
+        Ok(page
+            .into_iter()
+            .next()
+            .transpose()?
+            .map(|row| row.instance()))
     }
 
     fn note_open(&mut self, instance: Instance) -> Result<(), Error> {
