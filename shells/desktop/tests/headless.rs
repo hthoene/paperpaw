@@ -578,6 +578,33 @@ fn an_action_a_native_plugin_declares_opens_its_screen() {
     assert_eq!(opened.screen(), "transfer.screen", "{}", opened.stdout);
 }
 
+/// A swipe in a panel of controls turns its pages, up and left on, down and
+/// right back, as its pager does (#521); it moved the focus instead.
+#[test]
+fn swiping_turns_the_pages_of_a_panel() {
+    let swiped = run(
+        "panel-swipe",
+        "xteink-x4-pro",
+        "open:menu.panel:menu=core.reader-panel,describe,\
+         swipe:100:600:100:300,describe,swipe:100:300:100:600,describe,\
+         swipe:360:600:120:600,describe,swipe:120:600:360:600,describe",
+        &[],
+    );
+    assert!(swiped.ok, "{}", swiped.stderr);
+    let pages: Vec<&str> = swiped
+        .stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("Text \"")?.split('"').next())
+        .filter(|text| text.ends_with(" / 2"))
+        .collect();
+    assert_eq!(
+        pages,
+        ["1 / 2", "2 / 2", "1 / 2", "2 / 2", "1 / 2"],
+        "{}",
+        swiped.stdout
+    );
+}
+
 /// The screen turned, by the configuration at start or chosen in the
 /// settings while running: the panel trades width and height.
 #[test]
