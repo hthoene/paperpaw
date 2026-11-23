@@ -4943,6 +4943,142 @@ change the plugin SDK.
 
 - **The key bar names Select *Menu* while reading** (#480). It said *Select*; as in Beta 3, it says *Menu*, which Select opens there, and its usual name while text is chosen (reader 1.2.5).
 
+- **Holding Back finishes a password too** (#486). While a password was typed, holding Back did nothing; it now keeps the text and closes the keyboard, as it does for any other text.
+
+- **A text that could not be passed on stays in the keyboard** (#486). When the text could not be handed over (for example a note of more than 2 KiB on the X4), the keyboard emptied the field and stayed open without a word. Now the text stays, and a notice says it was not passed on: it can be shortened and sent again.
+
+- **Passwords leave nothing behind in memory** (#486). What was typed and deleted again, and the text when the keyboard could not open, is now cleared from memory as well.
+
+- **Typing redraws only the text field** (#486). A key that only changes the text redraws the field instead of the whole screen, and Delete on an empty field redraws nothing.
+
+- **The setup guide lets other buttons work** (#486). While a number was being changed, Power and the menu button did nothing; swipes and long presses on the guide did nothing either. They now work as on any screen.
+
+- **Moving the focus redraws only what changed** (#486). In the setup guide, the library and Files, a focus step within the page redraws the two places it leaves and reaches, not the whole screen.
+
+- **Files moves through a folder without reading the memory card** (#486). Each arrow key asked the memory card for its free space and the folder again; a step within the page shown now reads nothing, and finding out whether an entry is a folder no longer lists the whole folder.
+
+- **Long names in Files** (#486). Renaming to a long name with letters such as ä or 語 failed without a word; names as long as the memory card takes now work, and a longer one says it is too long. On a memory card that cannot be read, finding a free name no longer tries thousands of names before it gives up.
+
+- **The library says when marking a book failed** (#486). When a book could not be marked finished or unread, or put among the favourites or taken out, nothing was said; a notice now says so.
+
+- **Mail marks a mail read again when you open it** (#486). The setting *Mark as read when opened* had no effect; now the server is told, as in Beta 3. In a folder the server keeps read-only, the mail still opens.
+
+- **A mail is no longer sent twice** (#486). When the server took the mail but the connection broke while saying goodbye, Mail said sending failed, and sending again delivered it a second time. Now it counts as sent.
+
+- **Mail keeps checking in the background** (#486). One failed check could stop the background check until the reader restarted, and an account with a wrong password kept the other accounts from being checked. Now each account is checked, and the next round comes as set.
+
+- **A long signature no longer keeps Mail's compose window from opening** (#486). Signatures of any length the settings take are used.
+
+- **A large draft in Mail is kept** (#486). A draft with a long text or many addresses was taken as no draft and written over; now it opens again. A draft file that cannot be opened at all is put aside next to it (Mail says where), and the compose window opens empty.
+
+- **News fetches at once when you choose Fetch the news** (#486). The action waited an hour first; a rule's fetch now comes at the next good moment (waking, going online, charging) and within the hour, as in Beta 3.
+
+- **News feeds can be opened, fetched or removed with the buttons** (#486). Holding Select (or the menu button) on a feed offers what a long press offers; the list says so below the feeds.
+
+- **News no longer adds a new book with every fetch** (#486). Where a Beta 3 book with your highlights stayed beside the new one, each fetch added another copy (2), (3) and so on; now the book of the last fetch is updated.
+
+- **A news fetch is no longer cut short** (#486). A background fetch that came due while you fetched started over from the first feed, and opening a feed without a book stopped a fetch of all feeds; now what is asked for meanwhile is fetched after it.
+
+- **The news widget is drawn again once a fetch is over** (#486), not after every feed, which saves battery on e-ink.
+
+- **News and Wallabag tell servers the real PaperPaw version** (#486), as in Beta 3, instead of "PaperPaw/0.1".
+
+- **One large notes file no longer holds up Readwise** (#486). A notes file too large for the memory stopped every later export from being sent; now it counts as not sent, waits behind the others, and a background run says nothing about memory.
+
+- **Smart home keeps the chosen entities when the card cannot be read** (#486). A failed read of the saved list was taken as an empty list, and the next fetch saved that empty list over it. Now the list is read again and never replaced until it was read; a save the card refuses is said, and a list of states cut short changes no entity.
+
+- **Closing the Wikipedia summary no longer fails the dictionary panel's lookup** (#486). Both used one request token, so closing the summary also cancelled the panel's fetch and the panel said it had failed.
+
+- **Translation says when the DeepL key could not be saved** (#486), instead of asking for it again next time without a word.
+
+- **A read-later fetch cut short by the end of its background time is no longer reported as done** (#486); it says the rest follows with the next fetch.
+
+- **The setup offer keeps what was chosen when it is left with Back** (#486). Plugins chosen on the setup's offer were forgotten when the page was left with Back instead of *Done*; they are now added as *Done* adds them, as in Beta 3.
+
+- **Updates go on after a plugin's page was looked at** (#486). Opening or leaving a plugin's page while *Update all* or the setup fetched plugins could stop the queue until the next restart, or leave the page saying *Loading plugin* for ever. The page and the queue now fetch apart, and a page left behind no longer leaves its download on the memory card.
+
+- **A plugin page that cannot be fetched says why** (#486). When the request could not even be sent, the page kept saying *Loading plugin*, or said the library no longer offers the plugin; it now says there is no connection, and the queue goes on with the next plugin instead of waiting.
+
+- **Names in the setup's summary** (#486). A plugin whose page did not come showed no name in the summary ("Could not be added: , ."); it is named again, and *Update all* no longer shows a notice without a name for it.
+
+- **Waiting updates go on when the store is opened** (#486). Updates left waiting by a restart or a missing connection did not go on by themselves; they now go on when the store is opened, as in Beta 3.
+
+- **The setup's plugins ask for nothing more** (#486). After a plugin the setup added in the background was installed, the store asked whether to fetch the plugins it requires; as in Beta 3 it no longer does.
+
+- **Lists show the progress of downloads** (#486). While a plugin was downloaded, its row in the lists did not show how far it was, and *Update all* did not mark the plugins queued; the rows now follow, and the list is drawn again only when a mark changed.
+
+- **The store's start opens faster when it comes back** (#486). Coming back to the start no longer reads the whole list from the memory card again unless a plugin came, went or the list changed.
+
+- **Why a download failed is said right** (#486). A connection that went while downloading was said as a plugin that could not be installed, and a host that refused the install as a plugin that could not be downloaded; a memory card that did not take the files now says so too.
+
+- **The community source is left after a download in the background** (#486). When an install from a community source ended after the store was closed, the store still listed that source the next time it was opened; it lists PaperPaw's library again.
+
+- **A search or an address that is too long says so** (#486). Typing more than the store reads did nothing at all; a notice now says the text is too long.
+
+- **File sync no longer deletes server files when a folder has many hidden files** (#486). Hidden names on the card could push files out of the listing, and the sync then took those files for deleted on the card and deleted them on the server. Hidden names no longer count, and a folder that cannot be listed whole is left as it is.
+
+- **File sync tells the true limits and recovers from a sync that broke off** (#486). The help and the messages now say 200 files and 64 folders, as the sync allows. A sync that fails halfway now says so, ends cleanly and no longer blocks the next automatic sync. Last sync only shows syncs that went through. Progress redraws only the line below the pairs.
+
+- **File sync keeps passwords as typed** (#486). Spaces at the start or end of a password are kept. A server address for another server takes the old password away, so it is never sent there.
+
+- **File sync keeps listing trash files it could not remove** (#486). Such a file used to drop off the list and stay on the card for good. It is now removed at a later sync. A listing the reader could not save whole no longer counts as an empty folder.
+
+- **OPDS moves old saved passwords out of the catalog list** (#486). Passwords from an older version now go to the passwords and keys when the list is read. A new password that cannot be saved no longer wipes out the old one.
+
+- **OPDS browsing no longer breaks a running background sync** (#486). Leaving a catalog no longer removes the sync's files. A new list starts at its first row, and download progress redraws only the line below the list.
+
+- **OPDS gives clearer errors** (#486). A full card, a file that is too large or a busy network now says so instead of "check the Wi-Fi". A public catalog no longer fails when the passwords cannot be read. Back stops a search that is still loading.
+
+- **Progress sync respects Offline mode again** (#486). In Offline mode nothing is sent or fetched, and the position of the book you left is sent once the network is allowed, as in Beta 3. A position that fails to send is tried again.
+
+- **Progress sync accepts only http:// and https:// server addresses** (#486). Any other address is refused with a message, and the account screen no longer gets stuck on "Connecting". A password store that is busy for a moment no longer signs you out. "Go there" says when the book cannot be opened at that place. Sign-out says when the account's key could not be removed. A book's fingerprint is read once, not each time the position is fetched or sent.
+
+- **Highlights sharing moves KOReader's notes with a moved book** (#486). Moving or renaming a book takes its `.sdr` folder along again, as in Beta 3, so a later question cannot remove highlights by mistake. Books with more than 128 changes are now exchanged on the X4 too.
+
+- **Wireless library handles books that cannot be received** (#486). A book that does not fit on the card, or that the card refuses, ends the connection with a clear message instead of staying on "Receiving". A password that cannot be saved is used until the screen closes, so you are not asked for it again and again. "Delete from device" in Calibre keeps the reader's highlights and notes, as in Beta 3.
+
+- **Update no longer stays at *Restarting …*** (#486). Saying no to the restart after an update, or a restart that could not start, left the page on *Restarting …* for good. Now the page offers *Restart now* again, and says so where the device would not restart.
+
+- **The *New* mark goes once the update is installed** (#486). An update installed from the card (or another way) kept the *New* mark on Update and its offer. At start, an offer the device has reached since is let go.
+
+- **Update says when it could not check your plugins** (#486). Where the plugins built in could not be read, an update online read as a plain download. It now says that this is checked before the update installs. What an interrupted plugin download left behind is removed at the next start, and a search the network refused no longer counts as the day's search.
+
+- **Calendar keeps the events of a calendar that fails** (#486). In an account with several calendars, one calendar that could not be read lost its events, and a subscription answered with a login page (a hotel Wi-Fi) lost all of its events. Now each calendar's events are replaced only by a whole answer, and a subscription only by a calendar.
+
+- **Calendar keeps the password on an empty field** (#486). Confirming the empty password field erased the password, and blanks at the ends of a password were dropped. Now an empty answer keeps the password, a password is kept as typed, and a calendar is removed only together with its password, so a new calendar never sends an old one's password.
+
+- **Tasks notices changes on both sides with every server** (#486). With a server that does not tell the new version of a task it was sent, a change made on the phone meanwhile was overwritten by the reader's. Now the list is read once more after such a sending, and changes on both sides are kept as before.
+
+- **The dictionary panel opens for very long words** (#486). A text of more than 4,096 bytes without a space kept the panel from opening; it is cut into lines now. One lookup provider that fails no longer hides those after it, and the indexing that could not plan its next step starts again at the next lookup instead of stalling.
+
+- **The browser opens a page that arrived** (#486). Where memory was short after a page arrived, the browser stayed at *Loading …*. Now a page without a readable title is named after its site, as in Beta 3, and what cannot be opened is said. The first bookmark no longer points to `https://.m.wikipedia.org/` where no language is set; it is the English Wikipedia then.
+
+- **Screens that end by themselves stay until you go back** (#486). The Wi-Fi phone setup, the Wi-Fi transfer's own network and the USB transfer tried to close their screen from a timer, which the reader does not allow there. The screen stayed, and after ten minutes without the phone the reader's own network could stay open with Wi-Fi on. Now the network closes, Wi-Fi goes back to how you left it, and the screen says the setup or the transfer ended until you press Back. The USB transfer's permission now really ends after five minutes without a request, as its screen says.
+
+- **Leaving a screen early closes the reader's own network** (#486). Going back from the Wi-Fi phone setup or the Wi-Fi transfer before the reader's own network was up left it open once it came up. Now it is closed.
+
+- **Saved networks and paired devices can be forgotten with the buttons** (#486). Only a long press on a touch screen forgot one. As in Beta 3, holding Select or the menu button forgets the saved Wi-Fi network or the Bluetooth device that has the focus, and the key bar says *Forget* there.
+
+- **A Wi-Fi password that is too long is refused on the phone** (#486). A password of more than 63 characters typed on the phone left the setup at *Connecting…* for good. Now the phone's page asks for it again and says why.
+
+- **The networks list stays open when Wi-Fi goes off** (#486). It tried to close itself, which failed. Now it says that Wi-Fi is off.
+
+- **Finding networks reads saved passwords only when they are needed** (#486). Every scan read every saved Wi-Fi password, even when no network was to be joined. Now they are read only while the reader joins a saved network by itself, and the networks in reach are read once per scan.
+
+- **Typing on the phone** (#486). Without Wi-Fi the phone's typing screen showed *Without a router*, which did nothing there; now it says that the device needs a Wi-Fi network, and only Back is on the key bar. Once the text has come from the phone, the screen says so until Back, instead of trying to close itself.
+
+- **The USB transfer's key bar names only Back** (#486), as in Beta 3.
+
+- **The Bluetooth sign is in the status line again** (#486). As in Beta 3, the Bluetooth status item shows while a device is connected, and a tap opens the Bluetooth page.
+
+- **Going back from adding a Bluetooth device stops the search** (#486). The search went on for up to 30 seconds, and a device still being paired stayed connected without its keys switched on. Now the search stops and the device is let go.
+
+- **The transfer's reasons are in your language** (#486). *The transfer could not start* and *The transfer stopped* gave the reason in English words in every language.
+
+- **Large folders list quickly in the Wi-Fi transfer** (#486). Each part of a folder's list read the folder from its start again, so a folder of a thousand books took many card reads. Now each part goes on where the one before ended.
+
+- **The own network's password is wiped** (#486). The Wi-Fi transfer's own network kept its password in the join code and in the text below it after the screen closed; both are wiped now.
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
