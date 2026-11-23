@@ -77,11 +77,10 @@ pub struct Dialog {
     shadow: u16,
     shade: Color,
     look: ButtonLook,
-    /// The fill of a button that is filled, and of the chosen one with its
-    /// label's ink.
+    /// The fill of a button that is filled.
     control: Color,
+    /// The ring round the chosen button.
     focus: Color,
-    on_focus: Color,
 }
 
 fn wrap(font: &Font<'_>, size: f32, paragraph: &str, inner: f32) -> Result<Vec<String>, Error> {
@@ -187,11 +186,6 @@ impl Dialog {
             look: style.button,
             control: style.control(),
             focus: style.roles.focus.unwrap_or(plate.ink),
-            on_focus: style.on(
-                style.roles.focus.unwrap_or(plate.ink),
-                style.roles.focus.is_some(),
-                plate.paper,
-            ),
         };
         if dialog.fitting_lines() < dialog.lines.len() {
             dialog.small_text = true;
@@ -546,7 +540,9 @@ impl Dialog {
         Ok(())
     }
 
-    /// The frame of a button (a fill or a line, or none) and the ink of its label.
+    /// The frame of a button (a fill or a line, or none), the ring round it
+    /// where it is chosen ([`crate::parts::button_ring`]), and the ink of its
+    /// label.
     fn paint_button(
         &self,
         paint: &mut Vec<Paint>,
@@ -554,23 +550,21 @@ impl Dialog {
         focused: bool,
         thickness: u32,
     ) -> Result<Color, Error> {
-        let (fill, ink) = if focused {
-            (Some(self.focus), self.on_focus)
-        } else if self.look == ButtonLook::Filled {
-            (Some(self.control), self.ink)
-        } else {
-            (None, self.ink)
-        };
-        match fill {
-            Some(color) => {
-                paint::push(paint, Paint::Focus(rect, self.radius, None, color))?;
+        match self.look {
+            ButtonLook::Filled => {
+                paint::push(paint, Paint::Focus(rect, self.radius, None, self.control))?;
             }
-            None if self.look == ButtonLook::Flat => {}
-            None => {
-                paint::push(paint, Paint::Focus(rect, self.radius, Some(thickness), ink))?;
-            }
+            ButtonLook::Flat => {}
+            _ => paint::push(
+                paint,
+                Paint::Focus(rect, self.radius, Some(thickness), self.ink),
+            )?,
         }
-        Ok(ink)
+        if focused {
+            let border = crate::parts::button_border(self.line);
+            crate::parts::button_ring(paint, rect, self.radius, border, self.focus)?;
+        }
+        Ok(self.ink)
     }
 
     /// The buttons, `focus` the focused one.
@@ -671,7 +665,6 @@ mod tests {
             look: ButtonLook::Outlined,
             control: Color::gray(230),
             focus: Color::BLACK,
-            on_focus: Color::WHITE,
         };
         dialog.lay_out(0).unwrap();
         dialog
@@ -849,36 +842,30 @@ mod tests {
     }
 
     #[test]
-    fn a_button_not_chosen_is_outlined_filled_or_flat_and_the_chosen_one_is_filled() {
+    fn a_button_is_outlined_filled_or_flat_and_the_chosen_one_ringed_a_border_off_it() {
         let style = Style::themed(Color::BLACK, Color::WHITE);
-        let rect = Rect::new(0, 0, 80, 40);
-        for (look, expect) in [
-            (
-                ButtonLook::Outlined,
-                alloc::format!("{:?}", [Paint::Focus(rect, 4, Some(2), Color::BLACK)]),
-            ),
-            (
-                ButtonLook::Filled,
-                alloc::format!("{:?}", [Paint::Focus(rect, 4, None, Color::gray(230))]),
-            ),
-            (
-                ButtonLook::Flat,
-                alloc::format!("{:?}", Vec::<Paint>::new()),
-            ),
-        ] {
+        let rect = Rect::new(10, 10, 80, 40);
+        let own = |look| match look {
+            ButtonLook::Filled => Some(Paint::Focus(rect, 4, None, Color::gray(230))),
+            ButtonLook::Flat => None,
+            _ => Some(Paint::Focus(rect, 4, Some(2), Color::BLACK)),
+        };
+        // As in Beta 3: the chosen one keeps its look, and a ring as thick as
+        // the outline goes round it with a gap as wide between them.
+        let ring = || Paint::Focus(Rect::new(6, 6, 88, 48), 8, Some(2), Color::BLACK);
+        for look in [ButtonLook::Outlined, ButtonLook::Filled, ButtonLook::Flat] {
             let d = framed(style.plate(Frame::Line), 0, look);
-            let mut paint = Vec::new();
-            let ink = d.paint_button(&mut paint, rect, false, 2).unwrap();
-            assert_eq!(alloc::format!("{paint:?}"), expect, "{look:?}");
-            assert_eq!(ink, Color::BLACK);
+            for focused in [false, true] {
+                let mut paint = Vec::new();
+                let ink = d.paint_button(&mut paint, rect, focused, 2).unwrap();
+                let expect: Vec<Paint> = own(look).into_iter().chain(focused.then(ring)).collect();
+                assert_eq!(
+                    alloc::format!("{paint:?}"),
+                    alloc::format!("{expect:?}"),
+                    "{look:?} focused {focused}"
+                );
+                assert_eq!(ink, Color::BLACK);
+            }
         }
-        let d = framed(style.plate(Frame::Line), 0, ButtonLook::Flat);
-        let mut paint = Vec::new();
-        let ink = d.paint_button(&mut paint, rect, true, 2).unwrap();
-        assert_eq!(
-            alloc::format!("{paint:?}"),
-            alloc::format!("{:?}", [Paint::Focus(rect, 4, None, Color::BLACK)])
-        );
-        assert_eq!(ink, Color::WHITE);
     }
 }

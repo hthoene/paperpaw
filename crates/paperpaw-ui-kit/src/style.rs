@@ -102,7 +102,7 @@ pub struct Plate {
     pub paper: Color,
 }
 
-/// How buttons that are not chosen look.
+/// How buttons look; the chosen one has a ring round it too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonLook {
     /// A line round the label, as they always were.
@@ -202,7 +202,7 @@ pub struct Style {
     /// The frame of sheets, dialogs and chips where the theme chose one for
     /// all (`core.ui-frame`); `None` leaves each its own.
     pub frame: Option<Frame>,
-    /// How buttons that are not chosen look (`core.ui-button`).
+    /// How buttons look (`core.ui-button`); the chosen one is ringed too.
     pub button: ButtonLook,
     /// The panel shows black and white alone: a card is a sparser pattern.
     pub mono: bool,

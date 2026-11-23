@@ -135,14 +135,12 @@ fn draw_router_button(
         ),
     )?;
     if focused {
-        paint::push(
+        paperpaw_ui_kit::parts::button_ring(
             ops,
-            Paint::Focus(
-                rect.inset(4, 4),
-                u32::from(rect.height / 2),
-                Some(u32::from(style.line)),
-                style.ink,
-            ),
+            rect,
+            u32::from(rect.height / 2),
+            paperpaw_ui_kit::parts::button_border(style.line),
+            style.ink,
         )?;
     }
     paint::describe_named(
