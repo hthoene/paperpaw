@@ -355,12 +355,60 @@ pub fn path(href: &str) -> &str {
     rest.get(..end).unwrap_or(rest)
 }
 
-/// The whole address an `href` of an answer from `base` means.
+/// The scheme, host and port of `url`, to compare: `None` where any of them
+/// is missing or in doubt, such as an address with a user name
+/// (`https://me@host/`). The port is filled in for `http` and `https`.
+fn server(url: &str) -> Option<(&str, &str, u16)> {
+    let (scheme, authority) = origin(url).split_once("://")?;
+    let doubtful = |c: char| matches!(c, '@' | '\\' | '%') || c.is_whitespace() || c.is_control();
+    if authority.contains(doubtful) {
+        return None;
+    }
+    // A colon inside `[…]` belongs to an IPv6 address, not the port.
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.contains(']') => (host, Some(port)),
+        _ => (authority, None),
+    };
+    let port = match (port, scheme) {
+        (Some(port), _) => port.parse().ok()?,
+        (None, s) if s.eq_ignore_ascii_case("http") => 80,
+        (None, s) if s.eq_ignore_ascii_case("https") => 443,
+        (None, _) => return None,
+    };
+    (!host.is_empty()).then_some((scheme, host, port))
+}
+
+/// Whether `a` and `b` are on the same server: the same scheme, host and
+/// port (letters in any case). `https` and `http` are never the same.
+#[must_use]
+pub fn same_origin(a: &str, b: &str) -> bool {
+    match (server(a), server(b)) {
+        (Some((s1, h1, p1)), Some((s2, h2, p2))) => {
+            s1.eq_ignore_ascii_case(s2) && h1.eq_ignore_ascii_case(h2) && p1 == p2
+        }
+        _ => false,
+    }
+}
+
+/// Whether `href` is a whole address on another server than `base`, or one
+/// without the `https` of `base`: [`resolve`] refuses it.
+#[must_use]
+pub fn foreign(base: &str, href: &str) -> bool {
+    !origin(href).is_empty() && !same_origin(base, href)
+}
+
+/// The whole address an `href` of an answer from `base` means. A whole
+/// address must be on the server of `base` (scheme, host and port): an answer
+/// cannot send the account's password to another server, nor without `https`.
 ///
 /// # Errors
-/// [`Error::NoMemory`]; [`Error::Invalid`] for a `base` that is no address.
+/// [`Error::NoMemory`]; [`Error::Invalid`] for a `base` that is no address;
+/// [`Error::Foreign`] for a whole address on another server.
 pub fn resolve(base: &str, href: &str) -> Result<String, Error> {
     let mut out = String::new();
+    if foreign(base, href) {
+        return Err(Error::Foreign);
+    }
     if !origin(href).is_empty() {
         push_str(&mut out, href)?;
         return Ok(out);
@@ -570,7 +618,10 @@ mod tests {
         assert_eq!(path("/dav/c/"), "/dav/c/");
         let base = "https://h/dav/home/";
         assert_eq!(resolve(base, "/dav/c/").unwrap(), "https://h/dav/c/");
-        assert_eq!(resolve(base, "http://other/x").unwrap(), "http://other/x");
+        assert_eq!(
+            resolve(base, "HTTPS://H:443/dav/c/").unwrap(),
+            "HTTPS://H:443/dav/c/"
+        );
         assert_eq!(resolve(base, "c/").unwrap(), "https://h/dav/home/c/");
         assert_eq!(resolve("https://h", "c/").unwrap(), "https://h/c/");
         assert_eq!(resolve("no address", "/x"), Err(Error::Invalid));
@@ -582,6 +633,18 @@ mod tests {
         assert!(same_path("/dav/%7Eanna/x.ics", "/dav/~anna/x.ics"));
         assert!(!same_path("/dav/a", "/dav/b"));
         assert!(same_path("/dav/100%/", "/dav/100%"));
+    }
+
+    #[test]
+    fn an_href_on_another_server_or_without_https_is_refused() {
+        let base = "https://h/dav/home/";
+        assert_eq!(resolve(base, "https://other/dav/c/"), Err(Error::Foreign));
+        assert_eq!(resolve(base, "http://h/dav/c/"), Err(Error::Foreign));
+        assert_eq!(resolve(base, "https://h:8443/dav/c/"), Err(Error::Foreign));
+        assert_eq!(resolve(base, "https://me@h/dav/c/"), Err(Error::Foreign));
+        assert_eq!(resolve(base, "https://h.other/dav/"), Err(Error::Foreign));
+        assert!(same_origin("http://[::1]:8080/a", "http://[::1]:8080/b"));
+        assert!(!same_origin("http://[::1]:8080/a", "http://[::1]/b"));
     }
 
     #[test]

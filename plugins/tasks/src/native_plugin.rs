@@ -1004,6 +1004,7 @@ impl NativeTasks {
             Outcome::Denied => say.copy(host, "tasks.sync.denied")?,
             Outcome::NotFound => say.copy(host, "tasks.sync.not-found")?,
             Outcome::NoLists => say.copy(host, "tasks.sync.no-lists")?,
+            Outcome::Foreign => say.copy(host, "tasks.sync.foreign")?,
             Outcome::Failed(status) => say.format(
                 host,
                 "tasks.sync.failed",

@@ -42,8 +42,8 @@ fn the_parts_of_an_address_are_told_apart() {
         "https://cloud.example.org/remote.php/dav/files/me/Photos/b.jpg"
     );
     assert_eq!(
-        resolve(BASE, "http://other/c.jpg").unwrap(),
-        "http://other/c.jpg"
+        resolve(BASE, "http://other/c.jpg"),
+        Err(paperpaw_sdk::native::Error::Denied)
     );
 }
 

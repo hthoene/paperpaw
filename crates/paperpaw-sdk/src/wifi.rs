@@ -89,19 +89,32 @@ impl core::fmt::Debug for WifiCommand {
 
 /// The text of a QR code that joins network `ssid` with `password`
 /// (WPA), as phones' cameras read it: `\`, `;`, `,`, `:` and `"` in them
-/// escaped.
+/// escaped. It is made in one string of the length it needs, so no other
+/// copy of the password is left behind; the caller wipes the text.
 pub fn join_code(ssid: &str, password: &str) -> String {
-    let escaped = |text: &str| {
-        let mut out = String::with_capacity(text.len());
-        for c in text.chars() {
-            if matches!(c, '\\' | ';' | ',' | ':' | '"') {
-                out.push('\\');
-            }
-            out.push(c);
+    const OPEN: &str = "WIFI:T:WPA;S:";
+    let escaped_len = |text: &str| text.len() + text.matches(JOIN_MARKS).count();
+    let mut out = String::with_capacity(
+        OPEN.len() + escaped_len(ssid) + ";P:".len() + escaped_len(password) + ";;".len(),
+    );
+    out.push_str(OPEN);
+    push_escaped(&mut out, ssid);
+    out.push_str(";P:");
+    push_escaped(&mut out, password);
+    out.push_str(";;");
+    out
+}
+
+/// The signs a join code escapes with a `\`.
+const JOIN_MARKS: [char; 5] = ['\\', ';', ',', ':', '"'];
+
+fn push_escaped(out: &mut String, text: &str) {
+    for c in text.chars() {
+        if JOIN_MARKS.contains(&c) {
+            out.push('\\');
         }
-        out
-    };
-    alloc::format!("WIFI:T:WPA;S:{};P:{};;", escaped(ssid), escaped(password))
+        out.push(c);
+    }
 }
 
 /// Where the radio is.
@@ -315,6 +328,10 @@ mod tests {
             join_code("PaperPaw X4", "acdef"),
             "WIFI:T:WPA;S:PaperPaw X4;P:acdef;;"
         );
+        // One string of just its length: no spare room, nothing grown out of.
+        let code = join_code("a;b", "pa:ss\\word");
+        assert_eq!(code, "WIFI:T:WPA;S:a\\;b;P:pa\\:ss\\\\word;;");
+        assert_eq!(code.capacity(), code.len());
         assert_eq!(
             join_code(r#"Hannes; "Reader": 2"#, r"a,b\c"),
             r#"WIFI:T:WPA;S:Hannes\; \"Reader\"\: 2;P:a\,b\\c;;"#
