@@ -184,8 +184,12 @@ fn flush(volume: &dyn Volume, temp: &str, part: &str, first: bool) -> Result<(),
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Last {
     /// When the last run ended that synced every pair, Unix seconds (0:
-    /// never): the widget's *Last sync*, and what an automatic sync waits from.
+    /// never): the widget's *Last sync*.
     pub time: i64,
+    /// When the last run ended, whether it synced every pair or not, Unix
+    /// seconds (0: not known): what an automatic sync waits from, so that a
+    /// pair that keeps failing does not start a sync at every network.
+    pub tried: i64,
     /// Files fetched and sent.
     pub down: u32,
     pub up: u32,
@@ -202,13 +206,14 @@ pub struct Last {
 const LAST: &str = "last.txt";
 
 impl Last {
-    /// What a run that ended says: its totals, the card's `pending` changes,
-    /// and `synced` as its time where it synced every pair. A run that failed
-    /// keeps the time of the last one that did not.
+    /// What a run that ended at `now` says: its totals, the card's `pending`
+    /// changes, and `now` as its time where it synced every pair (`all`). A
+    /// run that failed keeps the time of the last one that did not.
     #[must_use]
-    pub fn ended(self, total: Totals, pending: u32, synced: Option<i64>) -> Self {
+    pub fn ended(self, total: Totals, pending: u32, now: Option<i64>, all: bool) -> Self {
         Self {
-            time: synced.unwrap_or(self.time),
+            time: now.filter(|_| all).unwrap_or(self.time),
+            tried: now.unwrap_or(self.tried),
             down: total.down,
             up: total.up,
             deleted: total.deleted,
@@ -232,6 +237,7 @@ impl Last {
             let n = value.parse().unwrap_or(0);
             match key {
                 "time" => last.time = n,
+                "tried" => last.tried = n,
                 "down" => last.down = u32::try_from(n).unwrap_or(0),
                 "up" => last.up = u32::try_from(n).unwrap_or(0),
                 "deleted" => last.deleted = u32::try_from(n).unwrap_or(0),
@@ -244,14 +250,22 @@ impl Last {
         last
     }
 
+    /// What an automatic sync waits from: the last run's end, else (a
+    /// summary kept before runs were told apart) the last sync's.
+    #[must_use]
+    pub fn waits_from(&self) -> i64 {
+        self.time.max(self.tried)
+    }
+
     /// Keeps it.
     ///
     /// # Errors
     /// What writing says; [`Error::NoMemory`].
     pub fn write(&self, volume: &dyn Volume) -> Result<(), Error> {
         let text = format(format_args!(
-            "time={}\ndown={}\nup={}\ndeleted={}\nconflicts={}\nerrors={}\npending={}\n",
+            "time={}\ntried={}\ndown={}\nup={}\ndeleted={}\nconflicts={}\nerrors={}\npending={}\n",
             self.time.max(0),
+            self.tried.max(0),
             self.down,
             self.up,
             self.deleted,
@@ -370,6 +384,7 @@ mod tests {
         assert_eq!(Last::read(&volume), Last::default());
         let last = Last {
             time: 1_700_000_000,
+            tried: 1_700_000_100,
             down: 3,
             up: 2,
             deleted: 1,
@@ -394,12 +409,48 @@ mod tests {
             errors: 2,
             ..Default::default()
         };
-        let failed = synced.ended(total, 3, None);
+        let failed = synced.ended(total, 3, Some(1_700_005_000), false);
         assert_eq!(failed.time, 1_700_000_000);
         assert_eq!((failed.errors, failed.pending), (2, 3));
         assert_eq!(
-            failed.ended(total, 0, Some(1_700_009_000)).time,
+            failed.ended(total, 0, Some(1_700_009_000), true).time,
             1_700_009_000
         );
+    }
+
+    /// An automatic sync waits from the last run, also one that failed: a
+    /// pair that keeps failing (a wrong password, a folder too full) starts
+    /// no sync at every network, as it did once only the time of a run that
+    /// went through was kept (#486).
+    #[test]
+    fn an_automatic_sync_waits_from_a_run_that_failed_too() {
+        use crate::native_when::{Policy, Trigger, due};
+        let total = crate::native_sync::Totals {
+            errors: 1,
+            ..Default::default()
+        };
+        let failed = Last::default().ended(total, 0, Some(1_700_000_000), false);
+        assert_eq!(failed.time, 0, "never synced");
+        let volume = Mem::default();
+        failed.write(&volume).unwrap();
+        let kept = Last::read(&volume);
+        let hour_later = Some(1_700_003_600);
+        assert!(!due(
+            Policy::Online,
+            Trigger::Network,
+            kept.waits_from(),
+            hour_later
+        ));
+        // A summary kept before runs were told apart waits from its sync.
+        let old = Last {
+            time: 1_700_000_000,
+            ..Last::default()
+        };
+        assert!(!due(
+            Policy::Online,
+            Trigger::Network,
+            old.waits_from(),
+            hour_later
+        ));
     }
 }
