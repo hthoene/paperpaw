@@ -599,20 +599,9 @@ pub(super) fn build_group(
     };
     // Everything is made aside; the view changes once it is whole, so a
     // refusal leaves the rows and the items they belong to as they were.
-    // A number being changed stays on its setting's row, wherever it is now.
-    let editing = view.editing.as_ref().and_then(|e| {
-        let row = rows.iter().position(|r| {
-            matches!(r, Row::Setting(at) if entries.get(*at).is_some_and(|en| en.setting.key == e.key))
-        })?;
-        Some((row, e.now))
-    });
+    let editing = editing_row(view, (&rows, &entries));
     let items = view.items_for(host, (&rows, &entries), editing)?;
-    let focus = rows.iter().position(|r| match r {
-        Row::Setting(at) => entries
-            .get(*at)
-            .is_some_and(|e| e.setting.key == view.focus),
-        _ => false,
-    });
+    let focus = row_of((&rows, &entries), &view.focus);
     let first_setting = (view.rows.is_empty())
         .then(|| first_real_setting(&group, &rows))
         .flatten();
@@ -622,16 +611,7 @@ pub(super) fn build_group(
     view.rows = rows;
     view.entries = entries;
     view.list.replace(items);
-    match (editing, view.editing.as_mut()) {
-        (Some((row, _)), Some(kept)) => kept.row = row,
-        // Its setting is no longer on the page: the value kept stays.
-        (None, Some(_)) => {
-            view.editing = None;
-            CommandSender::new(host, &mut [0; 64]).end_preview()?;
-            super::edit_hints(host, false);
-        }
-        _ => {}
-    }
+    settle_editing(host, view, editing)?;
     if view.preview.is_some() {
         view.list
             .set_head(&messages.copy(host, "settings.preview")?)?;
@@ -643,6 +623,43 @@ pub(super) fn build_group(
         view.focus = String::new();
     } else if let Some(at) = first_setting {
         view.list.set_focus(at);
+    }
+    Ok(())
+}
+
+/// Where the number being changed is on the page made anew (`rows`), with the
+/// value shown: it stays on its setting's row, wherever that is now.
+fn editing_row(view: &GroupView, page: (&[Row], &[Entry])) -> Option<(usize, i64)> {
+    let editing = view.editing.as_ref()?;
+    Some((row_of(page, &editing.key)?, editing.now))
+}
+
+/// The row of `rows` that shows setting `key`.
+fn row_of((rows, entries): (&[Row], &[Entry]), key: &str) -> Option<usize> {
+    rows.iter().position(
+        |r| matches!(r, Row::Setting(at) if entries.get(*at).is_some_and(|e| e.setting.key == key)),
+    )
+}
+
+/// Keeps the number being changed on the row `editing` found; where its
+/// setting is no longer on the page, the value kept stays (the preview and
+/// the keys' names end).
+///
+/// # Errors
+/// The host's refusal to end the preview.
+fn settle_editing(
+    host: &Host<'_>,
+    view: &mut GroupView,
+    editing: Option<(usize, i64)>,
+) -> Result<(), Error> {
+    match (editing, view.editing.as_mut()) {
+        (Some((row, _)), Some(kept)) => kept.row = row,
+        (None, Some(_)) => {
+            view.editing = None;
+            CommandSender::new(host, &mut [0; 64]).end_preview()?;
+            super::edit_hints(host, false);
+        }
+        _ => {}
     }
     Ok(())
 }

@@ -308,25 +308,21 @@ impl View {
         let (Ok(mut input), Ok(mut out)) = (buffer(256), buffer(4096)) else {
             return Err(fail(Error::NoMemory));
         };
-        let sections = match docs.metadata(host, id, &mut input, &mut out) {
-            Ok(meta) => (
-                meta.sections().max(1),
-                // The path stands for a title the format does not give.
-                text::copy(native_place::title_of(meta.title(), &found.path)),
-                book_language(host, meta.language()),
-                crate::native_script_hint::declared(meta.language()),
-                meta.right_to_left(),
-            ),
-            Err(Error::NoMemory) => return Err(fail(Error::NoMemory)),
-            Err(_) => {
+        let facts = match book_facts(host, docs, id, &found.path, (&mut input, &mut out)) {
+            Ok(Some(facts)) => facts,
+            Ok(None) => {
                 fail(Error::Invalid);
                 return Ok(Self::message("reader.error"));
             }
+            Err(error) => return Err(fail(error)),
         };
-        let (sections, title, language, script, rtl) = sections;
-        let (Ok(title), Ok(language)) = (title, language) else {
-            return Err(fail(Error::NoMemory));
-        };
+        let BookFacts {
+            sections,
+            title,
+            language,
+            script,
+            rtl,
+        } = facts;
         // The place the hand-over names, if the book has it; else the place
         // saved last time; else the start (a page number needs the page index:
         // `PORTING-7.md`).
@@ -1426,7 +1422,7 @@ mod script_hint;
 mod setup;
 mod skim;
 pub(crate) use handover::{Handover, read_handover};
-use helpers::{book_language, document_error_kind, redraw, say};
+use helpers::{BookFacts, book_facts, document_error_kind, redraw, say};
 use preparing::{Preparing, open_request, publisher_styles};
 use setup::{Kept, LayoutKey, Setup, flag, integer};
 pub use skim::Place as SkimPlace;

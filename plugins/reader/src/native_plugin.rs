@@ -363,6 +363,23 @@ impl NativeReader {
         self.skims.open(instance, view)
     }
 
+    /// *Skim book*: the bar opens on where the book is, which *Return* goes
+    /// back to.
+    fn skim_book(&mut self, host: &Host<'_>) -> Result<Handled, Error> {
+        let Some(ui) = &self.ui else {
+            return Ok(Handled::No);
+        };
+        let view = self.screens.top(SCREEN);
+        self.skim_began = view.as_ref().and_then(|view| view.place());
+        let place = match view {
+            Some(view) => view.skim_place(host)?.unwrap_or_default(),
+            None => crate::native_view::SkimPlace::default(),
+        };
+        let shown = (place.label.as_str(), place.chapter.as_str());
+        native_skim_view::show(host, ui, (shown.0, shown.1, &place.permille, ""))?;
+        Ok(Handled::Yes)
+    }
+
     /// An input of the skim screen. The move it asks for is the reading
     /// screen's: it is carried out there, and the skim screen shows where the
     /// book is now. *Page number* asks for it as `reader.go-to-page` does.
@@ -1391,18 +1408,8 @@ impl Plugin for NativeReader {
                     ..
                 }
             )
-            && let Some(ui) = &self.ui
         {
-            // The bar opens on where the book is, which *Return* goes back to.
-            let view = self.screens.top(SCREEN);
-            self.skim_began = view.as_ref().and_then(|view| view.place());
-            let place = match view {
-                Some(view) => view.skim_place(host)?.unwrap_or_default(),
-                None => crate::native_view::SkimPlace::default(),
-            };
-            let shown = (place.label.as_str(), place.chapter.as_str());
-            native_skim_view::show(host, ui, (shown.0, shown.1, &place.permille, ""))?;
-            return Ok(Handled::Yes);
+            return self.skim_book(host);
         }
         if token == FOOTNOTE {
             let Some(note) = self.notes.top(token) else {
