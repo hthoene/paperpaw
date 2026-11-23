@@ -888,7 +888,7 @@ impl LibQuery for Fake {
         self.note(std::format!("query {}{archive}", describe(q)));
         self.page(q.cursor, q.generation, visit)
     }
-    fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+    fn book(&self, book: BookRef<'_>, _: &dyn BookFormats, visit: One<'_>) -> Result<(), i32> {
         self.note(std::format!("book {book:?}"));
         self.deal(visit)
     }

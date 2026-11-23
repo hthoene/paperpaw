@@ -6,7 +6,7 @@
 //! dispatcher lends (`page`): nothing is allocated, no call keeps anything.
 //! An unknown book is the host's `ERR_NOT_FOUND`, a stale generation its
 //! `ERR_STATE`; both pass through.
-use super::{BookRef, Caller, ServiceOp, args};
+use super::{BookFormats, BookRef, Caller, ServiceOp, args};
 use crate::abi7::context::Frame;
 use crate::abi7::context::RowsEnd;
 use crate::native_host::lib_cover::CoverCx;
@@ -53,8 +53,13 @@ pub(crate) trait LibQuery {
     ) -> Result<RowsEnd, i32> {
         Err(ERR_UNSUPPORTED)
     }
-    /// Op 3: one `lib_book`.
-    fn book(&self, _book: BookRef<'_>, _visit: One<'_>) -> Result<(), i32> {
+    /// Op 3: one `lib_book`; its `format` is the one `formats` names.
+    fn book(
+        &self,
+        _book: BookRef<'_>,
+        _formats: &dyn BookFormats,
+        _visit: One<'_>,
+    ) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
     }
     /// Op 3's lookup for `lib_book.flags` bit 8 `missing`: whether the book's
@@ -201,7 +206,7 @@ pub(super) fn run(
         op::STATE => state(host, input, out),
         op::QUERY | op::FACETS => catalog(frame, host, op.id, rows, input, out),
         op::BOOK | op::NEXT_IN_SERIES | op::POSITION | op::BOOK_KEY => {
-            book_alone(host, op.id, input, out)
+            book_alone(host, &super::Declared(frame), op.id, input, out)
         }
         op::TEXT => text(host, input, out),
         op::COVER => cover(host, who, cx, input, out),
@@ -297,13 +302,14 @@ fn catalog(
 /// Ops 3, 6, 13, 25: `lib_ref` alone.
 fn book_alone(
     host: &dyn super::LibHost,
+    formats: &dyn BookFormats,
     id: u32,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let (book, _) = named(host, input, 0)?;
     match id {
-        op::BOOK => lib_book(host, book, out),
+        op::BOOK => lib_book(host, formats, book, out),
         op::NEXT_IN_SERIES => page::one(
             out,
             |visit| host.next_in_series(book, visit),
@@ -429,12 +435,17 @@ const BOOK_MISSING: u32 = 1 << 8;
 /// Op 3: the catalog's `lib_book` with bit 8 `missing` set by the host's own
 /// lookup (the catalog does not decide it; a plugin needs no `uses.storage`
 /// to tell a gone book).
-fn lib_book(host: &dyn super::LibHost, book: BookRef<'_>, out: &mut [u8]) -> Result<usize, i32> {
+fn lib_book(
+    host: &dyn super::LibHost,
+    formats: &dyn BookFormats,
+    book: BookRef<'_>,
+    out: &mut [u8],
+) -> Result<usize, i32> {
     let mut failed = None;
     let result = page::one(
         out,
         |visit| {
-            host.book(book, &mut |record| match record {
+            host.book(book, formats, &mut |record| match record {
                 Record::ServiceLibBook(mut row) => match host.book_file_present(row.path) {
                     Ok(present) => {
                         row.flags &= !BOOK_MISSING;

@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture refusal must fail the test")]
 use super::{NORMAL, arm_failure, reset};
 use crate::native_host::lib_reads::CatalogReads;
+use crate::native_host::lib_reads::tests::Epub;
 use crate::native_host::lib_reads::tests::{Card, annotation_file, card, put_annotations};
 use crate::native_host::lib_service::{BookRef, LibQuery};
 use crate::native_host::registrations::{self as wire, Record};
@@ -92,7 +93,7 @@ fn every_allocation_of_a_catalog_read_refuses_cleanly() {
         ),
         sweep(
             |reads, seen| {
-                reads.book(by_path, &mut |record| {
+                reads.book(by_path, &Epub, &mut |record| {
                     let Record::ServiceLibBook(b) = record else {
                         panic!()
                     };
@@ -110,7 +111,7 @@ fn every_allocation_of_a_catalog_read_refuses_cleanly() {
         ),
         sweep(
             |reads, seen| {
-                reads.book(by_key, &mut |record| {
+                reads.book(by_key, &Epub, &mut |record| {
                     let Record::ServiceLibBook(b) = record else {
                         panic!()
                     };
@@ -273,7 +274,7 @@ fn the_heap_one_catalog_read_holds_at_its_most_is_small() {
     };
     let peaks = [
         peak(|r| r.state(&mut |_| ()).unwrap(), &card),
-        peak(|r| r.book(path, &mut |_| ()).unwrap(), &card),
+        peak(|r| r.book(path, &Epub, &mut |_| ()).unwrap(), &card),
         peak(|r| r.text(path, &ask, &mut |_| ()).unwrap(), &card),
         peak(
             |r| {
