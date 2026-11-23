@@ -326,15 +326,17 @@ impl<'h, 'cb> DataStorage<'h, 'cb> {
 }
 
 /// The host's refusal as a storage error. A refused allocation is
-/// `OutOfMemory` (never `Other(1)`, the card taken out). NoSpace is a path
-/// over its caps: the data goes in pieces that fit, so it never is the data,
-/// and a full card is `Full`.
+/// `OutOfMemory` (never `Other(1)`, the card taken out). `Denied` is a change
+/// in a read-only root: `Unsupported`. NoSpace is a path over its caps: the
+/// data goes in pieces that fit, so it never is the data, and a full card is
+/// `Full`. `paperpaw_ui_kit::storage` is the same for the plugins' own
+/// storages (#492): change both together.
 fn storage_error(error: Error) -> StorageError {
     match error {
         Error::NotFound => StorageError::NotFound,
         Error::Full => StorageError::Full,
-        Error::Unsupported => StorageError::Unsupported,
-        Error::Invalid | Error::NoSpace => StorageError::InvalidPath,
+        Error::Unsupported | Error::Denied => StorageError::Unsupported,
+        Error::Invalid | Error::NoSpace | Error::Utf8 => StorageError::InvalidPath,
         Error::NoMemory => StorageError::OutOfMemory,
         _ => StorageError::Io,
     }
