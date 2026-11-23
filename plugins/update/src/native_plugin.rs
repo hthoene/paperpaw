@@ -368,7 +368,7 @@ impl NativeUpdate {
 
     /// The page opened: what there is now, kept as its state. In a frame of
     /// its own: the page made here would otherwise sit in the frame of every
-    /// event (over the C3's 2,047 B with `Screens` of two lists, #4954).
+    /// event (2,096 B on the C3, over its 2,047 B, #4954).
     #[inline(never)]
     fn opened(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         self.anyway = false;

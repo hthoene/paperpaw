@@ -8,20 +8,28 @@ use paperpaw_sdk::native::{Error, ui::Instance};
 /// plugins never reach this list.
 #[derive(Debug)]
 pub struct Screens<V> {
-    /// The open instances, each at the place of its state in `views`: the
-    /// lookups read only these, so their code is the same for every plugin's
-    /// views and is in the program once.
-    ids: Vec<Instance>,
-    views: Vec<V>,
+    /// The open instances with their states, in one list: one allocation
+    /// per plugin, not two (a list of the instances beside one of the
+    /// states cost the X4's reading about 1 KiB more heap, #4954).
+    open: Vec<Slot<V>>,
     /// The top instance of each screen token.
     tops: Vec<(u32, Instance)>,
+}
+
+/// An open instance and its state. `repr(C)` with the instance first: every
+/// slot starts with its instance, so the lookups read the list without
+/// knowing `V` (see [`place`]).
+#[derive(Debug)]
+#[repr(C)]
+struct Slot<V> {
+    instance: Instance,
+    view: V,
 }
 
 impl<V> Default for Screens<V> {
     fn default() -> Self {
         Self {
-            ids: Vec::new(),
-            views: Vec::new(),
+            open: Vec::new(),
             tops: Vec::new(),
         }
     }
@@ -30,10 +38,37 @@ impl<V> Default for Screens<V> {
 // The lookups are called from many places of every plugin: each is one
 // function, not code at every call (#493).
 
-/// Where `instance` is among `ids`.
+/// Where `instance` is among the `len` instances that start every `stride`
+/// bytes from `first`.
+///
+/// # Safety
+/// `first` points to `len` initialised [`Instance`]s, `stride` bytes apart,
+/// each aligned for it.
 #[inline(never)]
-fn place(ids: &[Instance], instance: Instance) -> Option<usize> {
-    ids.iter().position(|i| *i == instance)
+unsafe fn place_in(
+    first: *const u8,
+    stride: usize,
+    len: usize,
+    instance: Instance,
+) -> Option<usize> {
+    // SAFETY: the caller's contract: `at * stride` is the place of an
+    // aligned, initialised instance for every `at` below `len`.
+    (0..len).position(|at| unsafe { first.add(at * stride).cast::<Instance>().read() } == instance)
+}
+
+/// Where `instance` is among `open`.
+fn place<V>(open: &[Slot<V>], instance: Instance) -> Option<usize> {
+    // SAFETY: `Slot` is `repr(C)` with the instance first, so every slot of
+    // the slice starts with an aligned, initialised `Instance`, the size of
+    // a slot apart.
+    unsafe {
+        place_in(
+            open.as_ptr().cast(),
+            core::mem::size_of::<Slot<V>>(),
+            open.len(),
+            instance,
+        )
+    }
 }
 
 /// The instance on top for `token` in `tops`.
@@ -42,23 +77,10 @@ fn top_of(tops: &[(u32, Instance)], token: u32) -> Option<Instance> {
     tops.iter().find(|(t, _)| *t == token).map(|(_, i)| *i)
 }
 
-/// Where the instance on top for `token` is among `ids`.
+/// Forgets `instance` in `tops`.
 #[inline(never)]
-fn top_place(ids: &[Instance], tops: &[(u32, Instance)], token: u32) -> Option<usize> {
-    place(ids, top_of(tops, token)?)
-}
-
-/// Forgets `instance` in `ids` and `tops`: where its state was, if it was open.
-#[inline(never)]
-fn forget(
-    ids: &mut Vec<Instance>,
-    tops: &mut Vec<(u32, Instance)>,
-    instance: Instance,
-) -> Option<usize> {
+fn forget_top(tops: &mut Vec<(u32, Instance)>, instance: Instance) {
     tops.retain(|(_, i)| *i != instance);
-    let at = place(ids, instance)?;
-    ids.remove(at);
-    Some(at)
 }
 
 /// Notes in `tops` that `instance` is on top for `token`.
@@ -84,21 +106,18 @@ impl<V> Screens<V> {
             *old = view;
             return Ok(());
         }
-        // Both lists have room before either grows: they stay in step.
-        self.ids.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
         // Exact growth: a view can be a kilobyte, and a plugin has one or two open.
-        crate::mem::push(&mut self.views, view)?;
-        self.ids.push(instance);
-        Ok(())
+        crate::mem::push(&mut self.open, Slot { instance, view })
     }
 
     /// Forgets a closed instance.
     #[inline(never)]
     pub fn close(&mut self, instance: Instance) {
-        if let Some(at) = forget(&mut self.ids, &mut self.tops, instance) {
+        forget_top(&mut self.tops, instance);
+        if let Some(at) = place(&self.open, instance) {
             // Dropped where it is: `Vec::remove` would return it, a copy of
             // the view (up to a kilobyte) on the stack.
-            self.views.drain(at..=at);
+            self.open.drain(at..=at);
         }
     }
 
@@ -112,8 +131,7 @@ impl<V> Screens<V> {
 
     /// The state of the top instance of `token`'s screen.
     pub fn top(&mut self, token: u32) -> Option<&mut V> {
-        let at = top_place(&self.ids, &self.tops, token)?;
-        self.views.get_mut(at)
+        self.get(top_of(&self.tops, token)?)
     }
 
     /// The instance on top for `token`'s screen.
@@ -124,24 +142,26 @@ impl<V> Screens<V> {
 
     /// The state of `instance`.
     pub fn get(&mut self, instance: Instance) -> Option<&mut V> {
-        let at = place(&self.ids, instance)?;
-        self.views.get_mut(at)
+        let at = place(&self.open, instance)?;
+        self.open.get_mut(at).map(|slot| &mut slot.view)
     }
 
     /// Every open instance's state.
     pub fn all(&mut self) -> impl Iterator<Item = &mut V> {
-        self.views.iter_mut()
+        self.open.iter_mut().map(|slot| &mut slot.view)
     }
 
     /// Every open instance with its state.
     pub fn all_with_instance(&mut self) -> impl Iterator<Item = (Instance, &mut V)> {
-        self.ids.iter().copied().zip(self.views.iter_mut())
+        self.open
+            .iter_mut()
+            .map(|slot| (slot.instance, &mut slot.view))
     }
 
     /// Whether no instance is open.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.ids.is_empty()
+        self.open.is_empty()
     }
 }
 
