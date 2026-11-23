@@ -25,7 +25,7 @@ use paperpaw_ui_kit::{
 };
 
 use crate::native_page::{LIBRARY, book_extensions};
-use crate::native_web::Card;
+use crate::native_web::{Card, Place, Take};
 
 /// Pages of a folder read at most (32 entries each): well over a folder of
 /// thousands of books.
@@ -159,12 +159,8 @@ impl Card for HostCard<'_, '_> {
         }
     }
 
-    fn list(
-        &mut self,
-        dir: &str,
-        take: &mut dyn FnMut(&str, bool, u64) -> Result<bool, Error>,
-    ) -> Result<(), Error> {
-        let mut cursor = 0;
+    fn list(&mut self, dir: &str, from: Place, take: &mut Take<'_>) -> Result<(), Error> {
+        let (mut cursor, mut skip) = (from.page, from.skip);
         for _ in 0..MOST_PAGES {
             let page = self.files.list(
                 self.host,
@@ -174,12 +170,19 @@ impl Card for HostCard<'_, '_> {
                 &mut self.input,
                 &mut self.out,
             )?;
-            for entry in page.entries() {
+            for (index, entry) in page.entries().enumerate().skip(skip) {
+                let place = Place {
+                    page: cursor,
+                    skip: index,
+                };
                 // Named in no path: not reachable by any request.
-                if !entry.unaddressable() && !take(entry.name(), entry.is_folder(), entry.size())? {
+                if !entry.unaddressable()
+                    && !take(place, entry.name(), entry.is_folder(), entry.size())?
+                {
                     return Ok(());
                 }
             }
+            skip = 0;
             match page.next() {
                 Some(next) => cursor = next,
                 None => break,

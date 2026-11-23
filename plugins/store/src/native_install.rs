@@ -213,13 +213,13 @@ impl Installer {
                 .unwrap_or_default();
         if let Err(error) = wire.install(request, &staged.folder, update, allow_older, &proof) {
             discard(wire.storage(), &staged.folder);
-            download.set_step(Step::Failed(Failure::Card));
+            download.set_step(Step::Failed(Failure::Refused));
             // No memory is the caller's to hear; any other refusal is the
             // host's word that the install cannot start.
             return if error == Error::NoMemory {
                 Err(error)
             } else {
-                Ok(Step::Failed(Failure::Card))
+                Ok(Step::Failed(Failure::Refused))
             };
         }
         self.going = Some(Going {

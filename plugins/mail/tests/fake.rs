@@ -60,6 +60,11 @@ pub struct Script {
     /// Parts of messages the server gives for `UID FETCH uid BODY.PEEK[part]`:
     /// (uid, part number, bytes).
     pub parts: Vec<(u32, String, Vec<u8>)>,
+    /// The folders are read-only: a `UID STORE` is refused.
+    pub read_only: bool,
+    /// SMTP: what the server says to `QUIT` (`221 bye` where `None`) before
+    /// it hangs up.
+    pub smtp_quit: Option<String>,
 }
 
 impl Default for Script {
@@ -83,6 +88,8 @@ impl Default for Script {
             ],
             refuse_rcpt: None,
             parts: Vec::new(),
+            read_only: false,
+            smtp_quit: None,
         }
     }
 }
@@ -427,8 +434,12 @@ impl Fake {
         } else if upper.starts_with("UID STORE") {
             let words: Vec<&str> = rest.split(' ').collect();
             let uid: u32 = words[2].parse().unwrap();
-            self.flags.push((uid, rest.to_string()));
-            self.say(&format!("{tag} OK stored\r\n"));
+            if self.script.read_only {
+                self.say(&format!("{tag} NO [READ-ONLY] the folder is read-only\r\n"));
+            } else {
+                self.flags.push((uid, rest.to_string()));
+                self.say(&format!("{tag} OK stored\r\n"));
+            }
         } else if upper == "LOGOUT" {
             self.say(&format!("* BYE bye\r\n{tag} OK logged out\r\n"));
             self.closed = true;
@@ -509,7 +520,8 @@ impl Fake {
             self.in_data = Some(Vec::new());
             self.say("354 go\r\n");
         } else if upper == "QUIT" {
-            self.say("221 bye\r\n");
+            let goodbye = self.script.smtp_quit.clone();
+            self.say(goodbye.as_deref().unwrap_or("221 bye\r\n"));
             self.closed = true;
         } else {
             self.say("500 what\r\n");

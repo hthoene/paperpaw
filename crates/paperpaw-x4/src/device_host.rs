@@ -128,8 +128,6 @@ pub struct X4Device {
     identity: Identity,
     /// How this start came about (`dev_device.start`).
     start: Cell<u32>,
-    /// How long the device slept before it woke, where known.
-    slept_ms: Cell<Option<u64>>,
     /// The plugin crates the image carries; `None` for an image without a list.
     built_in: Option<Plugins>,
     slots: [Option<Slot>; MAX_VALUES as usize],
@@ -167,7 +165,6 @@ impl X4Device {
         Self {
             identity,
             start: Cell::new(0),
-            slept_ms: Cell::new(None),
             built_in: Plugins::read_static(list),
             slots,
             own: Cell::new(None),
@@ -328,11 +325,6 @@ impl X4Device {
         self.start.set(start);
     }
 
-    /// How long the device slept before it woke.
-    pub fn set_slept_ms(&self, slept_ms: Option<u64>) {
-        self.slept_ms.set(slept_ms);
-    }
-
     /// The reading `name` (one of [`Identity::values`]), `None` where it
     /// cannot be read now. False where the identity names no such reading.
     pub fn set_value(&self, name: &str, value: Option<i64>) -> bool {
@@ -356,7 +348,8 @@ impl DeviceHost for X4Device {
             controls: this.controls,
             tls_sessions: this.tls_sessions,
             start: self.start.get(),
-            slept_ms: self.slept_ms.get(),
+            // The kernel took the time asleep itself (`KernelHost::device`).
+            slept_ms: None,
         });
         Ok(())
     }
@@ -599,7 +592,6 @@ mod tests {
     fn the_device_says_what_the_firmware_is() {
         let device = device(&[]);
         device.set_start(2);
-        device.set_slept_ms(Some(9_000));
         let mut seen = None;
         device
             .device(&mut |facts| {
@@ -621,7 +613,7 @@ mod tests {
             ("xteink-x4", "x4", 0)
         );
         assert_eq!(caps_seen, identity().caps);
-        assert_eq!((controls, tls, start, slept), (0b111, 1, 2, Some(9_000)));
+        assert_eq!((controls, tls, start, slept), (0b111, 1, 2, None));
     }
 
     /// The caps name exactly the parts that are answered: Wi-Fi, Bluetooth

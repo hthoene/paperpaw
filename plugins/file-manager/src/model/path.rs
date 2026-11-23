@@ -2,9 +2,9 @@
 //! slash, `""` for the top of the storage.
 
 use alloc::string::String;
-use paperpaw_sdk::Storage;
+use paperpaw_sdk::{Storage, StorageError};
 
-use super::Error;
+use super::{Disk, Error, error_of};
 
 /// The last segment.
 #[must_use]
@@ -88,10 +88,10 @@ pub fn is_within(storage: &dyn Storage, path: &str, dir: &str) -> bool {
             .all(|d| parts.next().is_some_and(|p| same_name(storage, p, d)))
 }
 
-/// Whether `path` is a folder: there is no file by that name, and it lists.
+/// Whether `path` is a folder; not where the storage cannot tell.
 #[must_use]
-pub fn is_dir(storage: &dyn Storage, path: &str) -> bool {
-    !storage.exists(path) && storage.list(path, &mut |_| {}).is_ok()
+pub fn is_dir(storage: &dyn Disk, path: &str) -> bool {
+    matches!(storage.is_folder(path), Ok(true))
 }
 
 /// The most names tried for a free one before the one after the last is taken.
@@ -102,11 +102,16 @@ const FREE_NAMES: u32 = 1 << 16;
 /// beside `name`. One buffer is reused for every name tried.
 ///
 /// # Errors
-/// [`Error::NoMemory`].
-pub fn free_path(storage: &dyn Storage, dir: &str, name: &str) -> Result<String, Error> {
+/// [`Error::NoMemory`]; the storage's error where it cannot tell whether a
+/// name is taken (no more names are tried then).
+pub fn free_path(storage: &dyn Disk, dir: &str, name: &str) -> Result<String, Error> {
     let mut path = join(dir, name)?;
-    let taken = |path: &str| storage.exists(path) || is_dir(storage, path);
-    if !taken(&path) {
+    let taken = |path: &str| match storage.is_folder(path) {
+        Ok(_) => Ok(true),
+        Err(StorageError::NotFound) => Ok(false),
+        Err(error) => Err(error_of(error)),
+    };
+    if !taken(&path)? {
         return Ok(path);
     }
     let (stem, ext) = match name.rsplit_once('.') {
@@ -124,7 +129,7 @@ pub fn free_path(storage: &dyn Storage, dir: &str, name: &str) -> Result<String,
         join_into(&mut path, dir, &candidate)?;
         // Past them, only a storage that says everything is there: the name
         // after the last.
-        if n == FREE_NAMES + 1 || !taken(&path) {
+        if n == FREE_NAMES + 1 || !taken(&path)? {
             return Ok(path);
         }
     }

@@ -266,3 +266,49 @@ fn broken_gpt_headers_find_no_volume() {
     disk.0.borrow_mut()[BLOCK] = b'X';
     assert_eq!(BlockDisk::volume(disk).err(), Some(VolumeError::NoFat));
 }
+
+/// A card that answers `reads` block reads, then none (a glitch on its
+/// bus).
+struct Glitching {
+    disk: Disk,
+    reads: u32,
+}
+
+impl Blocks for Glitching {
+    fn read_block(&mut self, index: u32, block: &mut [u8; BLOCK]) -> Result<(), DiskError> {
+        self.reads = self.reads.checked_sub(1).ok_or(DiskError)?;
+        self.disk.read_block(index, block)
+    }
+
+    fn write_block(&mut self, index: u32, block: &[u8; BLOCK]) -> Result<(), DiskError> {
+        self.disk.write_block(index, block)
+    }
+
+    fn blocks(&mut self) -> Result<u32, DiskError> {
+        self.disk.blocks()
+    }
+}
+
+#[test]
+fn a_card_that_stops_answering_is_unreadable_not_without_fat() {
+    // A first block that says FAT where the volume is looked for, and
+    // holds nothing else FAT needs.
+    let disk = Disk::new(vec![0u8; 64 * BLOCK]);
+    {
+        let mut data = disk.0.borrow_mut();
+        data[0] = 0xEB;
+        data[0x36..0x39].copy_from_slice(b"FAT");
+        data[11..13].copy_from_slice(&512u16.to_le_bytes());
+    }
+    // Read whole, it holds no FAT file system.
+    assert_eq!(
+        paperpaw_fat::mount(disk.clone()).err(),
+        Some(VolumeError::NoFat)
+    );
+    // Not read past the block that found the volume: the card could not
+    // be read, which formatting it would not mend.
+    assert_eq!(
+        paperpaw_fat::mount(Glitching { disk, reads: 1 }).err(),
+        Some(VolumeError::Disk)
+    );
+}

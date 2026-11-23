@@ -1,5 +1,6 @@
 //! Stage declarations and bounded subscriber registration.
 use super::{Declarations, DeclareError, Item, Latched, filled, records_wire, within};
+use crate::native::ui::navigation::is_dotted_id;
 use paperpaw_native::host_glue::ERR_INVALID;
 
 const MAX_REPLY_RECORDS: u32 = 64;
@@ -113,15 +114,6 @@ impl<'a> SubscribeDecl<'a> {
     }
 }
 
-fn valid_id(id: &str) -> bool {
-    id.split('.').all(|part| {
-        !part.is_empty()
-            && part
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-    })
-}
-
 impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// Declare an extension point owned by this plugin.
     ///
@@ -137,7 +129,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 records_wire::STAGE_SPEC_NAME_MAX_BYTES,
                 "stage name",
             )?;
-            if !valid_id(stage.name)
+            if !is_dotted_id(stage.name)
                 || !(1..=records_wire::STAGE_CALL_PAYLOAD_MAX_BYTES as u32)
                     .contains(&stage.max_input)
                 || !(1..=records_wire::STAGE_REPLY_PAYLOAD_MAX_BYTES as u32)
@@ -165,7 +157,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 records_wire::REGISTRATION_STAGE_STAGE_MAX_BYTES,
                 "subscription stage",
             )?;
-            if !valid_id(to.stage) {
+            if !is_dotted_id(to.stage) {
                 return Err(DeclareError::Encode(ERR_INVALID));
             }
             self.push(Item::Subscribe(to))?;

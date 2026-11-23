@@ -204,17 +204,19 @@ impl Reader<'_, '_> {
         if r.href.is_empty() {
             return Ok(());
         }
-        let decoded = try_percent_decode(&r.href).map_err(|_| Error::NoMemory)?;
+        // An `href` may be a whole address, a path or relative (RFC 4918); only
+        // the path of the address it makes tells whether it is the folder itself.
+        let url = resolve(self.base, &r.href)?;
+        if url.bytes().any(|b| b.is_ascii_control()) {
+            return Ok(());
+        }
+        let decoded = try_percent_decode(path(&url)).map_err(|_| Error::NoMemory)?;
         let target = decoded.trim_end_matches('/');
         if target == self.own {
             return Ok(());
         }
         let name = target.rsplit('/').next().unwrap_or("");
         if name.is_empty() {
-            return Ok(());
-        }
-        let url = resolve(self.base, &r.href)?;
-        if url.bytes().any(|b| b.is_ascii_control()) {
             return Ok(());
         }
         (self.each)(Item {
@@ -291,5 +293,85 @@ pub fn read_each(
         Some(error) if error != Error::NoMemory => Err(error),
         _ if !reader.failed && !stopped && !reader.whole => Err(Error::Invalid),
         _ => Ok(reader.more || stopped),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "test assertions")]
+    use super::*;
+    use alloc::vec::Vec;
+
+    /// A volume that holds the one listing.
+    struct Saved(&'static str);
+
+    impl Volume for Saved {
+        fn size(&self, _: &str) -> Result<u64, Error> {
+            Ok(self.0.len() as u64)
+        }
+        fn read_at(&self, _: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
+            let rest = self.0.as_bytes().get(at as usize..).unwrap_or(&[]);
+            let n = rest.len().min(out.len());
+            out[..n].copy_from_slice(&rest[..n]);
+            Ok(n)
+        }
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), Error> {
+            Err(Error::Io)
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), Error> {
+            Err(Error::Io)
+        }
+        fn rename(&self, _: &str, _: &str) -> Result<(), Error> {
+            Err(Error::Io)
+        }
+        fn remove(&self, _: &str) -> Result<(), Error> {
+            Err(Error::Io)
+        }
+        fn sync(&self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_folder_itself_is_left_out_also_where_its_href_is_a_whole_address() {
+        // IIS answers with whole addresses; the folder must not come back as
+        // its own subfolder.
+        let listing = Saved(
+            "<d:multistatus xmlns:d=\"DAV:\">\
+             <d:response><d:href>https://host/dav/My%20Photos/</d:href>\
+             <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>\
+             <d:response><d:href>https://host/dav/My%20Photos/a.jpg</d:href>\
+             <d:propstat><d:prop><d:resourcetype/></d:prop></d:propstat></d:response>\
+             <d:response><d:href>Sub/</d:href>\
+             <d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response>\
+             </d:multistatus>",
+        );
+        let mut items = Vec::new();
+        let short = read_each(
+            &listing,
+            LISTING,
+            "https://host/dav/My%20Photos/",
+            &mut |item| {
+                items.push((item.name, item.url, item.folder));
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(!short);
+        assert_eq!(
+            items,
+            [
+                (
+                    "a.jpg".into(),
+                    "https://host/dav/My%20Photos/a.jpg".into(),
+                    false
+                ),
+                (
+                    "Sub".into(),
+                    "https://host/dav/My%20Photos/Sub/".into(),
+                    true
+                ),
+            ]
+        );
     }
 }

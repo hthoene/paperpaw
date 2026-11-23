@@ -94,6 +94,18 @@ impl NativeInstance for Probe {
                     badge: "",
                     badge_args: &[],
                 },
+                // A preset of its own.
+                8 => WireCommand::ApplyPreset {
+                    preset: "a.calm",
+                    flags: 0,
+                },
+                // The secret policy for its screen (instance 7), and a close
+                // of it: a navigation command.
+                9 => WireCommand::ScreenPolicy {
+                    instance: 7,
+                    flags: crate::screens::POLICY_SECRET,
+                },
+                10 => WireCommand::Close { instance: 7 },
                 _ => WireCommand::Open {
                     target: "a.screen",
                     mode: 0,
@@ -774,4 +786,71 @@ fn what_the_host_refuses_is_not_the_plugins_failure() {
     // A batch waits: nothing is called, nothing is said.
     assert_eq!(w.call(), Err(busy));
     assert!(w.kernel.take_warnings().is_empty());
+}
+
+/// A preset an event's callback submits is applied after it returned, as a
+/// screen's callback's is: it was admitted and then dropped (#483).
+#[test]
+fn an_event_callback_applies_the_preset_it_submitted() {
+    let mut w = world(true);
+    w.kernel
+        .shared
+        .settings
+        .define(paperpaw_sdk::SettingSpec::switch(
+            "a.toggle",
+            "toggle",
+            false,
+            paperpaw_sdk::builtin::groups::OTHER,
+        ))
+        .unwrap();
+    w.kernel
+        .shared
+        .settings
+        .presets_mut()
+        .add(paperpaw_sdk::presets::Preset::new(
+            Id::new_static("a.calm"),
+            Id::new_static("a.kind"),
+            "t",
+            "d",
+            "a.toggle = on\n",
+        ));
+    w.command.set(8);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), OK, "admitted at submit");
+    assert!(w.kernel.shared.native_instances.outbox.full(), "kept");
+    w.kernel.native_outbox_run();
+    assert!(w.kernel.shared.settings.bool("a.toggle"), "applied");
+}
+
+/// An event's callback sets the policy of its own screen (the reader's
+/// smooth text, the dashboard's row of hints, from `screen_shown` or
+/// `setting_changed`) but navigates nothing (#483).
+#[test]
+fn an_event_callback_sets_its_screens_policy_but_does_not_navigate() {
+    let w = world(true);
+    w.kernel
+        .shared
+        .stack_rows
+        .update([crate::native_host::stack_rows::StackRow {
+            instance: 7,
+            owner: w.owner,
+            flags: 0,
+        }]);
+    w.command.set(10);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), paperpaw_native::host_glue::ERR_UNSUPPORTED);
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    w.command.set(9);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), OK, "admitted at submit");
+    let staged = w.kernel.shared.native_instances.outbox.take().unwrap();
+    assert_eq!(
+        staged.screen.policies,
+        [crate::native_host::commands::PolicyChange {
+            instance: 7,
+            flags: crate::screens::POLICY_SECRET,
+            ready: false,
+        }],
+        "kept for the kernel"
+    );
 }

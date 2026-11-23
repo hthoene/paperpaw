@@ -85,9 +85,12 @@ impl<'a> RegistryPage<'a> {
         Ok(ControlFlow::Continue(()))
     }
 
+    /// The page's end. A walk that gave no row though `total` were not
+    /// reached: the tables shrank since they were counted, `ERR_STATE` (start
+    /// again at 0), as for a row past `total` (#483).
     pub(crate) fn finish(mut self) -> Result<usize, i32> {
         if self.cursor != self.total && self.rows == 0 {
-            return Err(ERR_INVALID);
+            return Err(ERR_STATE);
         }
         let record = end(self.total, self.generation, self.cursor);
         self.used += codec::encode_one(&record, &mut self.out[self.used..])?;
@@ -202,6 +205,15 @@ mod tests {
         let mut page = RegistryPage::new(&query(0, 0), 1, 1, &mut out).unwrap();
         assert_eq!(page.push(&row()).unwrap(), ControlFlow::Continue(()));
         assert_eq!(page.push(&row()), Err(ERR_STATE));
+    }
+
+    /// Fewer rows than counted (the tables shrank between the two walks) is
+    /// the same state error: the reader starts again at 0 (#483).
+    #[test]
+    fn a_walk_that_ends_before_the_total_is_a_state_error() {
+        let mut out = [0; 256];
+        let page = RegistryPage::new(&query(0, 0), 1, 2, &mut out).unwrap();
+        assert_eq!(page.finish(), Err(ERR_STATE));
     }
 
     #[test]

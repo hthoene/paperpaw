@@ -110,21 +110,23 @@ impl NativeFiles {
         }
     }
 
-    /// Marks the book at `path` finished or not; the list is read again.
+    /// Marks the book at `path` finished or not, and says so where that
+    /// failed; the list is read again.
     fn finish(&mut self, host: &Host<'_>, path: &str, finished: bool) -> Result<(), Error> {
         let library = self.library.as_ref().ok_or(Error::State)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        match library.set_finished(host, BookRef::path(path)?, finished, &mut input, &mut out) {
-            Ok(()) => {}
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            // The book is gone or the library refuses: the list shows how it is.
-            Err(_) => {}
+        if library
+            .set_finished(host, BookRef::path(path)?, finished, &mut input, &mut out)
+            .is_err()
+        {
+            self.notify(host, "files.finish-failed")?;
         }
         self.reread(host)
     }
 
     /// Puts the book at `path` among the favourites or takes it out, and
-    /// says so; the list is read again (a list of the favourites changes).
+    /// says so, or that it failed; the list is read again (a list of the
+    /// favourites changes).
     fn favour(&mut self, host: &Host<'_>, path: &str, favourite: bool) -> Result<(), Error> {
         let library = self.library.as_ref().ok_or(Error::State)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
@@ -137,9 +139,7 @@ impl NativeFiles {
                     "files.favourite-removed"
                 },
             )?,
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            // The book is gone or the library refuses: the list shows how it is.
-            Err(_) => {}
+            Err(_) => self.notify(host, "files.favourite-failed")?,
         }
         self.reread(host)
     }

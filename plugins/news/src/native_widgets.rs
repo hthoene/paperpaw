@@ -16,7 +16,7 @@ use paperpaw_sdk::native::storage::{self, Root};
 use paperpaw_sdk::native::ui::{Instance, WidgetInputKind, WidgetTarget, stages::WidgetCall};
 use paperpaw_sdk::native::{Error, Host};
 use paperpaw_sdk::{Color, Rect};
-use paperpaw_ui_kit::files::read_all_on;
+use paperpaw_ui_kit::files::read_all;
 use paperpaw_ui_kit::mem::{buffer, push};
 use paperpaw_ui_kit::widget::Align;
 use paperpaw_ui_kit::widget::Cx;
@@ -26,7 +26,6 @@ use paperpaw_ui_kit::{Paint, geometry, paint, text};
 
 use crate::declarations::LINES;
 use crate::native_news::{HEADLINES_CAP, HEADLINES_FILE, without_mark};
-use crate::native_plugin::DataVolume;
 
 /// The widget's id, as the host names it without a placement.
 const NAME: &str = "news.widget.headlines";
@@ -95,7 +94,7 @@ fn lines_each(cx: &Cx<'_>) -> Result<usize, Error> {
 /// book is still on the card.
 fn read(cx: &Cx<'_>) -> Result<Vec<Headline>, Error> {
     let most = count(cx)?;
-    let bytes = match read_all_on(&DataVolume(cx.host), HEADLINES_FILE, HEADLINES_CAP) {
+    let bytes = match read_all(cx.host, Root::Data, HEADLINES_FILE, HEADLINES_CAP) {
         Ok(Some(bytes)) => bytes,
         Ok(None) => return Ok(Vec::new()),
         Err(Error::NoMemory) => return Err(Error::NoMemory),

@@ -141,6 +141,26 @@ fn positions_outside_the_book_find_nothing() {
     );
 }
 
+/// A character far past the end of its text node (an XPointer from outside)
+/// finds a place within the chapter. Four bytes for each of 2^30 or more
+/// characters once passed a 32-bit `usize` (the X4's): only there did this
+/// panic.
+#[test]
+fn a_character_far_past_its_text_finds_a_place_within_the_chapter() {
+    let storage = MemoryStorage::new().with(PATH, book(&chapters(), &[]));
+    let doc = EpubDocument::open(&storage, PATH).unwrap();
+    let mut end = 0;
+    while let Some(block) = doc.block_at(&storage, Locator::new(0, end)).unwrap() {
+        end = block.end;
+    }
+    for char in [1 << 30, u32::MAX] {
+        let xpointer = format!("/body/DocFragment[1]/body/p[1]/text().{char}");
+        let at = doc.locate_xpointer(&storage, &xpointer).unwrap();
+        assert_eq!(at.section, 0);
+        assert!(at.offset <= end, "{at:?} past {end}");
+    }
+}
+
 #[test]
 fn links_and_xpointers_of_sections_past_the_end_find_nothing() {
     // A position kept from an earlier edition of the book with more

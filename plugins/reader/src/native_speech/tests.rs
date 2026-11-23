@@ -500,3 +500,23 @@ fn a_device_that_cannot_speak_says_so_and_not_started() {
     speaker.start(&mut scene);
     assert_eq!(scene.says, ["reader.aloud.unavailable"]);
 }
+
+#[test]
+fn a_sentence_on_after_a_page_of_carried_words_turns_the_pages_to_it() {
+    // 20 letters a line, 3 lines a page: the second sentence goes on over the
+    // whole second page and ends with it, so the one after it starts two
+    // pages after the page it was begun on.
+    let text = "One two. Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda \
+mu nu xi omicron pi rho sigma tau upsilon. Last words here.";
+    let mut scene = Fake::new(laid(text, 200.0, 3));
+    let mut speaker = Speaker::new(3);
+    speaker.start(&mut scene);
+    let said = speak_all(&mut speaker, &mut scene);
+    assert_eq!(said.len(), 3, "{said:?} {:?}", scene.says);
+    assert_eq!(said[2], "Last words here.");
+    assert!(
+        !scene.says.contains(&"reader.aloud.paused"),
+        "{:?}",
+        scene.says
+    );
+}

@@ -549,7 +549,10 @@ def _codec_tail(source, stage, declared, borrowed, record_type, bitmap):
                    .replace('@RECORD@', "Record<'_>" if borrowed else 'Record')
                    .replace('@BITMAP@', bitmap)
                    .replace('@EMPTY@', '' if side == 'reply'
-                            else '        if self.rows == 0 { return Err(-2); }\n'))
+                            else '        if self.rows == 0 { return Err(-2); }\n')
+                   # Only an input refuses an empty batch (a reply may say nothing).
+                   .replace('@FINISH_DOC@', '.' if side == 'reply'
+                            else '; -2 for a batch of no\n    /// record: an input carries one at least.'))
     for r in declared:
         title, borrows = _camel(r['name']), _lifetime(r)
         source += f"impl<'a> {title}<'a> {{\n" if borrows else f'impl {title} {{\n'
@@ -736,8 +739,7 @@ impl<'w> @TITLE@Writer<'w> {
         self.rows += 1;
         Ok(())
     }
-    /// The batch's length in `out`, its count written; -2 for an input
-    /// batch of no record.
+    /// The batch's length in `out`, its count written@FINISH_DOC@
     pub fn finish(self) -> Result<usize, i32> {
 @EMPTY@        let count = u8::try_from(self.rows).map_err(|_| -2)?;
         let first = self.out.first_mut().ok_or(-3)?;

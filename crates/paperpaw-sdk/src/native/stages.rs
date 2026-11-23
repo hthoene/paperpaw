@@ -1,5 +1,5 @@
 //! Synchronous extension stages with one borrowed reply buffer.
-use super::{Error, Host, declare::records_wire as wire};
+use super::{Error, Host, declare::records_wire as wire, ui::navigation::is_dotted_id};
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, PpBuffer, PpBytes};
 
 /// A callback-bound extension stage owned by the calling plugin.
@@ -26,14 +26,7 @@ impl<'cb> Stage<'cb> {
     /// Invalid for ids over 128 bytes or empty dot-separated segments, or bytes
     /// outside `[a-z0-9-]` in a segment. Construction makes no host call.
     pub fn new(host: &'cb Host<'cb>, full_id: &'cb str) -> Result<Self, Error> {
-        if full_id.len() > wire::STAGE_CALL_STAGE_MAX_BYTES
-            || !full_id.split('.').all(|part| {
-                !part.is_empty()
-                    && part
-                        .bytes()
-                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-            })
-        {
+        if full_id.len() > wire::STAGE_CALL_STAGE_MAX_BYTES || !is_dotted_id(full_id) {
             return Err(Error::Invalid);
         }
         Ok(Self { host, id: full_id })

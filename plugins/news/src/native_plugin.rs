@@ -6,7 +6,6 @@
 use alloc::{string::String, vec::Vec};
 use core::cell::RefCell;
 
-use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     callbacks::{DrawFrame, DrawPurpose, Input},
@@ -17,13 +16,14 @@ use paperpaw_sdk::native::{
     net::{FileRoot, Header, HttpDone, Net, REPLY, REQUEST_INPUT, Request, RequestId},
     registrations,
     reply::Reply,
-    storage::{self, Root},
+    storage::Root,
     ui::{Notify, Open, RequestId as AskId, Ui},
     work::{Moment, Work, WorkSpec},
 };
+use paperpaw_sdk::{Handled, web::USER_AGENT};
 use paperpaw_ui_kit::{
     Messages, Screens,
-    files::Volume,
+    files::{self, Volume},
     mem,
     online::{Chosen, Offer},
     read_event, text,
@@ -34,10 +34,9 @@ use crate::declarations::{FETCH_TOKEN, HTTP_TOKEN, OPEN_TOKEN, SCREEN, SETTING_T
 
 /// The key of the work that fetches the news in the background.
 const WORK_KEY: &str = "news.fetch";
-/// The `User-Agent` of interface 6 where the kernel is not listed.
-const USER_AGENT: &str = "PaperPaw/0.1 (e-reader)";
-/// The background fetch comes no sooner than this, in milliseconds.
-const BACKGROUND_AFTER_MS: u32 = 3_600_000;
+/// The background fetch comes at the latest this long after a rule asked
+/// for it, in milliseconds (an hour, as in Beta 3).
+const BACKGROUND_WITHIN_MS: u32 = 3_600_000;
 use crate::native_fetch::{Done, Ended, FEED_REQUEST, Fetcher, Started, Wire};
 use crate::native_news::{MAX_FEED_FILE, MAX_TEXT, MAX_TEXT_SMALL};
 use crate::native_screen::{Ask, View};
@@ -120,22 +119,26 @@ fn read_class(host: &Host<'_>, device: &Device) -> Result<DeviceClass, Error> {
     Ok(device.device(host, &mut input, &mut out)?.class())
 }
 
-/// The host as the fetch uses it.
-struct HostWire<'a, 'h> {
+/// The host as the fetch uses it: `V` is the plugin's data folder.
+struct HostWire<'a, 'h, V> {
     host: &'a Host<'h>,
     handles: &'a mut Handles,
-    volume: DataVolume<'a, 'h>,
+    volume: V,
 }
 
-impl<'a, 'h> HostWire<'a, 'h> {
-    fn new(host: &'a Host<'h>, handles: &'a mut Handles) -> Self {
-        Self {
-            host,
-            handles,
-            volume: DataVolume(host),
-        }
+/// The host as the fetch uses it, now.
+fn host_wire<'a, 'h>(
+    host: &'a Host<'h>,
+    handles: &'a mut Handles,
+) -> HostWire<'a, 'h, impl Volume + use<'a, 'h>> {
+    HostWire {
+        host,
+        handles,
+        volume: files::volume(host, Root::Data),
     }
+}
 
+impl<V> HostWire<'_, '_, V> {
     fn net(&mut self) -> Result<&Net, Error> {
         if self.handles.net.is_none() {
             self.handles.net = Some(Net::open(self.host)?);
@@ -151,7 +154,7 @@ impl<'a, 'h> HostWire<'a, 'h> {
     }
 }
 
-impl Wire for HostWire<'_, '_> {
+impl<V: Volume> Wire for HostWire<'_, '_, V> {
     fn volume(&self) -> &dyn Volume {
         &self.volume
     }
@@ -179,40 +182,14 @@ impl Wire for HostWire<'_, '_> {
 
     fn declare_work(&mut self) -> Result<(), Error> {
         let spec = WorkSpec::when_cheap(WORK_KEY, WORK_TOKEN)?
-            .after_ms(BACKGROUND_AFTER_MS)
+            .within_ms(BACKGROUND_WITHIN_MS)
             .at_moment(Moment::Wake)
-            .at_moment(Moment::Online);
+            .at_moment(Moment::Online)
+            .at_moment(Moment::Charging);
         let mut input = mem::buffer(256)?;
         let mut out = mem::buffer(64)?;
         let host = self.host;
         self.work()?.declare(host, &spec, &mut input, &mut out)
-    }
-}
-
-/// The storage calls on the plugin's data folder.
-pub(crate) struct DataVolume<'a, 'h>(pub(crate) &'a Host<'h>);
-
-impl Volume for DataVolume<'_, '_> {
-    fn size(&self, name: &str) -> Result<u64, Error> {
-        storage::size(self.0, Root::Data, name)
-    }
-    fn read_at(&self, name: &str, at: u64, out: &mut [u8]) -> Result<usize, Error> {
-        storage::read_at(self.0, Root::Data, name, at, out)
-    }
-    fn write(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::write(self.0, Root::Data, name, data)
-    }
-    fn append(&self, name: &str, data: &[u8]) -> Result<(), Error> {
-        storage::append(self.0, Root::Data, name, data)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), Error> {
-        storage::rename(self.0, Root::Data, from, to)
-    }
-    fn remove(&self, name: &str) -> Result<(), Error> {
-        storage::remove(self.0, Root::Data, name)
-    }
-    fn sync(&self) -> Result<(), Error> {
-        storage::sync(self.0)
     }
 }
 
@@ -346,24 +323,27 @@ impl News {
             return Ok(());
         };
         match event {
-            // The action (a rule's background action): fetch when it is cheap.
-            Event::ActionRun { .. } if token == FETCH_TOKEN => {
-                HostWire::new(host, &mut self.handles)
-                    .declare_work()
-                    .or_else(|error| match error {
-                        Error::NoMemory => Err(error),
-                        // A work that cannot be declared (a full table, the network
-                        // turned off) costs this one fetch.
-                        _ => Ok(()),
-                    })
+            // The reader's own run fetches at once; a rule's (or another
+            // plugin's) waits for a good moment, as in Beta 3.
+            Event::ActionRun { background, .. } if token == FETCH_TOKEN => {
+                if background {
+                    self.fetch_later(host)
+                } else {
+                    self.start(host, 0, true)
+                }
             }
             Event::ActionRun { .. } if token == OPEN_TOKEN => open_list(host),
-            Event::WorkDue(_) if token == WORK_TOKEN => self.fetch(host, 0, true, false),
+            // A fetch under way (the reader's, say) is not started again.
+            Event::WorkDue(_) if token == WORK_TOKEN && !self.fetcher.busy() => {
+                self.fetch(host, 0, true, false)
+            }
             Event::HttpDone(done) if token == HTTP_TOKEN => {
-                let ended = self.ended(host, &done);
-                // The names of the feeds and their books may have changed.
-                self.widgets.refresh(host);
-                ended.and(self.refresh(host))
+                if self.ended(host, &done)? {
+                    // The books and the names of the feeds may have changed.
+                    self.widgets.refresh(host);
+                    self.refresh(host)?;
+                }
+                Ok(())
             }
             Event::WidgetMade {
                 widget, instance, ..
@@ -429,8 +409,20 @@ impl News {
 }
 
 impl News {
-    /// The reader starts a fetch (on the screen): Offline mode may offer to go
-    /// online for it again.
+    /// Declares the work that fetches the news when it is cheap.
+    fn fetch_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        host_wire(host, &mut self.handles)
+            .declare_work()
+            .or_else(|error| match error {
+                Error::NoMemory => Err(error),
+                // A work that cannot be declared (a full table, the network
+                // turned off) costs this one fetch.
+                _ => Ok(()),
+            })
+    }
+
+    /// The reader starts a fetch (on the screen or with the action): Offline
+    /// mode may offer to go online for it again.
     pub(crate) fn start(&mut self, host: &Host<'_>, from: usize, all: bool) -> Result<(), Error> {
         self.online.reset();
         self.fetch(host, from, all, true)
@@ -445,7 +437,7 @@ impl News {
         by_reader: bool,
     ) -> Result<(), Error> {
         self.by_reader = by_reader;
-        let mut wire = HostWire::new(host, &mut self.handles);
+        let mut wire = host_wire(host, &mut self.handles);
         match self.fetcher.start(&mut wire, from, all)? {
             Started::Fetching => notice(host, "news.fetching"),
             Started::NoNetwork => notice(host, "news.no-network"),
@@ -454,24 +446,26 @@ impl News {
         }
     }
 
-    fn ended(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
+    /// A request ended: what the fetch came to is said; whether it is over.
+    fn ended(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<bool, Error> {
         let settings = Settings::new(host, "news");
         let articles = usize::try_from(settings.int("articles", 30)?.clamp(1, 200)).unwrap_or(30);
         let messages = RefCell::new(Messages::new()?);
         let date = |year: i32, month: u8, day: u8| date_text(host, &messages, year, month, day);
         let cap = text_cap(host, &mut self.handles);
-        let mut wire = HostWire::new(host, &mut self.handles);
         let end = Done::new(done.id(), done.token(), done.reason(), done.saved());
-        let mut shelf = self.shelf.on(host);
-        let ended = self
-            .fetcher
-            .ended(&mut wire, &mut shelf, &end, (articles, cap), &date)?;
+        let ended = {
+            let mut wire = host_wire(host, &mut self.handles);
+            let mut shelf = self.shelf.on(host);
+            self.fetcher
+                .ended(&mut wire, &mut shelf, &end, (articles, cap), &date)?
+        };
         match ended {
-            Ended::Ignored | Ended::Next => Ok(()),
-            Ended::Unreadable => notice(host, "news.unreadable"),
-            Ended::Memory => notice(host, "news.no-memory"),
-            Ended::NoNetwork { .. } => notice(host, "news.no-network"),
-            Ended::Offline { from, all } => self.offline(host, (from, all)),
+            Ended::Ignored | Ended::Next => return Ok(false),
+            Ended::Unreadable => notice(host, "news.unreadable")?,
+            Ended::Memory => notice(host, "news.no-memory")?,
+            Ended::NoNetwork { .. } => notice(host, "news.no-network")?,
+            Ended::Offline { from, all } => self.offline(host, (from, all))?,
             Ended::Finished { done, failed } => {
                 let mut messages = messages.into_inner();
                 let count = i64::try_from(done).unwrap_or(i64::MAX);
@@ -491,9 +485,10 @@ impl News {
                         ],
                     )?
                 };
-                tell(host, &message)
+                tell(host, &message)?;
             }
         }
+        Ok(true)
     }
 }
 

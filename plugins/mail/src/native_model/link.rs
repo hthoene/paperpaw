@@ -295,11 +295,18 @@ impl<N: Net> Io for Link<'_, N> {
         self.queue_and_pump(data)
     }
 
-    fn send_message(&mut self, mut data: Vec<u8>) -> Result<(), Error> {
-        let result = self.queue_and_pump(&data);
-        // The caller's copy of the message is gone with this call.
-        super::mem::wipe(&mut data);
-        result
+    fn send_message(&mut self, data: Vec<u8>) -> Result<(), Error> {
+        // Wiped once it is sent, or with this call where it waits behind
+        // other bytes (then it is copied after them).
+        let message = SecretBytes::from(data);
+        if self.state.waiting() {
+            return self.queue_and_pump(message.as_slice());
+        }
+        // Nothing waits: the message itself is what is sent, never a second
+        // copy of the largest thing a connection holds.
+        self.state.queue = message;
+        self.state.sent = 0;
+        self.pump()
     }
 
     fn read_bytes(&mut self, max: u32) -> Result<(), Error> {

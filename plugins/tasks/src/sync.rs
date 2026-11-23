@@ -226,7 +226,7 @@ pub struct Sync {
     /// The lists still to read, with their change tags.
     queue: Vec<(u8, String)>,
     /// The lists to read once more at the end (a task of theirs was changed
-    /// on both sides).
+    /// on both sides, or sent without its new version told).
     again: Vec<u8>,
     second: bool,
     /// The id and the list of the task being sent, and its count of changes
@@ -435,6 +435,7 @@ impl<'a> Merge<'a> {
             return Ok(());
         };
         task.seen = true;
+        let untold = core::mem::take(&mut task.untold);
         let same = task.says_the_same(&title, due, todo.priority, todo.done);
         if task.href().is_empty() {
             // Made here and already there: a sending whose answer never came.
@@ -448,9 +449,9 @@ impl<'a> Merge<'a> {
         if dav::etag_eq(task.etag(), etag) {
             return Ok(());
         }
-        if task.pending() && task.etag().is_empty() && !same {
-            // The version is not known (a sending that was not answered):
-            // the reader's change is sent against the version there is now.
+        if untold && task.pending() && !same {
+            // What is there is the reader's own: its change is sent against
+            // the version there is now.
             return task.set_server(href, etag);
         }
         if task.is(flag::CHANGED) && !same {
@@ -648,7 +649,7 @@ impl Sync {
             return self.end(Outcome::NoAccount);
         }
         for task in &mut store.tasks {
-            task.skip = false;
+            (task.skip, task.untold) = (false, false);
         }
         let step = (|| {
             self.base = copy(address)?;
@@ -995,9 +996,11 @@ impl Sync {
         let Some(task) = store.tasks.get_mut(index) else {
             return self.send_next(store, wire);
         };
+        let list = task.list;
         match status {
             200..=299 => {
-                task.set_server(&href, &kept_etag(wire, id))?;
+                let etag = kept_etag(wire, id);
+                task.set_server(&href, &etag)?;
                 task.flags &= !flag::NEW;
                 if task.touch != touch {
                     // Changed while it was sent: sent again, as a change.
@@ -1005,13 +1008,20 @@ impl Sync {
                     task.skip = true;
                 }
                 self.report.sent += 1;
+                // The version the server did not tell is read.
+                if etag.is_empty() {
+                    task.untold = true;
+                    self.read_again(list)?;
+                }
             }
             412 => {
                 // It is there already (a sending that was never answered):
-                // the next reading says which version, then it is compared.
+                // the list is read again, which says which version, then it
+                // is compared.
                 task.set_server(&href, "")?;
                 task.flags = (task.flags & !flag::NEW) | flag::CHANGED;
-                task.skip = true;
+                (task.skip, task.untold) = (true, true);
+                self.read_again(list)?;
             }
             _ => {
                 task.skip = true;
@@ -1073,8 +1083,15 @@ impl Sync {
         task.set_server(&href, "")?;
         task.flags &= !flag::PENDING;
         task.skip = true;
-        if !self.again.contains(&task.list) {
-            push(&mut self.again, task.list)?;
+        let list = task.list;
+        self.read_again(list)
+    }
+
+    /// Reads `list` once more at the end of the run: the server's version of
+    /// a task of it is taken, or the version a sending was not told.
+    fn read_again(&mut self, list: u8) -> Result<(), Error> {
+        if !self.again.contains(&list) {
+            push(&mut self.again, list)?;
         }
         Ok(())
     }
@@ -1167,7 +1184,8 @@ impl Sync {
         match status {
             200..=299 => {
                 let href = copy(task.href())?;
-                task.set_server(&href, &kept_etag(wire, id))?;
+                let etag = kept_etag(wire, id);
+                task.set_server(&href, &etag)?;
                 if task.touch == touch {
                     task.flags &= !flag::CHANGED;
                 } else {
@@ -1175,6 +1193,12 @@ impl Sync {
                     task.skip = true;
                 }
                 self.report.sent += 1;
+                // The version the server did not tell is read.
+                if etag.is_empty() {
+                    task.untold = true;
+                    let list = task.list;
+                    self.read_again(list)?;
+                }
             }
             412 => self.server_wins(store, index, Some(wire.seed()))?,
             _ => {

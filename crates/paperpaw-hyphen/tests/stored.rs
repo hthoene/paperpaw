@@ -315,6 +315,50 @@ fn a_replaced_or_shrunk_file_is_noticed_or_fails() {
     let _ = reader.as_mut().map(|r| r.is_failed());
 }
 
+/// A table that reads `then` instead of `first` from the second read of its
+/// header on: a file changed between the check and the rest of the open.
+struct ChangedAfterCheck {
+    first: Mem,
+    then: Mem,
+    headers: u32,
+}
+
+impl paperpaw_hyphen::Source for ChangedAfterCheck {
+    type Error = Failed;
+
+    fn len(&self) -> u64 {
+        paperpaw_hyphen::Source::len(&self.first)
+    }
+
+    fn read_at(&mut self, at: u64, buf: &mut [u8]) -> Result<(), Failed> {
+        self.headers += u32::from(at == 0);
+        let src = if self.headers > 1 {
+            &mut self.then
+        } else {
+            &mut self.first
+        };
+        paperpaw_hyphen::Source::read_at(src, at, buf)
+    }
+}
+
+#[test]
+fn an_index_that_goes_back_after_the_check_is_refused() {
+    let set = de();
+    // The third block said to start before the second, the header as it was.
+    let mut then = set.table.clone();
+    let second = u32::from_le_bytes(then[28..32].try_into().unwrap());
+    then[32..36].copy_from_slice(&(second - 1).to_le_bytes());
+    let src = ChangedAfterCheck {
+        first: Mem::new(set.table.clone()),
+        then: Mem::new(then),
+        headers: 0,
+    };
+    assert_eq!(
+        StoredPatterns::open(src, 7, 1).err(),
+        Some(OpenError::from(TableError::Header))
+    );
+}
+
 #[test]
 fn caps_hold_for_the_shipped_tables() {
     for set in shipped() {

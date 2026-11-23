@@ -102,6 +102,12 @@ impl Recognizer {
         self.buttons.retain(|b| b.name != name);
     }
 
+    /// Stops following every button and finger, without a gesture.
+    pub(crate) fn forget_all(&mut self) {
+        self.buttons.clear();
+        self.pointers.clear();
+    }
+
     /// Whether button `name` is held: pressed and not let go yet.
     pub(crate) fn holds(&self, name: &str) -> bool {
         self.buttons.iter().any(|b| b.name == name)

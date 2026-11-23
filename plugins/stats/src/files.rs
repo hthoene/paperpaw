@@ -7,11 +7,6 @@
 //! on the SDK's `native::storage::DataStorage` unchanged. It goes when
 //! the layer's paths are the short ones (with the interface-6 callers).
 
-#![allow(
-    dead_code,
-    reason = "the native shell that builds DataFolder follows; until then only the tests do"
-)]
-
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
 
 /// The folder root 0 stands for.

@@ -171,7 +171,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         });
         let result = self.invoke(token, env, instance, invocation, Some(&mut stage));
         if matches!(result, Ok(0)) || (input && matches!(result, Ok(1))) {
-            let staged = super::screen_stage::staged_of(stage, owner_key);
+            let staged = super::screen_stage::staged_of(&mut stage, owner_key);
             if !staged.is_empty() {
                 slot.put(staged)?;
             }

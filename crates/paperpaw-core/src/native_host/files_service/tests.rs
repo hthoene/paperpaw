@@ -176,10 +176,6 @@ impl Card {
             .is_some_and(|at| self.nodes.borrow()[at].folder)
     }
 
-    pub(super) fn count(&self) -> usize {
-        self.nodes.borrow().iter().filter(|n| n.used).count()
-    }
-
     pub(super) fn paths(&self) -> Vec<std::string::String> {
         let mut paths: Vec<_> = self
             .nodes

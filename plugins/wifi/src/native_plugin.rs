@@ -19,7 +19,7 @@ use paperpaw_sdk::native::{
     reply::Reply,
     secrets::Secrets,
     settings::{self, SettingValue},
-    ui::{Instance, Notify, Open, Question, RequestId, Ui},
+    ui::{ButtonHint, Instance, Notify, Open, Question, RequestId, Ui},
     work::Work,
 };
 use paperpaw_ui_kit::{
@@ -63,6 +63,8 @@ const MOST_PAGES: usize = 4;
 const MOST_NETWORKS: usize = 64;
 /// A password is at most this long (WPA).
 const PASSWORD_MOST: usize = native_known::MAX_PASSWORD;
+/// The menu button, whose key-bar name is *Forget* on a network kept.
+const MENU: &str = "core.menu";
 
 // The phone setup is the one big view; screens are few, so no indirection.
 #[allow(
@@ -99,6 +101,10 @@ pub struct NativeWifi {
     /// A change of the screen stack then asks nothing of the host (the first
     /// frame of the home screen after a book went without this call, #294).
     radio_off: bool,
+    /// The request of an own network the setup with a phone asked for and no
+    /// longer wants (its screen closed, or the setup ended, before the
+    /// network opened): left once the host says it opened.
+    unwanted_host: Option<u32>,
 }
 
 impl Plugin for NativeWifi {
@@ -149,7 +155,10 @@ impl Plugin for NativeWifi {
             Event::WifiScanned { now_ms, .. } if token == WIFI_SCANNED => {
                 self.wifi_scanned(host, now_ms)
             }
-            Event::WifiDone(done) if token == WIFI_DONE => self.wifi_done(host, &done),
+            Event::WifiDone(done) if token == WIFI_DONE => {
+                self.phone_hosted(host, &done)?;
+                self.wifi_done(host, &done)
+            }
             Event::PowerChanged(change) if token == POWER_CHANGED => {
                 self.power_changed(host, change.now_ms())
             }
@@ -246,18 +255,66 @@ impl Plugin for NativeWifi {
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
-        let list = match view {
-            View::Page(view) => &mut view.list,
-            View::Networks(view) => &mut view.list,
-            View::Phone(view) => &mut view.list,
+        let step = match view {
+            // Select held, or the menu button, forgets the network kept that
+            // has the focus, as a long press does on a touch screen (with the
+            // buttons alone nothing else can); elsewhere they are the host's.
+            View::Networks(view) if forgets(&input) && view.kept(view.list.focus()) => {
+                ItemStep::Held(view.list.focus())
+            }
+            View::Page(view) => view.list.input(host, &input)?,
+            View::Networks(view) => view.list.input(host, &input)?,
+            View::Phone(view) => view.list.input(host, &input)?,
         };
-        let step = list.input(host, &input)?;
         match step {
             ItemStep::Chosen(index) => self.chosen(host, token, index)?,
             ItemStep::Held(index) => self.held(host, token, index)?,
             _ => {}
         }
+        if let Some(View::Networks(view)) = self.screens.top(NETWORKS_TOKEN) {
+            forget_hint(host, view);
+        }
         Ok(ItemList::handled(step))
+    }
+}
+
+/// Select held or the menu button: what forgets a network kept.
+fn forgets(input: &Input<'_>) -> bool {
+    matches!(
+        input,
+        Input::Action {
+            action: "core.long-confirm" | "core.menu",
+            ..
+        }
+    )
+}
+
+/// The key bar names *Forget* for the menu button while the focus is on a
+/// network kept, as Beta 3 did, and the button's usual name elsewhere. Sent
+/// only where that changes; a hint the host refuses leaves the bar as it was.
+fn forget_hint(host: &Host<'_>, view: &mut Networks) {
+    let forget = view.kept(view.list.focus());
+    if forget == view.forget_named {
+        return;
+    }
+    let word = if forget {
+        match Messages::new().and_then(|mut say| say.copy(host, "wifi.forget")) {
+            Ok(word) => Some(word),
+            Err(_) => return,
+        }
+    } else {
+        None
+    };
+    let hint = match &word {
+        Some(word) => ButtonHint::words(MENU, word),
+        None => ButtonHint::usual(MENU),
+    };
+    if let Ok(hint) = hint
+        && CommandSender::new(host, &mut [0; 256])
+            .set_hint(hint)
+            .is_ok()
+    {
+        view.forget_named = forget;
     }
 }
 
@@ -477,25 +534,20 @@ impl NativeWifi {
         }
     }
 
-    fn read_page(&mut self, host: &Host<'_>) -> Result<Page, Error> {
-        let info = self.read_named(host)?;
+    /// The rows of the Wi-Fi page, `info` where the radio is (read by the
+    /// caller) and `reach` how many networks are in reach.
+    fn read_page(&mut self, host: &Host<'_>, info: &Named, reach: usize) -> Result<Page, Error> {
         if !info.present {
             // No radio: the page has nothing to say.
             return Ok(Page::empty());
         }
-        // Only what the rows say: whether a network is kept, and (while the
-        // radio is on) how many are in reach.
+        // Only what the rows say besides: whether a network is kept.
         let kept = self.read_kept_any(host)?;
-        let reach = if info.radio.is_on() {
-            self.count_networks(host)?
-        } else {
-            0
-        };
         let rows = page_rows(kept, info.radio.is_on())?;
         let mut say = Messages::new()?;
         let mut items = room(rows.len())?;
         for row in &rows {
-            items.push(Self::page_item(host, &mut say, &info, reach, *row)?);
+            items.push(Self::page_item(host, &mut say, info, reach, *row)?);
         }
         Ok(Page {
             rows,
@@ -587,17 +639,42 @@ impl NativeWifi {
         }
     }
 
+    /// How many networks are in reach, as far as are read: none while the
+    /// radio is off (or there is none).
+    fn reach(&self, host: &Host<'_>, info: &Named) -> Result<usize, Error> {
+        if info.present && info.radio.is_on() {
+            self.count_networks(host)
+        } else {
+            Ok(0)
+        }
+    }
+
+    /// The networks in reach: none while the radio is off.
+    fn networks_in_reach(&self, host: &Host<'_>, info: &Named) -> Result<Vec<Network>, Error> {
+        if info.radio.is_on() {
+            self.read_networks(host)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
     /// The rows of the networks in reach, each made from the network read
     /// and its name moved into the row, not copied; `info` is where the radio
-    /// is (read by the caller).
-    fn read_networks_view(&mut self, host: &Host<'_>, info: &Named) -> Result<Networks, Error> {
-        let networks = if info.radio.is_on() {
-            self.read_networks(host)?
-        } else {
-            Vec::new()
-        };
-        let kept = self.read_kept(host)?;
+    /// is and `networks` what is in reach (both read by the caller). While
+    /// the radio is off the page says so and Back leaves it: there is nothing
+    /// to choose, and an event's callback cannot leave a screen.
+    fn read_networks_view(
+        &mut self,
+        host: &Host<'_>,
+        info: &Named,
+        networks: Vec<Network>,
+    ) -> Result<Networks, Error> {
         let mut say = Messages::new()?;
+        if !info.radio.is_on() {
+            let off = say.copy(host, "wifi.networks.off")?;
+            return Networks::said(off);
+        }
+        let kept = self.read_kept(host)?;
         let mut items = room(networks.len().saturating_add(1))?;
         let mut marks = room(networks.len())?;
         let empty = networks.is_empty();
@@ -625,6 +702,7 @@ impl NativeWifi {
             marks.push(Mark {
                 signal: network.signal,
                 secured: network.secured,
+                kept: is_kept(&kept, &network.ssid),
             });
             items.push(row_item(network.ssid, note));
         }
@@ -640,6 +718,7 @@ impl NativeWifi {
         Ok(Networks {
             marks,
             list: ItemList::new(items),
+            forget_named: false,
         })
     }
 
@@ -653,18 +732,22 @@ impl NativeWifi {
         self.ensure(host)?;
         let view = if token == PAGE_TOKEN {
             self.search_if_idle(host)?;
-            View::Page(self.read_page(host)?)
+            let info = self.read_named(host)?;
+            let reach = self.reach(host, &info)?;
+            View::Page(self.read_page(host, &info, reach)?)
         } else if token == NETWORKS_TOKEN {
             let info = self.read_named(host)?;
-            View::Networks(self.read_networks_view(host, &info)?)
+            let networks = self.networks_in_reach(host, &info)?;
+            View::Networks(self.read_networks_view(host, &info, networks)?)
         } else {
             match self.phone_view(host, now) {
                 Ok(view) => View::Phone(view),
+                // The setup could not be made (no memory, no device): said,
+                // not a failed callback, and Back leaves it (an event's
+                // callback cannot leave a screen).
                 Err(_) => {
-                    // The setup could not be made (no memory, no device): said,
-                    // and the screen closed, not a failed callback.
                     native_model::best_effort(Self::notice(host, "wifi.phone.not-opened"));
-                    return CommandSender::new(host, &mut [0; 64]).back();
+                    View::Phone(phone::PhoneView::not_opened(self.policy.manual, now))
                 }
             }
         };
@@ -686,9 +769,7 @@ impl NativeWifi {
     }
 
     /// The rows as they are now: the radio and the networks change while a
-    /// screen is open. The old rows are freed before the new are made: never
-    /// both at once (a refusal leaves the view without rows until the next
-    /// event).
+    /// screen is open.
     fn reread(&mut self, host: &Host<'_>) -> Result<(), Error> {
         self.reread_as(host, false)
     }
@@ -698,48 +779,76 @@ impl NativeWifi {
     /// that say something else are drawn (a scan that moves a signal), and
     /// nothing where no row does. Rows are assumed to keep their height.
     fn reread_as(&mut self, host: &Host<'_>, whole: bool) -> Result<(), Error> {
-        let mut change = RowsChange::None;
+        let page = self.screens.top(PAGE_TOKEN).is_some();
+        let list = self.screens.top(NETWORKS_TOKEN).is_some();
+        let change = if page || list {
+            self.reread_rows(host, page, list)?
+        } else {
+            RowsChange::None
+        };
+        if whole { RowsChange::All } else { change }.queue(host)
+    }
+
+    /// Reads anew the rows of the Wi-Fi page (`page`) and of the networks
+    /// (`list`), those that are open: the radio once, and the networks in
+    /// reach once for both. The old rows are freed before anything is read:
+    /// never both at once (a refusal leaves the views without rows until the
+    /// next event). The focus stays where it was: `free_rows` keeps it and
+    /// `swap_rows` puts it on the nearest new row (set on the freed, empty
+    /// list it would fall back to the first row).
+    fn reread_rows(
+        &mut self,
+        host: &Host<'_>,
+        page: bool,
+        list: bool,
+    ) -> Result<RowsChange, Error> {
+        let mut page_keys = None;
         if let Some(View::Page(old)) = self.screens.top(PAGE_TOKEN) {
-            let (focus, keys) = (old.list.focus(), old.list.row_keys());
+            page_keys = old.list.row_keys();
             old.rows = Vec::new();
             old.list.free_rows();
-            let fresh = self.read_page(host)?;
+        }
+        let mut list_keys = None;
+        if let Some(View::Networks(old)) = self.screens.top(NETWORKS_TOKEN) {
+            list_keys = old.list.row_keys();
+            old.marks = Vec::new();
+            old.list.free_rows();
+        }
+        let info = self.read_named(host)?;
+        let networks = if list {
+            self.networks_in_reach(host, &info)?
+        } else {
+            Vec::new()
+        };
+        let mut change = RowsChange::None;
+        if page {
+            let reach = if list {
+                networks.len()
+            } else {
+                self.reach(host, &info)?
+            };
+            let fresh = self.read_page(host, &info, reach)?;
             if let Some(View::Page(view)) = self.screens.top(PAGE_TOKEN) {
                 view.rows = fresh.rows;
-                view.list.set_focus(focus);
-                change = view.list.swap_rows(fresh.list, keys.as_deref());
+                change = view.list.swap_rows(fresh.list, page_keys.as_deref());
             }
         }
-        if self.screens.top(NETWORKS_TOKEN).is_some() {
-            let info = self.read_named(host)?;
-            if !info.radio.is_on() {
-                // Nothing to choose from here: this page goes, not what
-                // lies above it.
-                let mut scratch = [0; 64];
-                return CommandSender::new(host, &mut scratch).back();
-            }
-            let (mut focus, mut keys) = (0, None);
-            if let Some(View::Networks(old)) = self.screens.top(NETWORKS_TOKEN) {
-                focus = old.list.focus();
-                keys = old.list.row_keys();
-                old.marks = Vec::new();
-                old.list.free_rows();
-            }
-            let fresh = self.read_networks_view(host, &info)?;
+        if list {
+            let fresh = self.read_networks_view(host, &info, networks)?;
             if let Some(View::Networks(view)) = self.screens.top(NETWORKS_TOKEN) {
                 view.marks = fresh.marks;
-                view.list.set_focus(focus);
                 // Both screens open at once (the page under the list): the
                 // whole of what shows is drawn.
-                let rows = view.list.swap_rows(fresh.list, keys.as_deref());
+                let rows = view.list.swap_rows(fresh.list, list_keys.as_deref());
                 change = if change == RowsChange::None {
                     rows
                 } else {
                     RowsChange::All
                 };
+                forget_hint(host, view);
             }
         }
-        if whole { RowsChange::All } else { change }.queue(host)
+        Ok(change)
     }
 
     /// Keeps the password typed for the network `ssid` the device is in now.

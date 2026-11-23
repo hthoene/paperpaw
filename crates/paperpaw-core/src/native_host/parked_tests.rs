@@ -40,7 +40,7 @@ impl NativeInstance for Listener {
         self.idle.get()
     }
     fn subscribed(&self, tag: u32) -> bool {
-        tag == wire::EVENT_STACK_CHANGED_TAG
+        tag == wire::EVENT_STACK_CHANGED_TAG || tag == wire::EVENT_SCREEN_READY_TAG
     }
     fn service_event(&self, bytes: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         let wire::Record::EventStackChanged(event) =
@@ -96,7 +96,7 @@ impl Unpark for Recipe {
         })
     }
     fn subscribed(&self, tag: u32) -> bool {
-        tag == wire::EVENT_STACK_CHANGED_TAG
+        tag == wire::EVENT_STACK_CHANGED_TAG || tag == wire::EVENT_SCREEN_READY_TAG
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(None);
@@ -228,6 +228,31 @@ fn no_memory_keeps_the_event_asks_no_pass_and_delivers_after_the_wait() {
     );
     assert!(!w.kernel.native_stack_pump());
     assert_eq!(w.log.borrow().len(), 1, "the kept event arrives");
+}
+
+/// An event of the kernel's queue for a parked plugin that cannot be made
+/// now waits without waking the kernel at once, pass after pass: the time of
+/// its start does (#483).
+#[test]
+fn a_waiting_event_of_a_plugin_not_made_wakes_nothing_at_once() {
+    let mut w = world(&[Err(Unparked::NoMemory), Ok(())]);
+    w.kernel
+        .native_screen_ready(&Id::new_static("menu.page"), 3);
+    assert!(
+        !w.kernel.native_setting_pump(),
+        "a waiting parked plugin asks no pass"
+    );
+    assert_eq!(w.made.get(), 1);
+    let now = w.kernel.shared.now;
+    let due = w.kernel.service_due();
+    assert!(due.is_some_and(|due| due > now), "{due:?}: not at once");
+    w.kernel.shared.now = w.kernel.shared.now.add_millis(1_000);
+    assert!(
+        w.kernel.native_unpark_pending(),
+        "made once its wait is over"
+    );
+    assert!(!w.kernel.native_setting_pump());
+    assert_eq!(w.made.get(), 2);
 }
 
 #[test]
@@ -432,4 +457,19 @@ fn on_standby_a_waiting_screen_batch_runs_and_the_room_goes_back() {
 #[test]
 fn a_waiting_screen_batch_keeps_the_queues_room() {
     assert_eq!(screen_room_after(true, false), (1, true));
+}
+
+/// An event raised for a parked plugin after the pump ran (a command's, the
+/// kernel's own) wakes the kernel at once: nothing has asked its start yet,
+/// so no start time would wake it, and it waited for the next key (#483).
+#[test]
+fn an_event_for_a_parked_plugin_not_tried_yet_is_due_at_once() {
+    let mut w = world(&[Ok(())]);
+    w.kernel
+        .native_screen_ready(&Id::new_static("menu.page"), 3);
+    assert_eq!(w.made.get(), 0);
+    assert_eq!(w.kernel.service_due(), Some(w.kernel.shared.now));
+    assert!(!w.kernel.native_setting_pump(), "told");
+    assert_eq!(w.made.get(), 1);
+    assert_eq!(w.kernel.service_due(), None, "nothing waits");
 }

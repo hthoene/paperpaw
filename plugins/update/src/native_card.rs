@@ -131,6 +131,14 @@ pub fn ended(status_ok: bool, outcome: DeviceOutcome) -> Ended {
     }
 }
 
+/// Whether a restart the plugin asked for ended with the reader's no (the host
+/// asks before every restart; no, dismissed or ten minutes unanswered), not
+/// with a restart that could not start.
+#[must_use]
+pub const fn restart_declined(outcome: DeviceOutcome) -> bool {
+    matches!(outcome, DeviceOutcome::Declined | DeviceOutcome::Dismissed)
+}
+
 /// The text that says why an install failed.
 #[must_use]
 pub const fn reason(outcome: DeviceOutcome) -> &'static str {
@@ -298,6 +306,18 @@ mod tests {
         assert_eq!(ended(false, O::Damaged), Ended::Failed(O::Damaged));
         // A refusal whose status says nothing went well is not a success.
         assert_eq!(ended(true, O::UnknownKey), Ended::Failed(O::UnknownKey));
+    }
+
+    #[test]
+    fn a_restart_not_made_is_declined_or_failed() {
+        use DeviceOutcome as O;
+        // The reader's no (reason 2) and a question dismissed or unanswered
+        // (reason 3) leave the restart to the button; anything else failed.
+        assert!(restart_declined(O::Declined));
+        assert!(restart_declined(O::Dismissed));
+        for failed in [O::Ok, O::Other, O::Cancelled, O::Unsupported] {
+            assert!(!restart_declined(failed), "{failed:?}");
+        }
     }
 
     #[test]

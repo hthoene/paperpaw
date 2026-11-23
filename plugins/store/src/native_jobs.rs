@@ -24,7 +24,10 @@ use crate::native_download::{Done as FileDone, Failure, Started, Step as DownSte
 use crate::native_glue;
 use crate::native_install::{End, Have, Next as Turn, hand_over, next as queue_next};
 use crate::native_installs::HostInstalls;
-use crate::native_load::{Details, Done, Ended, LIST_TOKEN, PAGE_TOKEN, SIGNATURE_TOKEN};
+use crate::native_list::Page;
+use crate::native_load::{
+    Details, Done, Ended, LIST_TOKEN, Loader, PAGE_TOKEN, QUEUE_PAGE_TOKEN, SIGNATURE_TOKEN,
+};
 use crate::native_plugin::NativeStore;
 use crate::native_queue::{Mark, Queue};
 use crate::native_screens::{Next, SourceAct};
@@ -80,11 +83,16 @@ impl NativeStore {
                 }
                 self.fetch_list(host)
             }
-            Next::FetchPage(id) => self.fetch_page(host, &id),
+            Next::FetchPage(id) => self.fetch_page(host, instance, &id),
             Next::Install(id) | Next::Update(id) => self.begin(host, &id),
             Next::Remove(id) => self.remove(host, &id),
             Next::Stop(id) => self.stop(host, &id),
-            Next::UpdateAll => self.update_all(host),
+            Next::UpdateAll => {
+                self.update_all(host)?;
+                // The rows show the plugins queued.
+                self.call(host, instance, |view, ctx| view.shown(ctx))?;
+                redraw(host)
+            }
             Next::Notify(key) => self.say(host, key),
             Next::CloseNotify(key) => {
                 close_screen(host)?;
@@ -146,7 +154,7 @@ impl NativeStore {
     #[inline(never)]
     fn source(&mut self, host: &Host<'_>, act: SourceAct) -> Result<(), Error> {
         // One source at a time: what is being fetched is the listed one's.
-        if self.download_busy() || self.want.is_some() {
+        if self.download_busy() || self.queue_waits() {
             return self.say(host, "store.source.busy");
         }
         let storage = DataStorage::new(host);
@@ -203,7 +211,10 @@ impl NativeStore {
         if self.handles.source.is_some() {
             let _ = self.list_files(host).remove(crate::native_index::HEAD);
         }
-        self.loader.forget_page();
+        {
+            let mut wire = HostWire::new(host, &mut self.handles);
+            self.loader.forget_page(&mut wire);
+        }
         self.activity.listed = self.handles.trust();
         self.generation = self.generation.wrapping_add(1);
         self.fetch_list(host)
@@ -212,7 +223,7 @@ impl NativeStore {
     /// The store is left: PaperPaw's library is listed the next time. A
     /// download of the source's goes on first.
     pub(crate) fn leave_source(&mut self, host: &Host<'_>) {
-        if self.handles.source.is_none() || self.download_busy() || self.want.is_some() {
+        if self.handles.source.is_none() || self.download_busy() || self.queue_waits() {
             return;
         }
         {
@@ -300,9 +311,19 @@ impl NativeStore {
         redraw(host)
     }
 
-    fn fetch_page(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
-        let mut wire = HostWire::new(host, &mut self.handles);
-        self.loader.start_page(&mut wire, id)
+    /// Asks for the page screen `instance` shows. Where no request could be
+    /// made (no network service, a library that does not know the device),
+    /// the screen says why at once instead of loading for ever.
+    fn fetch_page(&mut self, host: &Host<'_>, instance: Instance, id: &str) -> Result<(), Error> {
+        {
+            let mut wire = HostWire::new(host, &mut self.handles);
+            self.loader.start_page(&mut wire, id)?;
+        }
+        if self.loader.details().1 == Details::Asked {
+            return Ok(());
+        }
+        self.call(host, instance, |view, ctx| view.shown(ctx))?;
+        redraw(host)
     }
 
     /// The end of a request of the list or of a page.
@@ -314,7 +335,7 @@ impl NativeStore {
         event: &Event<'_>,
     ) -> Result<(), Error> {
         match done.token() {
-            LIST_TOKEN | PAGE_TOKEN | SIGNATURE_TOKEN => {
+            LIST_TOKEN | PAGE_TOKEN | QUEUE_PAGE_TOKEN | SIGNATURE_TOKEN => {
                 let ended = Done::new(done.id(), done.token(), done.reason(), done.status());
                 let before = self.handles.trust();
                 let result = {
@@ -338,7 +359,7 @@ impl NativeStore {
                 if result == Ended::ListUnchanged {
                     redraw(host)?;
                 }
-                if result == Ended::Page {
+                if result == Ended::QueuePage {
                     self.page_arrived(host)?;
                 }
             }
@@ -348,61 +369,50 @@ impl NativeStore {
         self.forward(host, event)
     }
 
-    /// The page asked for came, or did not: the install it was asked for goes on.
+    /// The page the queue asked for came, or did not: the install goes on, or
+    /// the plugin is not installed and the next one gets its turn.
     #[inline(never)]
     fn page_arrived(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let Some(id) = self.want.clone() else {
+        let (Some(id), details) = self.loader.queue_details() else {
             return Ok(());
         };
-        match self.loader.details() {
-            (Some(of), Details::Here) if of == id => {
-                self.want = None;
-                self.begin(host, &id)
-            }
-            (Some(of), Details::Offline | Details::Failed) if of == id => {
-                self.want_failed(host, &id)
-            }
-            // A page screen took the slot for another plugin: ask for ours
-            // again, once; a second time the plugin counts as not installed
-            // (the queue never waits for a page that is not coming).
-            (Some(of), _) if of != id => {
-                if self.want_retried {
-                    return self.want_failed(host, &id);
-                }
-                self.want_retried = true;
-                match self.fetch_page(host, &id) {
-                    Ok(()) => Ok(()),
-                    Err(Error::NoMemory) => Err(Error::NoMemory),
-                    Err(_) => self.want_failed(host, &id),
-                }
-            }
-            _ => Ok(()),
+        let id = crate::native_glue::own(id)?;
+        if details == Details::Here {
+            return self.begin(host, &id);
         }
-    }
-
-    /// The page of plugin `id`, which the queue waits for, is not coming: the
-    /// plugin is not installed and the queue goes on.
-    fn want_failed(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
-        self.want = None;
-        self.want_retried = false;
-        self.not_installed(host, id, "")?;
+        self.loader.release_queue_page(&id);
+        self.page_missing(host, &id)?;
         self.go_on(host)
     }
 
-    /// Asks for the page of plugin `id` to install it; a request the host
-    /// refuses is the plugin not installed.
+    /// The page of plugin `id`, which the queue wants, did not come or could
+    /// not be asked for: the plugin is not installed. A request or a quiet
+    /// queue notes it by the name the setup knows it by (else its id);
+    /// *Update all* says nothing of it, as in Beta 3: it stays listed with
+    /// its update.
+    fn page_missing(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        let name = crate::native_ask::name_of(&mut Words::new(host)?, id)?;
+        self.noted(host, id, &name, "", Result_::NotInstalled)?;
+        Ok(())
+    }
+
+    /// Asks for the page of plugin `id` to install it; whether it was asked
+    /// for. One that cannot be (no network service, a library that does not
+    /// know the device) is the plugin not installed ([`Self::page_missing`]).
     #[inline(never)]
-    fn want_page(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
-        self.want = Some(crate::native_glue::own(id)?);
-        self.want_retried = false;
-        match self.fetch_page(host, id) {
-            Ok(()) => Ok(()),
-            Err(Error::NoMemory) => {
-                self.want = None;
-                Err(Error::NoMemory)
-            }
-            Err(_) => self.want_failed(host, id),
+    fn want_page(&mut self, host: &Host<'_>, id: &str) -> Result<bool, Error> {
+        let started = {
+            let mut wire = HostWire::new(host, &mut self.handles);
+            self.loader.start_queue_page(&mut wire, id)
+        };
+        match started {
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Ok(()) if self.queue_waits() => return Ok(true),
+            _ => {}
         }
+        self.loader.release_queue_page(id);
+        self.page_missing(host, id)?;
+        Ok(false)
     }
 
     /// Installs plugin `id`, once its files are known: its page is fetched
@@ -410,39 +420,42 @@ impl NativeStore {
     #[inline(never)]
     fn begin(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
         if self.download_busy() {
+            self.loader.release_queue_page(id);
             let name = self.busy_name(host)?;
             return self.say_with(host, "store.busy", &name);
         }
-        let Some((code, author)) = self.loader.page(id).map(|p| {
+        let Some((code, author)) = install_page(&self.loader, id).map(|p| {
             // Code among the files of a page that is no code plugin's counts
             // as code nobody's key is named for.
             let hidden = !p.code
                 && crate::native_sources::names_code(p.files.iter().map(|f| f.path.as_str()));
             (p.code || hidden, p.author_key.filter(|_| !hidden))
         }) else {
-            return self.want_page(host, id);
+            return self.want_install(host, id);
         };
         if let Some(key) = self.source_refusal(host, id, code, author)? {
-            let name = match self.loader.page(id) {
+            let name = match install_page(&self.loader, id) {
                 Some(page) => crate::native_glue::own(&page.entry.name)?,
                 None => String::new(),
             };
+            self.loader.release_queue_page(id);
             self.noted(host, id, &name, key, Result_::NotInstalled)?;
             return self.go_on(host);
         }
-        let Some(page) = self.loader.page(id) else {
-            return self.want_page(host, id);
+        let Some(page) = install_page(&self.loader, id) else {
+            return self.want_install(host, id);
         };
         // What the install needs of the page outlives it.
         let kept = paperpaw_ui_kit::mem::boxed(lean(page)?)?;
         let name = crate::native_glue::own(&page.entry.name)?;
-        let storage = DataStorage::new(host);
         let started = {
             let mut wire = DownloadWire::new(host, &mut self.handles);
             self.download.start(&mut wire, page)
-        }?;
-        let _ = storage;
-        match started {
+        };
+        // The download holds the files; the queue's page is not needed any
+        // more.
+        self.loader.release_queue_page(id);
+        match started? {
             Started::Downloading => {
                 self.activity.set_other_job(id, &name)?;
                 self.activity.clear_no_room(id);
@@ -453,6 +466,7 @@ impl NativeStore {
             }
             Started::NoNetwork => {
                 self.requests_failed(host)?;
+                self.keep_turn(host)?;
                 self.say(host, "store.offline")
             }
             Started::Invalid | Started::Card => {
@@ -460,6 +474,35 @@ impl NativeStore {
                 self.go_on(host)
             }
         }
+    }
+
+    /// Asks for the page of plugin `id`, which is to be installed; where it
+    /// cannot be, the next plugin of the queue gets its turn.
+    fn want_install(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        if self.want_page(host, id)? {
+            Ok(())
+        } else {
+            self.go_on(host)
+        }
+    }
+
+    /// No connection for the download: the plugin whose turn it is keeps it
+    /// for when the queue goes on again (the store is opened, the next
+    /// start), as in Beta 3. One another plugin asked for goes: the request
+    /// was answered.
+    fn keep_turn(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let mut queue = Queue::read(&storage)?;
+        if queue.requested() {
+            return Ok(());
+        }
+        queue.interrupted();
+        queue.keep(&storage)
+    }
+
+    /// Whether the queue waits for the page of the plugin whose turn it is.
+    fn queue_waits(&self) -> bool {
+        self.loader.queue_details().1 == Details::Asked
     }
 
     fn download_busy(&self) -> bool {
@@ -545,8 +588,8 @@ impl NativeStore {
                 .finish(&mut wire, &mut self.download, staged, &page, have)?
         };
         self.sync_step(&id);
-        if matches!(step, DownStep::Failed(_)) {
-            self.not_installed(host, &id, &name)?;
+        if let DownStep::Failed(why) = step {
+            self.noted(host, &id, &name, why.key(), Result_::NotInstalled)?;
             return self.go_on(host);
         }
         redraw(host)
@@ -628,10 +671,6 @@ impl NativeStore {
         };
         self.forget_snapshot();
         self.sync_step(plugin);
-        // A page the queue or the offer installed from is not kept for nobody.
-        if !self.has_page_screen() {
-            self.loader.forget_page();
-        }
         // No room (the code room, the card) and a withdrawn key are what the
         // page of the plugin says of it afterwards.
         match reason_of(done) {
@@ -653,8 +692,12 @@ impl NativeStore {
                     (false, true) => "store.updated",
                     (false, false) => "store.installed",
                 };
-                self.noted(host, &plugin, &name, key, Result_::Installed)?;
-                self.note_requires(requires);
+                let queue = self.noted(host, &plugin, &name, key, Result_::Installed)?;
+                // What the setup put in quietly asks for nothing more; what
+                // another plugin asked for may (a chain of requirements).
+                if queue.offers_requires() {
+                    self.note_requires(requires);
+                }
                 true
             }
             Outcome::Refused { plugin, name, key } => {
@@ -702,7 +745,7 @@ impl NativeStore {
     }
 
     /// Says what became of plugin `id`, or notes it for the end of a quiet
-    /// queue or the request that asked for it.
+    /// queue or the request that asked for it; the queue as it was read.
     #[inline(never)]
     fn noted(
         &mut self,
@@ -711,7 +754,7 @@ impl NativeStore {
         name: &str,
         key: &str,
         result: Result_,
-    ) -> Result<(), Error> {
+    ) -> Result<Queue, Error> {
         let storage = DataStorage::new(host);
         let queue = Queue::read(&storage)?;
         let done = result == Result_::Installed;
@@ -722,12 +765,13 @@ impl NativeStore {
         } else if !key.is_empty() {
             self.say_with(host, key, name)?;
         }
-        Ok(())
+        Ok(queue)
     }
 
     /// A plugin was not installed: said where nobody else is told.
     fn not_installed(&mut self, host: &Host<'_>, id: &str, name: &str) -> Result<(), Error> {
-        self.noted(host, id, name, "store.failed", Result_::NotInstalled)
+        self.noted(host, id, name, "store.failed", Result_::NotInstalled)?;
+        Ok(())
     }
 
     #[inline(never)]
@@ -748,49 +792,46 @@ impl NativeStore {
         };
         self.installing = None;
         self.sync_step(&id);
-        if why == Failure::Memory {
-            // Only a restart gives the memory back: said so.
-            self.noted(
-                host,
-                &id,
-                &name,
-                "store.failed.memory",
-                Result_::NotInstalled,
-            )?;
-        } else {
-            self.not_installed(host, &id, &name)?;
-        }
+        self.noted(host, &id, &name, why.key(), Result_::NotInstalled)?;
         self.go_on(host)
     }
 
     /// The queue goes on: the next plugin gets its turn.
     pub(crate) fn go_on(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let result = self.go_on_next(host);
-        // What the screens read of the queue follows it while they are open.
-        if !self.screens_empty() {
+        if self.screens_empty() {
+            // The store is not open: once the queue is done, nothing of the
+            // device is kept and PaperPaw's library is listed the next time.
+            self.release_idle();
+            self.leave_source(host);
+        } else {
+            // What the screens read of the queue follows it while they are open.
             let _ = self.refresh_activity(host);
         }
         result
     }
 
+    /// Gives the next plugin its turn; a page that cannot be asked for is the
+    /// plugin not installed, and the turn goes on here (the queue may be long:
+    /// no call for each).
     fn go_on_next(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if self.download_busy() || self.want.is_some() {
-            return Ok(());
-        }
-        let storage = DataStorage::new(host);
-        let mut queue = Queue::read(&storage)?;
-        match queue_next(&mut queue, &storage)? {
-            Turn::FetchPage(id) => {
-                // What another plugin or the setup asked for is PaperPaw's
-                // library's, never the community source's listed now (#214).
-                if queue.quiet() && self.handles.source.is_some() {
-                    self.list_source(host, None)?;
-                }
-                self.want_page(host, &id)
+        loop {
+            if self.download_busy() || self.queue_waits() {
+                return Ok(());
             }
-            _ => {
+            let storage = DataStorage::new(host);
+            let mut queue = Queue::read(&storage)?;
+            let Turn::FetchPage(id) = queue_next(&mut queue, &storage)? else {
                 self.queue_ended(host, &queue)?;
-                redraw(host)
+                return redraw(host);
+            };
+            // What another plugin or the setup asked for is PaperPaw's
+            // library's, never the community source's listed now (#214).
+            if queue.quiet() && self.handles.source.is_some() {
+                self.list_source(host, None)?;
+            }
+            if self.want_page(host, &id)? {
+                return Ok(());
             }
         }
     }
@@ -891,8 +932,10 @@ impl NativeStore {
         }
         self.download.set_step(DownStep::Idle);
         self.installing = None;
-        self.want = None;
-        self.want_retried = false;
+        {
+            let mut wire = HostWire::new(host, &mut self.handles);
+            self.loader.forget_queue_page(&mut wire);
+        }
         self.sync_step(id);
         self.go_on(host)?;
         redraw(host)
@@ -1097,7 +1140,7 @@ impl NativeStore {
             return;
         }
         self.forget_snapshot();
-        if self.download_busy() || self.want.is_some() {
+        if self.download_busy() || self.queue_waits() {
             return;
         }
         self.activity.queue = Queue::default();
@@ -1125,7 +1168,7 @@ impl NativeStore {
             },
             DownStep::Ready | DownStep::Installing => Step::Installing,
             DownStep::Installed => Step::Installed,
-            DownStep::Failed(_) => Step::Failed(1),
+            DownStep::Failed(why) => Step::Failed(why),
         };
         if !self.download_busy() {
             self.activity.clear_other_job();
@@ -1144,6 +1187,12 @@ impl NativeStore {
             self.sync_step(&id);
         }
     }
+}
+
+/// The page plugin `id` is installed from: the queue's, else the one a
+/// screen shows.
+fn install_page<'a>(loader: &'a Loader, id: &str) -> Option<&'a Page> {
+    loader.queue_page(id).or_else(|| loader.page(id))
 }
 
 /// What an install needs of a page: the plugin's id, name and version, the

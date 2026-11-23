@@ -51,7 +51,8 @@ code is gone (see the removal step): the app no longer registers `Transfer`, so 
   *Moving, deleting and uploading through the library*).
 - **The requests** (`src/native_web.rs`, over a `Card` trait; `src/native_files.rs` is the `core.files` root 1 one):
   `GET /` (the page), `GET /api/list` (an inline answer of at most 2,000 bytes; folders with more entries go on in
-  parts with `next`, as before), `GET /api/file` (the file whole, `send_file` from the card: the host streams it),
+  parts with `next`, the host's place in the folder that the page sends back as `from`, so each part is read from
+  where the one before ended), `GET /api/file` (the file whole, `send_file` from the card: the host streams it),
   `PUT /api/file` (the body the host saved under `.received/<server>/<request>` is **moved** to the card under a
   free name, `name (2)` (a book into the library folder is imported, see below); refused with 507 when the body is longer than the free room `core.files` `space` says, the
   card's own *full* is 507 too), `POST /api/mkdir`, `POST /api/delete` (a folder with all in it, `remove_tree`; a book through the library),
@@ -89,8 +90,8 @@ code is gone (see the removal step): the app no longer registers `Transfer`, so 
   firmware is refused before the host is asked (`built in`). `GET /api/plugin/<id>` tells the state (`none`,
   `asking`, `installed`, `refused`); `DELETE` drops the files (not while the host asks: *409*). The staged files go when the
   screen closes or opens (but those the host is asked about). The device says on the screen *Installed: {name}*, *...
-  It runs after a restart.* or *Not installed: {name}* (the interface-6 question for code, `transfer.code.*`, is the
-  host's confirmation now).
+  It runs after a restart.* or *Not installed: {name}* (the interface-6 question for code is the host's confirmation
+  now; its texts went).
   Differences from interface 6: (a) `origin` in the list is `built-in` or `installed`; the registry row has no
   store/local origin (`docs/usb-transfer.md` says so); (b) the checks of the folder (is it the plugin, is its code
   whole and built for this device) and the trust rules are the host's, so the refusals come as the host's reasons;
@@ -102,7 +103,8 @@ code is gone (see the removal step): the app no longer registers `Transfer`, so 
   the **second server** (token 2, port 8080 or the next, `max_body` 4,096) with a key of its own and shows the address
   and the code. The page is written to `phone.html` and sent with `send_file`; a password question gets a masked field and
   never the text. `POST /send` (the key checked as the transfer's) answers *200*, then writes the text to the
-  question's text and answers it (`Answer::Accept`), and the screen closes; a text too long is *413*, one that is not
+  question's text and answers it (`Answer::Accept`), stops its server and says *Sent* until Back leaves it (a
+  request's callback cannot leave a screen); without a network it says so, Back only; a text too long is *413*, one that is not
   UTF-8 *400*; a screen closed without an answer is the host's cancel. A secret question's screen is a secret screen
   (`ScreenPolicy::secret`), and the text and the initial text are wiped. The keyboard offers *Phone* only where a
   screen fills the slot (it asks the registry), so the offer is what turns the function on.
@@ -115,8 +117,10 @@ code is gone (see the removal step): the app no longer registers `Transfer`, so 
   `readable(15)`, tested equal), sends `wifi_on` and `wifi_host(request, ssid, password)` (the device's name as the
   name, in the input that chose it; `uses.wifi`, optional), and on `wifi_done` serves the page there. The upper half of the screen
   is the code that joins it (`wifi::join_code`) with the name and the password to type, the lower the address
-  and its code. Closing the screen leaves the network (only where the radio is hosting, never the router's) and an exact
-  timer (`core.work`, `at_ms`) closes the screen after ten minutes without a request. Differences from interface
+  and its code. Closing the screen leaves the network (where the radio is hosting or the network was asked for and is
+  not open yet, never the router's; one that opens after the screen closed is left at once) and an exact timer
+  (`core.work`, `at_ms`) closes it after ten minutes without a request, the screen saying so until Back leaves it (a
+  timer cannot leave a screen). Differences from interface
   6: the row is on *No Wi-Fi* only, not on *Starting* and not while serving at a router (so a computer in another
   network is served by leaving the router's network first).
 - **The page's hint for a book sent outside the library folder**: `T.books` is the extensions of the formats
@@ -139,8 +143,10 @@ against that contract; what needs the host's cable is `tests/cable_native.rs`, i
   why, as the Wi-Fi's; `stopped` while it was running too). It shows what interface 6 showed (waiting / a computer is
   connected / asking / allowed / not allowed, and below it the last thing said: receiving, received, installing,
   installed, not installed) as the list's empty-state footer, en and de (new keys `transfer.cable.waiting`, `.linked`,
-  `.asking`, `.asking.text`, `.allowed.title`, `.refused.title`, `.installing`). Closing the screen (host *Back* or the
-  idle timer) ends the permission, stops the server (idempotent), removes what was staged and cancels its timers.
+  `.asking`, `.asking.text`, `.allowed.title`, `.refused.title`, `.installing`). Closing the screen (host *Back*) ends
+  the permission, stops the server (idempotent), removes what was staged and cancels its timers; the idle timer ends
+  the permission and removes what was staged, and the screen says so until Back leaves it or the computer asks again
+  (a timer cannot leave a screen). The key bar names Back alone.
 - **The protocol** (`src/native_cable.rs` host-free over a `CableHost` trait; `src/native_cable/host.rs` the host's
   part): `GET /api/hello`, `GET /api/plugins`, `POST`/`GET /api/offer`, `PUT /api/plugin/<id>/<path>`,
   `POST /api/plugin/<id>`, `PUT /api/book/<name>` with the interface-6 statuses: 202/409/507/400 for the offer, 403
@@ -158,7 +164,7 @@ against that contract; what needs the host's cable is `tests/cable_native.rs`, i
   body file), after its SHA-256 was checked; offered once, taken once. `uses.library` is declared **optional**
   (`core.library` is in the metadata): without the grant a book is *501*. The install is the Wi-Fi's command
   (`install_plugin(request, Data, "cable/<id>", update, allow_older)`, requests from `0x7ffe_0000`).
-- **Timers and busy answers**: an exact timer (`core.work`, `at_ms`, key `transfer.cable-idle`) closes the screen after
+- **Timers and busy answers**: an exact timer (`core.work`, `at_ms`, key `transfer.cable-idle`) ends the permission after
   five minutes without a request (not while the reader is asked or the host asks about an install: it counts again from
   the answer); a `respond` refused as `Busy` (the host's cable queue is full) is kept (at most 4) and sent again with
   the next request or the retry timer (`transfer.cable-retry`, every 250 ms, about 100 s), never lost silently.

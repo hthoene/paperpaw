@@ -227,6 +227,14 @@ impl Queue {
             .is_some_and(|l| l.turn && l.mark.is_quiet())
     }
 
+    /// Whether what the plugin whose turn it is requires is offered once it
+    /// is installed: not where the setup put it in quietly; where another
+    /// plugin asked for it, yes (a chain of requirements), as in Beta 3.
+    #[must_use]
+    pub fn offers_requires(&self) -> bool {
+        !self.quiet() || self.requested()
+    }
+
     /// Whether plugins put in quietly wait: they go on at the start.
     #[must_use]
     pub fn has_quiet(&self) -> bool {

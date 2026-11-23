@@ -215,10 +215,11 @@ impl Item {
         }))
     }
 
-    /// Whether focus can rest on it.
+    /// Whether focus can rest on it: a row that is not faint (`disabled`),
+    /// nor text a page reads out (`plain`), nor small print (`small`).
     #[must_use]
     pub const fn selectable(&self) -> bool {
-        matches!(self, Self::Row(row) if !row.disabled && !row.plain)
+        matches!(self, Self::Row(row) if to_choose(row))
     }
 }
 
@@ -420,6 +421,13 @@ impl ItemList {
             .unwrap_or(0)
     }
 
+    /// Whether item `index` is there and can be chosen: what a tap target of
+    /// the last frame must be now, for the items may have changed since
+    /// (replaced, wiped or freed) and a faint row's targets do nothing.
+    fn choosable(&self, index: usize) -> bool {
+        self.items.get(index).is_some_and(Item::selectable)
+    }
+
     fn after(&self, from: usize) -> Option<usize> {
         (from + 1..self.items.len()).find(|i| self.items[*i].selectable())
     }
@@ -435,9 +443,17 @@ impl ItemList {
         match *input {
             Input::Action { action, .. } => {
                 let page = self.page_of(self.focus);
+                // The first row to choose on the page, else its first row: a
+                // page of text alone is still turned to, as Beta 3 did.
                 let first_of = |page: usize| {
                     let start = self.starts.get(page).copied()?;
-                    (start..self.items.len()).find(|i| self.items[*i].selectable())
+                    let end = self.starts.get(page + 1).copied();
+                    let on_page = start..end.unwrap_or(self.items.len());
+                    on_page.clone().find(|i| self.choosable(*i)).or_else(|| {
+                        on_page
+                            .into_iter()
+                            .find(|i| matches!(self.items.get(*i), Some(Item::Row(_))))
+                    })
                 };
                 let target = match action {
                     "core.confirm" if self.items.get(self.focus).is_some_and(Item::selectable) => {
@@ -525,7 +541,7 @@ impl ItemList {
         if let Some(action) = self.header.action(position) {
             return ItemStep::Header(action);
         }
-        for (minus, plus, item, _) in &self.steps {
+        for (minus, plus, item, _) in self.steps.iter().filter(|step| self.choosable(step.2)) {
             if minus.contains(position) {
                 return ItemStep::Step(*item, -1);
             }
@@ -534,8 +550,9 @@ impl ItemList {
             }
         }
         match self.hits.iter().find(|(rect, _)| rect.contains(position)) {
-            // A faint row is taken, and does nothing.
-            Some((_, item)) if !self.items[*item].selectable() => ItemStep::Focus(self.focus),
+            // A faint row, or one no longer there, is taken and does nothing
+            // (its − and + too: they are inside it).
+            Some((_, item)) if !self.choosable(*item) => ItemStep::Focus(self.focus),
             Some((_, item)) => ItemStep::Chosen(*item),
             None => ItemStep::Ignored,
         }
@@ -1016,8 +1033,14 @@ pub(crate) fn item_height(
 }
 
 /// Whether a row is text a page reads out (or small print), not a row to choose.
-fn page_text(row: &RowItem) -> bool {
+const fn page_text(row: &RowItem) -> bool {
     row.plain || row.small
+}
+
+/// Whether a row is one to choose: neither faint nor text a page reads out.
+/// Only such a row takes the focus, a tap, and the look of the focus.
+const fn to_choose(row: &RowItem) -> bool {
+    !row.disabled && !page_text(row)
 }
 
 /// The lines a title of a row that shows its text whole takes at most: four for

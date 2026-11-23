@@ -457,10 +457,17 @@ impl Opds {
         }
     }
 
-    /// The list of catalogs, read again from the file.
+    /// The list of catalogs, read again from the file; the passwords an older
+    /// version kept in it go to the secrets.
     fn reload(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let files = DataFiles::new(host);
-        match catalogs::load(&files, catalogs::max_catalogs(self.small)) {
+        let vault = HostVault {
+            secrets: self.secrets.as_ref(),
+            host,
+        };
+        let mut label = |name: &str| Self::secret_label(host, name);
+        let max = catalogs::max_catalogs(self.small);
+        match catalogs::load_moving_passwords(&files, &vault, max, &mut label) {
             Ok(list) => {
                 self.catalogs = list;
                 self.unreadable = false;

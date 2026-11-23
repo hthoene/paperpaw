@@ -437,12 +437,10 @@ impl Plugin for NativeJoplin {
         let mut say = Messages::new()?;
         let view = self.screens.top(token).ok_or(Error::State)?;
         let title = say.copy(host, "joplin.title")?;
-        let service = Service::of_key(&text_setting(host, SERVICE)?);
         let help = match view.rows.get(view.list.focus()) {
             Some(row) => say.copy(host, row.help())?,
             None => String::new(),
         };
-        let _ = service;
         let footer = if help.is_empty() {
             Footer::None
         } else {

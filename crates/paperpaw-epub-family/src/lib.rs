@@ -1303,6 +1303,28 @@ mod tests {
         assert_eq!(math_text(markup).as_deref(), Some("a/b"));
     }
 
+    /// An element left open inside a formula (`<mspace>` without `/>`) ends
+    /// with it: the text after `</math>` is the chapter's again.
+    #[test]
+    fn a_formula_ends_with_its_element_where_one_inside_is_left_open() {
+        let html = "<html><body><p>Es gilt <math alttext=\"x y\"><mi>x</mi><mspace width=\"1em\">\
+            <mi>y</mi></math> immer.</p><p>Weiter.</p></body></html>";
+        assert_eq!(math_blocks(html, false), ["Es gilt x y immer.", "Weiter."]);
+        // The markup handed on is whole, its elements closed.
+        let storage = epub(String::from(html));
+        let doc = EpubDocument::open(&storage, "books/test.epub").unwrap();
+        let block = doc.block_at(&storage, Locator::new(1, 0)).unwrap().unwrap();
+        let [note] = &block.annotations[..] else {
+            panic!("{:?}", block.annotations);
+        };
+        assert!(
+            note.text
+                .starts_with("<math alttext=\"x y\"><mi>x</mi><mspace><mi>y</mi></mspace></math>"),
+            "{}",
+            note.text
+        );
+    }
+
     #[test]
     fn a_formula_too_long_for_a_record_keeps_its_own_text() {
         let long = "<mi>x</mi>".repeat(120);

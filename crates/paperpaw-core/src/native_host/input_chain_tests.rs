@@ -463,6 +463,9 @@ mod kernel {
         /// How often the action `f.chord` ran, and a screen got a gesture.
         static RAN: Cell<u32> = const { Cell::new(0) };
         static GESTURES: Cell<u32> = const { Cell::new(0) };
+        /// Whether the last input the filter was asked about said the top
+        /// instance is secret (`filter.input.flags` bit 1).
+        static SECRET_SEEN: Cell<Option<bool>> = const { Cell::new(None) };
         /// Who saw an input, in order: `native`.
         static ORDER: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
     }
@@ -502,6 +505,7 @@ mod kernel {
     const LOCK: Id = Id::new_static("g.lock");
     const PIN: Id = Id::new_static("g.pin");
     const OWN_PIN: Id = Id::new_static("f.pin");
+    const OWN_PAGE: Id = Id::new_static("f.page");
 
     /// A screen that guards the device, one that takes a PIN, and the filter
     /// plugin's own PIN screen.
@@ -539,6 +543,11 @@ mod kernel {
                     OWN_PIN,
                     "pin",
                     Box::new(|_, _| Box::new(Seen(false, true))),
+                ))?;
+                r.add_fake(crate::testing::FakeSpec::new(
+                    OWN_PAGE,
+                    "page",
+                    Box::new(|_, _| Box::new(Seen(false, false))),
                 ))?;
                 // The action an input of its own the native filter can raise
                 // runs.
@@ -591,12 +600,17 @@ mod kernel {
             ORDER.with(|order| order.borrow_mut().push("native"));
             // A gesture record gets `ON_GESTURE` (a made gesture is not asked
             // again: it would loop), any other input the one-shot mode.
-            let gesture = wire::records_decode_single(bytes)
-                .ok()
-                .and_then(|call| match call {
-                    Record::StageCall(call) => stage::FilterInput::decode(call.payload).ok(),
-                    _ => None,
-                })
+            let filter_input =
+                wire::records_decode_single(bytes)
+                    .ok()
+                    .and_then(|call| match call {
+                        Record::StageCall(call) => stage::FilterInput::decode(call.payload).ok(),
+                        _ => None,
+                    });
+            if let Some(input) = &filter_input {
+                SECRET_SEEN.set(Some(input.flags & 2 != 0));
+            }
+            let gesture = filter_input
                 .and_then(|input| wire::records_decode_single(input.input).ok())
                 .is_some_and(|record| matches!(record, Record::InputGesture(_)));
             let mode = match (gesture, STICKY.get()) {
@@ -631,6 +645,7 @@ mod kernel {
         ON_GESTURE.set(PASS);
         RAN.set(0);
         GESTURES.set(0);
+        SECRET_SEEN.set(None);
         ORDER.with(|order| order.borrow_mut().clear());
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .items(screens_manifest("g"), screens("g"))
@@ -788,6 +803,23 @@ mod kernel {
         }
     }
 
+    /// The filters hear an input as secret where the top instance is
+    /// (`ui.md` 1.2, `filter.input.flags` bit 1), not where a secret screen
+    /// lies covered further down: the interface-6 rule judged the whole stack
+    /// (#483).
+    #[test]
+    fn a_filter_hears_secret_only_where_the_top_is_secret() {
+        let (mut kernel, calls) = world();
+        kernel.open_screen(paperpaw_platform::Instant(5), OWN_PIN, Params::new());
+        key(&mut kernel, 10);
+        assert_eq!(SECRET_SEEN.get(), Some(true), "the PIN screen on top");
+        kernel.open_screen(paperpaw_platform::Instant(15), OWN_PAGE, Params::new());
+        let before = calls.get();
+        key(&mut kernel, 20);
+        assert!(calls.get() > before);
+        assert_eq!(SECRET_SEEN.get(), Some(false), "the PIN screen covered");
+    }
+
     #[test]
     fn the_filter_of_the_plugin_whose_screen_it_is_still_runs() {
         let (mut kernel, calls) = world();
@@ -825,6 +857,27 @@ mod kernel {
         assert_eq!(GESTURES.get(), 1);
         // Only that: the key itself did not go on.
         assert_eq!(ORDER.with(|order| order.borrow().clone()), ["native"]);
+    }
+
+    /// A release a filter takes, or turns into an action or an input, ends
+    /// the press for the kernel too: held on, the button fired a long press
+    /// of its own later and its next press was swallowed (#483).
+    #[test]
+    fn a_release_a_filter_takes_lets_the_button_go() {
+        for mode in [TAKE, RAISE, GESTURE] {
+            let (mut kernel, _) = world();
+            kernel.handle(paperpaw_platform::Instant(10), press("up"));
+            assert!(kernel.input.recognizer.holds("up"));
+            MODE.set(mode);
+            kernel.handle(
+                paperpaw_platform::Instant(20),
+                InputEvent::Button {
+                    name: "up",
+                    state: ButtonState::Released,
+                },
+            );
+            assert!(!kernel.input.recognizer.holds("up"), "mode {mode}");
+        }
     }
 
     #[test]

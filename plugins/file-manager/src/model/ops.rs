@@ -10,7 +10,7 @@ use paperpaw_sdk::{Storage, StorageError};
 
 use super::folder::{Entry, Folder};
 use super::path::{self, copy as copy_text, is_dir, is_within, join, same_path};
-use super::{Error, error_of};
+use super::{Disk, Error, error_of};
 
 /// What one read of a copy takes.
 const CHUNK: usize = 4 * 1024;
@@ -24,7 +24,7 @@ const PAGE: usize = 8;
 ///
 /// # Errors
 /// The storage's refusal; [`Error::Invalid`] for a folder moved into itself.
-pub fn move_to(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Error> {
+pub fn move_to(storage: &dyn Disk, from: &str, to: &str) -> Result<(), Error> {
     if is_within(storage, to, from) && !same_path(storage, to, from) {
         return Err(Error::Invalid);
     }
@@ -45,7 +45,7 @@ pub fn move_to(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Error>
 ///
 /// # Errors
 /// The storage's refusal.
-pub fn delete(storage: &dyn Storage, path: &str) -> Result<(), Error> {
+pub fn delete(storage: &dyn Disk, path: &str) -> Result<(), Error> {
     if is_dir(storage, path) {
         storage.remove_dir_all(path)
     } else {
@@ -59,11 +59,11 @@ pub fn delete(storage: &dyn Storage, path: &str) -> Result<(), Error> {
 /// # Errors
 /// The storage's refusal; [`Error::Invalid`] for a folder copied into itself;
 /// [`Error::NoSpace`] for folders nested deeper than [`MAX_DEPTH`].
-pub fn copy(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Error> {
+pub fn copy(storage: &dyn Disk, from: &str, to: &str) -> Result<(), Error> {
     copy_at(storage, from, to, 0)
 }
 
-fn copy_at(storage: &dyn Storage, from: &str, to: &str, depth: usize) -> Result<(), Error> {
+fn copy_at(storage: &dyn Disk, from: &str, to: &str, depth: usize) -> Result<(), Error> {
     if !is_dir(storage, from) {
         return copy_file(storage, from, to);
     }
@@ -165,7 +165,7 @@ fn copy_bytes(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Error> 
 ///
 /// # Errors
 /// The storage's refusal; [`Error::NoMemory`].
-pub fn rename(storage: &dyn Storage, path: &str, name: &str) -> Result<String, Error> {
+pub fn rename(storage: &dyn Disk, path: &str, name: &str) -> Result<String, Error> {
     let dir = path::parent(path);
     let own = path::name(path);
     let mut other = false;

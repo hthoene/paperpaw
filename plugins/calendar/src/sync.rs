@@ -32,8 +32,8 @@ use paperpaw_ui_kit::{
 
 use crate::keep;
 use crate::model::{
-    Entry, Kind, Mark, NO_TIME, PLACE_MAX, SKIP_MAX, Store, TITLE_MAX, WINDOW_DAYS, clean, hash,
-    state,
+    Entry, Kind, Mark, NO_TIME, PLACE_MAX, SKIP_MAX, Store, TITLE_MAX, WHOLE_SOURCE, WINDOW_DAYS,
+    clean, hash, state,
 };
 
 /// The file an answer with many parts is saved to and read from, and the one
@@ -46,6 +46,11 @@ pub const ANSWER_MAX: u64 = 2 * 1024 * 1024;
 const CALENDARS_MAX: usize = 8;
 /// How much of a file is read at a time.
 const CHUNK: usize = 2048;
+/// How much of the start and of the end of an answer is looked at to tell
+/// whether it is whole.
+const PEEK: usize = 64;
+/// The byte order mark a calendar text may begin with.
+const BOM: &[u8] = b"\xEF\xBB\xBF";
 
 /// An error of the reader or of the shared CalDAV code, as one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,6 +287,8 @@ impl Visit for Found {
 struct Collect<'a> {
     store: &'a mut Store,
     src: u8,
+    /// The calendar of the source read ([`Entry::cal`]).
+    cal: u32,
     zoner: Zoner,
     lines: Lines,
     events: EventReader,
@@ -292,10 +299,16 @@ struct Collect<'a> {
 }
 
 impl<'a> Collect<'a> {
-    fn new(store: &'a mut Store, src: u8, zoner: Zoner, window: (i32, i32, i32)) -> Self {
+    fn new(
+        store: &'a mut Store,
+        (src, cal): (u8, u32),
+        zoner: Zoner,
+        window: (i32, i32, i32),
+    ) -> Self {
         Self {
             store,
             src,
+            cal,
             zoner,
             window,
             lines: Lines::new(),
@@ -396,6 +409,7 @@ impl<'a> Collect<'a> {
             span,
             known: false,
             uid: hash(&event.uid),
+            cal: self.cal,
             over,
             rule,
             skip,
@@ -429,6 +443,7 @@ impl<'a> Collect<'a> {
                 span: 1,
                 known: year != 0,
                 uid: hash(&card.uid),
+                cal: self.cal,
                 over: None,
                 rule: String::new(),
                 skip: Vec::new(),
@@ -474,6 +489,34 @@ fn read_answer<V: Visit<Error = Refused>>(
     }
     let complete = reader.complete();
     Ok((reader.visit, complete))
+}
+
+/// Whether the text `name` of `volume`, blanks around it aside, begins with
+/// `head` and ends with `tail` (in any case): a whole answer, neither a page a
+/// captive portal sent instead nor one cut short.
+fn framed(volume: &dyn Volume, name: &str, head: &[u8], tail: &[u8]) -> Result<bool, Error> {
+    let mut piece = [0_u8; PEEK];
+    let read = volume.read_at(name, 0, &mut piece)?;
+    let first = piece.get(..read).unwrap_or_default();
+    let first = first.strip_prefix(BOM).unwrap_or(first).trim_ascii_start();
+    if !first
+        .get(..head.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(head))
+    {
+        return Ok(false);
+    }
+    let at = volume.size(name)?.saturating_sub(PEEK as u64);
+    let read = volume.read_at(name, at, &mut piece)?;
+    let last = piece.get(..read).unwrap_or_default().trim_ascii_end();
+    Ok(last
+        .get(last.len().saturating_sub(tail.len())..)
+        .is_some_and(|end| end.eq_ignore_ascii_case(tail)))
+}
+
+/// [`Entry::cal`] of the calendar of an account at `href`: never
+/// [`WHOLE_SOURCE`].
+fn calendar_tag(href: &str) -> u32 {
+    hash(href).max(WHOLE_SOURCE + 1)
 }
 
 /// Reads a calendar text from the file `name` of `volume` into `collect`.
@@ -670,15 +713,19 @@ impl Sync {
         self.replace_from(store, wire.card(), path)
     }
 
-    /// Reads a calendar text of `volume` as the source's events.
+    /// Reads a calendar text of `volume` as the source's events; one that is
+    /// no whole calendar replaces nothing.
     fn replace_from(
         &mut self,
         store: &mut Store,
         volume: &dyn Volume,
         name: &str,
     ) -> Result<u8, Error> {
+        if !framed(volume, name, b"BEGIN:VCALENDAR", b"END:VCALENDAR")? {
+            return Ok(state::FAILED);
+        }
         store.entries.retain(|entry| entry.src != self.src);
-        let mut collect = Collect::new(store, self.src, self.zoner(), self.window);
+        let mut collect = Collect::new(store, (self.src, WHOLE_SOURCE), self.zoner(), self.window);
         let read = read_text(volume, name, &mut collect);
         let skipped = collect.skipped;
         self.report.skipped = self.report.skipped.saturating_add(skipped);
@@ -737,6 +784,10 @@ impl Sync {
                 } else {
                     state::DENIED
                 };
+                // The calendars read before keep what they gave.
+                if matches!(state, State::Pull { .. }) {
+                    self.close_calendars(store);
+                }
                 self.finished(store, wire, how)?;
                 return self.next_source(store, wire);
             }
@@ -813,7 +864,7 @@ impl Sync {
                 (true, true) => state::PARTLY,
                 (true, false) => state::OK,
             };
-            store.finish_source(self.src, self.window.0, self.window.1);
+            self.close_calendars(store);
             self.finished(store, wire, how)?;
             return self.next_source(store, wire);
         };
@@ -847,20 +898,39 @@ impl Sync {
         cal: usize,
         status: u32,
     ) -> Result<Step, Error> {
-        if status != 207 {
-            self.partly = true;
-        } else {
-            if !self.got {
-                // The first answer that is there takes the place of what the
-                // source gave before.
-                store.entries.retain(|entry| entry.src != self.src);
-                self.got = true;
-            }
-            let collect = Collect::new(store, self.src, self.zoner(), self.window);
+        let tag = self
+            .found
+            .get(cal)
+            .map_or(WHOLE_SOURCE, |href| calendar_tag(href));
+        // A whole answer takes the place of what its calendar gave before; one
+        // that failed or was cut short leaves that calendar's events alone.
+        if status == 207 && framed(wire.files(), ANSWER, b"", b"multistatus>")? {
+            let src = self.src;
+            store
+                .entries
+                .retain(|entry| entry.src != src || entry.cal != tag);
+            self.got = true;
+            let collect = Collect::new(store, (src, tag), self.zoner(), self.window);
             let (collect, complete) = read_answer(wire.files(), collect)?;
             self.report.skipped = self.report.skipped.saturating_add(collect.skipped);
             self.partly |= !complete || collect.skipped > 0;
+        } else {
+            self.partly = true;
         }
         self.pull(store, wire, cal + 1)
+    }
+
+    /// The calendars of the account are read, or a request failed: where one
+    /// answered, the events of calendars the account no longer has go (and
+    /// those kept before its calendars were told apart); changed times are
+    /// linked, and what is outside the window goes.
+    fn close_calendars(&self, store: &mut Store) {
+        if self.got {
+            let (src, found) = (self.src, &self.found);
+            store.entries.retain(|entry| {
+                entry.src != src || found.iter().any(|href| calendar_tag(href) == entry.cal)
+            });
+        }
+        store.finish_source(self.src, self.window.0, self.window.1);
     }
 }

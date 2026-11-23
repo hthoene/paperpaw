@@ -31,11 +31,18 @@ impl Plugin for Probe {
         _: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let backing = backing::Backing::open(host)?;
+        let mut backing = backing::Backing::open(host)?;
         match token {
             1 if backing.can_send() => {
                 if let Some(key) = backing.digest(host, "book.epub")? {
                     reply.write(key.as_bytes())?;
+                }
+            }
+            7 => {
+                for _ in 0..3 {
+                    if let Some(key) = backing.digest(host, "book.epub")? {
+                        reply.write(key.as_bytes())?;
+                    }
                 }
             }
             2 => {
@@ -144,6 +151,26 @@ fn fingerprint_comes_from_library_not_the_path_or_its_filename() {
         run(&host, 1),
         (0, b"d41d8cd98f00b204e9800998ecf8427e".to_vec())
     );
+}
+
+#[test]
+fn a_fingerprint_is_asked_of_the_library_once() {
+    let host = ScriptedHost::new();
+    let asked = Rc::new(RefCell::new(0));
+    let count = asked.clone();
+    host.service("core.library", 1, 0, move |_, _| {
+        *count.borrow_mut() += 1;
+        Ok(row(&Record::ServiceLibKey(ServiceLibKey {
+            key: "0123456789abcdef",
+            fingerprint: "d41d8cd98f00b204e9800998ecf8427e",
+            size: 0,
+        }))
+        .unwrap())
+    });
+    let (status, reply) = run(&host, 7);
+    assert_eq!(status, 0);
+    assert_eq!(reply, b"d41d8cd98f00b204e9800998ecf8427e".repeat(3));
+    assert_eq!(*asked.borrow(), 1);
 }
 
 #[test]

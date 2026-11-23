@@ -8,6 +8,7 @@
     clippy::expect_used,
     reason = "fixture errors fail the tests"
 )]
+use paperpaw_plugin_store::native_download::Failure;
 use paperpaw_plugin_store::native_index::{Index, Order, name_key, take};
 use paperpaw_plugin_store::native_item::Device;
 use paperpaw_plugin_store::native_list::Hooks;
@@ -736,7 +737,9 @@ fn a_plugins_mark_says_where_it_stands() {
     ));
     device.steps.push(("plugin-0002".into(), Step::Installing));
     device.steps.push(("plugin-0004".into(), Step::Installed));
-    device.steps.push(("plugin-0005".into(), Step::Failed(13)));
+    device
+        .steps
+        .push(("plugin-0005".into(), Step::Failed(Failure::Card)));
     assert_eq!(said(&device, 0), "3 / 12");
     assert_eq!(said(&device, 1), "store.state.waiting");
     assert_eq!(said(&device, 2), "store.state.waiting");

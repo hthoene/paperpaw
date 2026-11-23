@@ -882,7 +882,7 @@ fn document_changed_reads_the_document_its_state_and_progress() {
             Event::decode(&bytes[..n]),
             Ok(Event::DocumentChanged {
                 now_ms: 5,
-                document: DocId::from_wire(3),
+                document: DocId::named(3).unwrap(),
                 state: preparation,
                 progress_ppm: 250_000,
             })
@@ -903,6 +903,49 @@ fn document_changed_reads_the_document_its_state_and_progress() {
     let mut longer = bytes[..n].to_vec();
     longer.push(0);
     assert!(Event::decode(&longer).is_err());
+}
+
+/// `event.document_changed` alone in its batch: read whole and by its kind,
+/// both give `expected`.
+fn check_document_changed(
+    document: u32,
+    progress_ppm: u32,
+    expected: Result<Event<'static>, Error>,
+) {
+    let mut bytes = [0; 64];
+    let n = wire::records_encode(
+        &[wire::Record::EventDocumentChanged(
+            wire::EventDocumentChanged {
+                now_ms: 5,
+                document,
+                state: 1,
+                progress_ppm,
+            },
+        )],
+        &mut bytes,
+    )
+    .unwrap();
+    assert_eq!(Event::decode(&bytes[..n]), expected);
+    let incoming = Incoming::new(&bytes[..n]).unwrap();
+    assert_eq!(
+        incoming.decode_as::<kinds::DocumentChanged>(),
+        expected.map(Some)
+    );
+}
+
+#[test]
+fn document_changed_refuses_id_0_and_a_progress_past_the_end() {
+    use crate::native::document::{DocId, Preparation};
+    // As `document_closed` and a book's position do.
+    check_document_changed(0, 250_000, Err(Error::Invalid));
+    check_document_changed(3, 1_000_001, Err(Error::Invalid));
+    let end = Event::DocumentChanged {
+        now_ms: 5,
+        document: DocId::named(3).unwrap(),
+        state: Preparation::Preparing,
+        progress_ppm: 1_000_000,
+    };
+    check_document_changed(3, 1_000_000, Ok(end));
 }
 
 /// `event.document_closed` alone in its batch, as the host delivers it: read whole

@@ -1160,8 +1160,6 @@ impl<'a> FontHandle<'a> {
     /// covered, as panels of black and white show them: what centres it
     /// by its ink rather than by its line (`Ui::header`). `None`
     /// for text without ink (spaces).
-    ///
-    /// `Ui::header`: crate::ui::Ui::header
     pub fn ink(&self, size: f32, text: &str) -> Option<(i32, i32)> {
         if let Some(larger) = self.larger_for(size) {
             return larger.ink(size, text);

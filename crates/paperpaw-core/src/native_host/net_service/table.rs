@@ -271,9 +271,10 @@ impl Inner {
     }
 
     /// `network_demand` follows whether anything uses or waits for the
-    /// network.
+    /// network: a live request or a server on it; the cable's server (port
+    /// 0) needs no network (#483).
     pub(super) fn sync_demand(&mut self, host: &dyn NetHost) {
-        let active = self.reqs.iter().any(Self::live) || self.serving.any();
+        let active = self.reqs.iter().any(Self::live) || self.serving.on_network();
         if active != self.demand {
             self.demand = active;
             // The shell hears the OR of NET and SOCK, once per change.

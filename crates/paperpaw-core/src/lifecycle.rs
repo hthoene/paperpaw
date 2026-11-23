@@ -70,6 +70,7 @@ impl Kernel {
 
     /// What waking does before the frame: the time asleep, plugins told.
     fn woke(&mut self, now: Instant) {
+        self.forget_presses();
         self.storage_kept = false;
         self.shared.asleep = false;
         self.shared.show_again = None;

@@ -1,5 +1,9 @@
 //! Beta 3's list-section cards: open at a page cut, with the focus inside.
-use crate::{Paint, Style, items::Item, paint, style};
+use crate::{
+    Paint, Style,
+    items::{Item, carried_heading},
+    paint, style,
+};
 use alloc::vec::Vec;
 use core::ops::Range;
 use paperpaw_sdk::{
@@ -120,7 +124,11 @@ pub(crate) fn page(
             s,
             Rect::new(area.x, top, area.width, y.saturating_sub(top)),
             (
-                start > 0 && matches!(items[start - 1], Item::Row(_)),
+                // Open above only where the card is the first thing on the
+                // page; the heading a page carries over closes it, as Beta 3.
+                start > 0
+                    && matches!(items[start - 1], Item::Row(_))
+                    && carried_heading(items, start).is_none(),
                 matches!(items.get(at), Some(Item::Row(_))),
             ),
         )?;
@@ -210,11 +218,28 @@ mod tests {
             Rect::new(0, 0, 100, 50),
         )
         .unwrap();
+        // The page carries the heading "Books" over above "C": the card is
+        // closed under it, as Beta 3 drew it.
         assert!(
-            matches!(ops.first(), Some(Paint::Section {rect, clip, ..}) if *rect == FrameRect::new(6,-7,88,27) && *clip == Rect::new(6,0,88,20))
+            matches!(ops.first(), Some(Paint::Section {rect, clip, ..}) if *rect == FrameRect::new(6,0,88,20) && *clip == Rect::new(6,0,88,20))
         );
         assert!(
             matches!(ops.get(1), Some(Paint::Section {rect, ..}) if *rect == FrameRect::new(6,30,88,20))
+        );
+        ops.clear();
+        // Without a heading to carry over, the card the page cuts is open
+        // above.
+        page(
+            &mut ops,
+            &s,
+            Some(Cards { fill: None }),
+            (&items[1..4], &heights[1..4]),
+            2..3,
+            Rect::new(0, 0, 100, 50),
+        )
+        .unwrap();
+        assert!(
+            matches!(ops.as_slice(), [Paint::Section {rect, clip, ..}] if *rect == FrameRect::new(6,-7,88,27) && *clip == Rect::new(6,0,88,20))
         );
         ops.clear();
         page(

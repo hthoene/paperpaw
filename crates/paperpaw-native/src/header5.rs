@@ -1,8 +1,9 @@
 //! The X4's plugin file for interface 7 (format 5), as `abi/ppn5.md` proposes
 //! it: a reader of the 96-byte header and every refusal that needs no more
 //! than the header, the file's length and the entry the loader has
-//! relocated. Nothing here loads, relocates or runs a plugin, and no
-//! firmware calls it yet (slice 1 of #787).
+//! relocated. Nothing here loads, relocates or runs a plugin: the X4's
+//! loader (`shells/xteink/src/native/ppn5.rs`) and the core's checks of a
+//! plugin file (`plugin_check`, `plugin_install`, `code_plugin`) call it.
 //!
 //! The order is the loader's (ADR 0034 section 6, steps 1 to 7 of the
 //! note): magic and length, format, chip, interface major, needed minor,
@@ -21,7 +22,9 @@ use paperpaw_digest::sha256::Sha256;
 
 use crate::header::{CODE_OFFSET, Chip, MAGIC, MAX_IMAGE_LEN};
 use crate::index::HOT_MAX;
+use crate::profile::PREFIX_SIZE;
 use crate::signature::SIGNATURE_LEN;
+use crate::stream5::MAX_PATCHES;
 
 /// The format this module reads.
 pub const FORMAT: u16 = 5;
@@ -29,8 +32,10 @@ pub const FORMAT: u16 = 5;
 pub const HEADER_LEN: usize = 96;
 /// The bytes of the header its digest covers (all before the digest).
 const DIGESTED_LEN: usize = 64;
-/// The most the metadata record may be (`max_bytes` of its descriptor).
+/// The most the metadata record may be (`max_bytes` of its descriptor):
+/// the generated reader's bound, [`crate::metadata::MAX_BYTES`].
 pub const META_MAX: u32 = 2048;
+const _: () = assert!(META_MAX as usize == crate::metadata::MAX_BYTES);
 
 /// Bit 0 of the header's `flags`: the plugin has `PAPERPAW_HEAP`, the host
 /// heap word (`abi/heap-word.md`); `heap_at` then says where it lies. Every
@@ -152,8 +157,6 @@ pub enum Refusal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EntryRefusal {
-    /// A word to relocate does not lie in `[base, base + image_len)`.
-    RelocOutside,
     /// The metadata record disagrees with the header (`abi_major`,
     /// `needs_minor`, or the entry length of the profile).
     RecordDisagrees,
@@ -188,9 +191,8 @@ impl RecordFacts {
     /// shell's profile again; this one makes step 9 refuse a file built for
     /// the other chip's profile even where that reader is not run.
     pub fn target(record: &[u8]) -> Option<&[u8]> {
-        const PREFIX_BYTES: usize = 32;
         let len = usize::from(u16::from_le_bytes([*record.get(24)?, *record.get(25)?]));
-        record.get(PREFIX_BYTES..PREFIX_BYTES.checked_add(len)?)
+        record.get(PREFIX_SIZE..PREFIX_SIZE.checked_add(len)?)
     }
 
     /// The facts of the metadata record `record` (the bytes at `meta_at`),
@@ -208,13 +210,12 @@ impl RecordFacts {
     pub fn read(record: &[u8]) -> Option<RecordFacts> {
         const MAGIC: [u8; 4] = *b"PPAM";
         const LAYOUT: u16 = 2;
-        const PREFIX_BYTES: u16 = 32;
-        if record.len() < PREFIX_BYTES as usize || record.len() > META_MAX as usize {
+        if record.len() < PREFIX_SIZE || record.len() > META_MAX as usize {
             return None;
         }
         let ok = record[..4] == MAGIC
             && le16(record, 4) == LAYOUT
-            && le16(record, 6) == PREFIX_BYTES
+            && usize::from(le16(record, 6)) == PREFIX_SIZE
             && le32(record, 8) as usize == record.len()
             && le16(record, 16) == ENTRY_LAYOUT
             && le32(record, 20) == 0;
@@ -451,6 +452,11 @@ impl Header5 {
         {
             return Err(bad("the hot code lies outside the code or above HOT_MAX"));
         }
+        // The relocation's cap (`Tail::check`), refused here too: from the
+        // header alone, before the whole file is read for its digest.
+        if self.patches > MAX_PATCHES {
+            return Err(bad("more patches than MAX_PATCHES"));
+        }
         if self.patches > (self.image_len - self.code_at) / 2 {
             return Err(bad("more patches than the code's instructions"));
         }
@@ -561,30 +567,6 @@ impl Header5 {
         bytes[..DIGESTED_LEN].copy_from_slice(&self.digest_prefix());
         bytes[DIGESTED_LEN..].copy_from_slice(&self.sha256);
         bytes
-    }
-
-    /// Whether `value`, a word to relocate read before relocation, is an
-    /// address in the image as linked: by the data bus's view
-    /// `[base, base + image_len]` or the instruction bus's
-    /// `[base + CODE_OFFSET, base + CODE_OFFSET + image_len]`, the end
-    /// included (a slice may point there). The same rule the relocation
-    /// itself applies, so a code pointer (`make`, a vtable) is no refusal.
-    pub fn word_in_image(&self, value: u32) -> bool {
-        let len = self.image_len;
-        value.wrapping_sub(self.base) <= len
-            || value.wrapping_sub(self.base.wrapping_add(CODE_OFFSET)) <= len
-    }
-
-    /// Every word to relocate, as read before relocation, lies in the image.
-    pub fn check_reloc_words(
-        &self,
-        words: impl IntoIterator<Item = u32>,
-    ) -> Result<(), EntryRefusal> {
-        words
-            .into_iter()
-            .all(|word| self.word_in_image(word))
-            .then_some(())
-            .ok_or(EntryRefusal::RelocOutside)
     }
 
     /// Where `make` lies in the image, for [`EntryFacts::make_at`]: an

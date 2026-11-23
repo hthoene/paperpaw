@@ -304,7 +304,16 @@ fn done(id: u32, status: u32, reason: u32, body_len: usize) -> Vec<u8> {
 const TOKEN_ANSWER: &str = r#"{"access_token":"T0K","expires_in":3600,"token_type":"bearer"}"#;
 const LIST_PATH: &str =
     "/api/entries.json?archive=0&detail=metadata&sort=created&order=desc&perPage=30";
-const AGENT: &str = "[User-Agent: PaperPaw/0.1 (e-reader)]";
+/// The `User-Agent` header as the log shows it: PaperPaw with its version.
+struct Agent;
+
+impl std::fmt::Display for Agent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[User-Agent: {}]", paperpaw_sdk::web::USER_AGENT)
+    }
+}
+
+const AGENT: Agent = Agent;
 const AUTH: &str = "[Authorization: Bearer T0K]";
 
 fn list(items: &[(&str, &str)]) -> String {
@@ -340,9 +349,11 @@ fn started(plugin: &paperpaw_scripted_host::Plugin<'_>) {
     assert_eq!(seen(), ["start Ok(None)"]);
     assert_eq!(
         log(),
-        ["POST https://w.example/oauth/v2/token \
-          [Content-Type: application/x-www-form-urlencoded] [User-Agent: PaperPaw/0.1 (e-reader)] \
-          body grant_type=password&client_id=cid&client_secret=cl%3Dsec&username=me%40x&password=pa+ss%261"]
+        [format!(
+            "POST https://w.example/oauth/v2/token \
+             [Content-Type: application/x-www-form-urlencoded] {AGENT} \
+             body grant_type=password&client_id=cid&client_secret=cl%3Dsec&username=me%40x&password=pa+ss%261"
+        )]
     );
     plugin
         .event(DONE, &done(1, 200, 0, TOKEN_ANSWER.len()))

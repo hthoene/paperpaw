@@ -5,5 +5,3 @@
 //! whether it is asked on this device. The guide is a screen bound to the
 //! slot [`slots::SETUP`](crate::builtin::slots::SETUP), so it can be
 //! replaced as a whole.
-//!
-//! `Staging::add_setup_step`: crate::Staging::add_setup_step

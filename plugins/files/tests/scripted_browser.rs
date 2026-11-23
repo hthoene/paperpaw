@@ -52,6 +52,8 @@ struct Knobs {
     finished: Cell<bool>,
     /// The book is a favourite.
     favourite: Cell<bool>,
+    /// A status `set_status` answers instead of marking the book.
+    status_error: Cell<i32>,
     /// What `delete` says of the book.
     delete_status: Cell<i32>,
     /// How many `move`s answer "taken" before one succeeds.
@@ -111,6 +113,14 @@ fn entry(key: u32, title: &'static str, progress: u32) -> Record<'static> {
 fn book_flags(world: &World) -> u32 {
     let read = if world.finished.get() { 4 } else { 2 };
     read | u32::from(world.favourite.get())
+}
+
+/// What `set_status` answers: nothing, or the refusal the test chose.
+fn status_answer(world: &World) -> Result<Vec<u8>, i32> {
+    match world.status_error.get() {
+        0 => Ok(Vec::new()),
+        error => Err(error),
+    }
 }
 
 fn script_library(host: &ScriptedHost, world: &World) {
@@ -183,7 +193,7 @@ fn script_library(host: &ScriptedHost, world: &World) {
                         book.path, status.set, status.clear
                     ),
                 );
-                Ok(Vec::new())
+                status_answer(&world)
             }
             (9 | 10, Some(Record::ServiceLibPaths(paths))) => {
                 let name = if op == 9 { "can_delete" } else { "delete" };
@@ -682,6 +692,31 @@ fn a_book_is_deleted_only_after_the_question_is_answered_yes() {
     );
 }
 
+/// A book the library could not mark finished, or put among the favourites,
+/// says so (#486): the list alone would not show that nothing changed.
+#[test]
+fn a_refused_mark_or_favourite_is_told() {
+    for status in [ERR_IO, ERR_NOT_FOUND] {
+        let world = World::default();
+        world.phase.set(2);
+        world.status_error.set(status);
+        let host = setup(&world);
+        let plugin = open_favourites(&host);
+        // The sheet's second line marks the book finished, its third adds
+        // it to the favourites; each hold asks anew.
+        let sheets = [
+            (1, &b"The book could not be marked."[..]),
+            (2, &b"The favourites could not be changed."[..]),
+        ];
+        for (request, (choice, notice)) in (1..).zip(sheets) {
+            hold_first_book(&plugin);
+            let done = plugin.event(0, &answered(request, 1, choice)).unwrap();
+            assert!(fine(done.status), "{status}: {}", done.status);
+            assert!(done.batches_contain(notice), "{status}, choice {choice}");
+        }
+    }
+}
+
 #[test]
 fn a_refused_delete_is_told_and_never_aborts() {
     for status in [0, ERR_NOT_FOUND, ERR_IO, -22] {
@@ -735,6 +770,32 @@ fn the_focus_starts_on_the_first_book_so_one_press_of_the_menu_button_holds_it()
     // filter row's, a step back: `native_list`'s tests hold it).
     assert!(log.iter().any(|l| l.starts_with("ask kind 1")), "{log:?}");
     assert!(!log_has(&world, "handover menu=files.menu"), "{log:?}");
+}
+
+/// With the buttons as by touch, the filter row shows every filter to choose
+/// from and the search (as in Beta 3), not only the next filter (#480).
+#[test]
+fn the_filter_row_shows_every_filter_to_choose_from_with_the_buttons() {
+    // With every book in the archive the list shows none, so the focus rests
+    // on the filter row (a step to it would ask for a redraw, which this host
+    // refuses: it has no screens).
+    let world = World::default();
+    world.phase.set(2);
+    world.archived.set(true);
+    let host = setup(&world);
+    let plugin = open_browser(&host);
+    plugin
+        .input(BROWSER_TOKEN, &action("core.confirm"))
+        .unwrap();
+    assert!(
+        log_has(
+            &world,
+            "ask kind 1 title Show text  choices \
+             All books|Reading|Unread|Finished|Shelves|Find a book"
+        ),
+        "{:?}",
+        log(&world)
+    );
 }
 
 #[test]

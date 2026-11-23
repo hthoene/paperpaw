@@ -4,11 +4,8 @@
 use alloc::vec::Vec;
 use core::{iter, num, slice, str};
 
-use crate::dir_entry::{
-    DIR_ENTRY_SIZE, DirEntryData, DirLfnEntryData, FileAttributes, LFN_ENTRY_LAST_FLAG,
-    LFN_PART_LEN, SFN_PADDING, SFN_SIZE,
-};
-use crate::error::{Error, IoError};
+use crate::dir_entry::{DirLfnEntryData, LFN_ENTRY_LAST_FLAG, LFN_PART_LEN, SFN_PADDING, SFN_SIZE};
+use crate::error::Error;
 
 pub(crate) const LFN_PADDING: u16 = 0xFFFF;
 

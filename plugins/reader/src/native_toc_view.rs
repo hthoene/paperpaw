@@ -130,20 +130,35 @@ impl TocView {
         let (id, conversion) = if let Some(shared) = shared {
             shared
         } else {
-            let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
+            // The request carries the path (up to 512 bytes).
+            let (mut input, mut out) = (buffer(1024)?, buffer(SERVICE_BUFFER)?);
             let book = OpenBook::new(&found.path).root(found.root());
-            let (id, preparation, conversion) =
+            let (id, preparation, conversion, status) =
                 match docs.open_book(host, &book, &mut input, &mut out) {
-                    Ok(state) => (state.id(), state.preparation(), state.conversion()),
+                    Ok(state) => (
+                        state.id(),
+                        state.preparation(),
+                        state.conversion(),
+                        state.status(),
+                    ),
                     Err(Error::NoMemory) => return Err(Error::NoMemory),
                     Err(Error::Busy) => return Ok(Self::none("reader.not-ready")),
                     Err(_) => return Ok(Self::none("reader.error")),
                 };
             view.owned = true;
-            if !matches!(preparation, Preparation::Ready) {
-                view.document = Some(id);
-                view.message = Some("reader.preparing");
-                return Ok(view);
+            view.document = Some(id);
+            match preparation {
+                Preparation::Ready => {}
+                // A book that could not be made ready says why, as the
+                // reading screen does, and its document is given back.
+                Preparation::Failed => {
+                    view.close(host, docs);
+                    return Ok(Self::none(crate::native_view::failed_message(status)));
+                }
+                _ => {
+                    view.message = Some("reader.preparing");
+                    return Ok(view);
+                }
             }
             (id, conversion)
         };

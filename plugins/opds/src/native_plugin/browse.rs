@@ -8,8 +8,8 @@ use alloc::vec::Vec;
 use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::{
     Error, Host,
-    callbacks::{DrawFrame, Input},
-    commands::CommandSender,
+    callbacks::{DrawFrame, FrameRect, Input},
+    commands::{CommandSender, RedrawMode},
     fonts::{Font, FontRole},
     formatting::Arg,
     image::{ImageReady, ImageStatus, ImageStyle, PrepareImage, PrepareRoot},
@@ -31,7 +31,7 @@ use crate::native_catalogs as catalogs;
 use crate::native_covers::{self as covers, Covers, MAX_LIVE};
 use crate::native_files::{DataFiles, Files};
 use crate::native_keep::Secret;
-use crate::native_web::{self as web, BOOK, COVER, DESCRIPTION, FEED, FILES};
+use crate::native_web::{self as web, BOOK, BROWSE_FILES, COVER, DESCRIPTION, FEED, FILES};
 
 /// The browse screen: the browsing, its rows and the line below.
 #[derive(Debug)]
@@ -44,6 +44,11 @@ pub(super) struct BrowseView {
     covers: Option<Covers>,
     /// A column for covers: some entry of the feed has a picture.
     column: bool,
+    /// Which feed the rows are of ([`Browser::generation`]): a new one
+    /// starts at its first row.
+    generation: u16,
+    /// The screen's region in the last frame.
+    region: Option<FrameRect>,
 }
 
 impl BrowseView {
@@ -61,7 +66,21 @@ impl BrowseView {
         };
         self.list
             .draw_with(host, &mut frame, &title, true, footer)?;
+        self.region = Some(frame.rect);
         self.draw_covers(host, &mut frame)
+    }
+
+    /// The room below the rows in the last frame, where the line below is,
+    /// in the region's pixels; `None` before a frame.
+    fn below_rows(&self) -> Option<FrameRect> {
+        let region = self.region?;
+        let bottom = (0..self.rows.len())
+            .filter_map(|i| self.list.rect_of(i))
+            .map(|rect| i32::from(rect.y) + i32::from(rect.height))
+            .max()?;
+        let top = bottom.saturating_sub(region.y);
+        let height = u32::try_from(i64::from(region.height) - i64::from(top)).ok()?;
+        Some(FrameRect::new(0, top, region.width, height))
     }
 
     /// The entries whose rows were drawn in the last frame (the first few
@@ -174,17 +193,43 @@ impl BrowseView {
             };
             push(&mut items, item)?;
         }
-        let mut note = note_text(host, &mut say, self.browser.note(), touch)?;
-        // Without rows and with nothing to say, an empty list says so.
-        if note.is_empty() && rows.is_empty() && !self.browser.loading() {
-            note = say.copy(host, "opds.empty")?;
-        }
+        let note = self.note_now(host, &mut say, rows.is_empty(), touch)?;
         let focus = self.list.focus();
         self.list = ItemList::new(items);
-        self.list.set_focus(focus);
+        if self.generation == self.browser.generation() {
+            self.list.set_focus(focus);
+        }
+        self.generation = self.browser.generation();
         self.rows = rows;
         self.note = note;
         Ok(())
+    }
+
+    /// What the line below says now.
+    fn note_now(
+        &self,
+        host: &Host<'_>,
+        say: &mut Messages,
+        no_rows: bool,
+        touch: bool,
+    ) -> Result<String, Error> {
+        let note = note_text(host, say, self.browser.note(), touch)?;
+        // Without rows and with nothing to say, an empty list says so.
+        if note.is_empty() && no_rows && !self.browser.loading() {
+            return say.copy(host, "opds.empty");
+        }
+        Ok(note)
+    }
+
+    /// The line below as the browsing says it now, the rows as they are:
+    /// `true` where it says something else.
+    fn renote(&mut self, host: &Host<'_>, touch: bool) -> Result<bool, Error> {
+        let note = self.note_now(host, &mut Messages::new()?, self.rows.is_empty(), touch)?;
+        if note == self.note {
+            return Ok(false);
+        }
+        self.note = note;
+        Ok(true)
     }
 }
 
@@ -241,6 +286,9 @@ fn note_text(
         Note::NoFormat => say.copy(host, "opds.no-format"),
         Note::NotABook => say.copy(host, "opds.not-a-book"),
         Note::CannotSave => say.copy(host, "opds.cannot-save"),
+        Note::CardFull => say.copy(host, "opds.card-full"),
+        Note::TooLarge => say.copy(host, "opds.too-large"),
+        Note::Busy => say.copy(host, "opds.busy"),
         Note::Stopped => say.copy(host, "opds.download-stopped"),
         Note::Downloading(name) => say.format(host, "opds.downloading", &[title(name)]),
         Note::Share {
@@ -366,6 +414,8 @@ impl Opds {
                 None
             },
             column: false,
+            generation: 0,
+            region: None,
         };
         view.rebuild(host, &self.extensions, self.touch)?;
         self.screens.open(instance, View::Browse(view))
@@ -696,22 +746,33 @@ impl Opds {
         self.covers_step(host)
     }
 
-    /// How far a download came.
+    /// How far a download came: only the line below says something else, so
+    /// only the room below the rows is drawn again.
     pub(super) fn http_progress(
         &mut self,
         host: &Host<'_>,
         progress: &HttpProgress,
     ) -> Result<(), Error> {
-        let mut redraw = false;
+        let mut progressed = false;
         for view in self.screens.all() {
             if let View::Browse(view) = view {
-                redraw |= view.browser.progressed(progress)?;
+                progressed |= view.browser.progressed(progress)?;
             }
         }
-        if redraw {
-            self.redraw_browse(host)?;
+        let touch = self.touch;
+        let Some(view) = self.top_browse().filter(|_| progressed) else {
+            return Ok(());
+        };
+        if !view.renote(host, touch)? {
+            return Ok(());
         }
-        Ok(())
+        match view.below_rows() {
+            Some(area) => {
+                let mut scratch = [0; 64];
+                CommandSender::new(host, &mut scratch).queue_redraw_area(RedrawMode::Fast, area)
+            }
+            None => Self::redraw(host),
+        }
     }
 
     /// A cover is decoded.
@@ -750,7 +811,7 @@ impl Opds {
         for kind in [FEED, DESCRIPTION, BOOK, COVER] {
             self.web.cancel(host, kind);
         }
-        for name in FILES {
+        for name in BROWSE_FILES {
             crate::native_files::remove(&files, name);
         }
     }

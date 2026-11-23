@@ -212,6 +212,9 @@ pub enum Stop {
     Wait,
     /// Reader sent more than the device keeps.
     TooBig,
+    /// The work run's minutes were over before the fetch was: what is left
+    /// comes with the next one.
+    TimeUp,
 }
 
 /// What the end of a request came to.
@@ -499,11 +502,12 @@ fn make_book(volume: &dyn Volume, shelf: &mut dyn Shelf, entry: &Entry) -> Resul
 }
 
 /// What a request that is not a 2xx answer says of the fetch, if it ends it.
-fn stopped(done: &Done, run: &Run) -> Option<Ended> {
+fn stopped(done: &Done) -> Option<Ended> {
     match done.reason {
         Reason::Cancelled | Reason::Replaced => Some(Ended::Ignored),
-        // The run's minutes are over: no request is to follow outside it.
-        Reason::WorkEnded => Some(run.finished()),
+        // The run's minutes are over: no request is to follow outside it, and
+        // the fetch is not done (the step under way neither fetched nor failed).
+        Reason::WorkEnded => Some(Ended::Stopped(Stop::TimeUp)),
         Reason::Ok => match done.status {
             401 | 403 => Some(Ended::Stopped(Stop::BadToken)),
             429 => Some(Ended::Stopped(Stop::Wait)),
@@ -633,7 +637,7 @@ impl Fetcher {
         phase: Phase,
         done: &Done,
     ) -> Result<Ended, Error> {
-        if let Some(ended) = stopped(done, run) {
+        if let Some(ended) = stopped(done) {
             return Ok(ended);
         }
         let ok = done.is_ok();
