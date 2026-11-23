@@ -831,3 +831,80 @@ fn a_group_asks_for_the_widgets_that_preview_it_with_bit_zero_and_reads_what_the
             .is_empty()
     );
 }
+
+/// `service.reg_setup_step` as a plugin built for draft 39 reads it (#496):
+/// its six fields in the order of that draft's table, the presence bitmap
+/// skipped, what follows them never read. Returns the fields and how many
+/// bytes of the body were left unread.
+fn draft_39_setup_step(record: &[u8]) -> ((&str, u32, &str, i32, u32, &str), usize) {
+    fn varint(at: &mut &[u8]) -> usize {
+        let (mut value, mut shift) = (0, 0);
+        loop {
+            let (&byte, rest) = at.split_first().unwrap();
+            *at = rest;
+            value |= usize::from(byte & 0x7f) << shift;
+            if byte < 0x80 {
+                return value;
+            }
+            shift += 7;
+        }
+    }
+    fn take<'a>(at: &mut &'a [u8], len: usize) -> &'a [u8] {
+        let (value, rest) = at.split_at(len);
+        *at = rest;
+        value
+    }
+    fn text<'a>(at: &mut &'a [u8]) -> &'a str {
+        let len = varint(at);
+        core::str::from_utf8(take(at, len)).unwrap()
+    }
+    fn word(at: &mut &[u8]) -> u32 {
+        u32::from_le_bytes(take(at, 4).try_into().unwrap())
+    }
+    let mut at = record;
+    assert_eq!(varint(&mut at), wire::SERVICE_REG_SETUP_STEP_TAG as usize);
+    let len = varint(&mut at);
+    let mut body = take(&mut at, len);
+    let bitmap = varint(&mut body);
+    take(&mut body, bitmap);
+    let fields = (
+        text(&mut body),
+        word(&mut body),
+        text(&mut body),
+        word(&mut body) as i32,
+        word(&mut body),
+        text(&mut body),
+    );
+    (fields, body.len())
+}
+
+#[test]
+fn a_plugin_built_for_draft_39_reads_a_setup_step_with_a_badge_unchanged() {
+    let step = |badge| {
+        encode(&[Record::ServiceRegSetupStep(wire::ServiceRegSetupStep {
+            id: "wifi.setup",
+            page_kind: 1,
+            page: "wifi.page",
+            order: -15,
+            flags: 1,
+            title: "Wi-Fi",
+            badge,
+        })])
+    };
+    let fields = ("wifi.setup", 1, "wifi.page", -15, 1, "Wi-Fi");
+    // The badge is appended after the six fields a draft-39 plugin reads: it
+    // reads them as sent and leaves the badge (its length and text) unread.
+    let with_badge = step("Connected");
+    assert_eq!(
+        draft_39_setup_step(&with_badge),
+        (fields, 1 + "Connected".len())
+    );
+    let row = RegistrySetupStep::decode(wire::RawRecord::one(&with_badge).unwrap()).unwrap();
+    assert_eq!((row.title(), row.badge()), ("Wi-Fi", "Connected"));
+    // Without one, nothing follows the six fields (as a host before draft 40
+    // sends the record), and this draft reads it with no badge.
+    let without = step("");
+    assert_eq!(draft_39_setup_step(&without), (fields, 0));
+    let row = RegistrySetupStep::decode(wire::RawRecord::one(&without).unwrap()).unwrap();
+    assert_eq!((row.title(), row.badge()), ("Wi-Fi", ""));
+}
