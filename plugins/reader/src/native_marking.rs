@@ -309,22 +309,10 @@ impl Marking {
         self.note.take()
     }
 
-    /// Whether text is chosen.
-    #[must_use]
-    pub const fn is_selecting(&self) -> bool {
-        self.selection.is_some()
-    }
-
     /// Whether text or a link is being chosen: a tap is the marking's then.
     #[must_use]
     pub const fn is_active(&self) -> bool {
         self.selection.is_some() || self.linking.is_some()
-    }
-
-    /// Whether a bar is shown over the status line.
-    #[must_use]
-    pub fn shows_bar(&self) -> bool {
-        self.selection.is_some_and(|s| s.mode == Mode::Bar)
     }
 
     /// Takes an input if it is the marking's.

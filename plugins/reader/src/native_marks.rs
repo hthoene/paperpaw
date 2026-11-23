@@ -418,15 +418,35 @@ pub struct Painted {
     layers: Vec<(Vec<Rect>, Decoration)>,
 }
 
+/// The looks of a highlight and of a search hit ([`HIGHLIGHT`], [`SEARCH_HIT`]),
+/// each from its role's settings, and whether both were read: a setting the
+/// host refuses is no mark, and is read again the next time.
+///
+/// # Errors
+/// `NoMemory`.
+pub fn read_looks(host: &Host<'_>) -> Result<((Decoration, Decoration), bool), Error> {
+    let mut whole = true;
+    let mut look = |role: &str| match read_decoration(host, role) {
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Ok(deco) => Ok(deco),
+        Err(_) => {
+            whole = false;
+            Ok(Decoration::NONE)
+        }
+    };
+    let looks = (look(HIGHLIGHT)?, look(SEARCH_HIT)?);
+    Ok((looks, whole))
+}
+
 impl Painted {
     /// The page of `words` with the highlights and the `hit` that are on it, in
-    /// the looks of the roles' settings, read only where something is on the
-    /// page. A setting the host refuses is no mark; only `NoMemory` is passed on.
+    /// the `looks` of a highlight and of a hit ([`read_looks`]), asked only where
+    /// something is on the page.
     ///
     /// # Errors
     /// `NoMemory`.
     pub fn new(
-        host: &Host<'_>,
+        looks: impl FnOnce() -> Result<(Decoration, Decoration), Error>,
         marks: &Marks,
         words: &[Word],
         hit: Option<Span>,
@@ -435,22 +455,17 @@ impl Painted {
         if !marks.on_page(words, hit) {
             return Ok(Self::default());
         }
-        let look = |role: &str| match read_decoration(host, role) {
-            Err(Error::NoMemory) => Err(Error::NoMemory),
-            Ok(deco) => Ok(deco),
-            Err(_) => Ok(Decoration::NONE),
-        };
+        let (highlight, search_hit) = looks()?;
         let mut painted = Self {
             gauge: Some(gauge),
             layers: Vec::new(),
         };
         let hits = hit.as_slice();
-        for (spans, role) in [(marks.highlights(), HIGHLIGHT), (hits, SEARCH_HIT)] {
+        for (spans, deco) in [(marks.highlights(), highlight), (hits, search_hit)] {
             let boxes = boxes(words, spans);
             if boxes.is_empty() {
                 continue;
             }
-            let deco = look(role)?;
             if deco.is_none() {
                 continue;
             }

@@ -439,8 +439,8 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   the book's table is read and the scan runs one heading past it, and the list then shows the
   first rows with the note `reader.toc.cut`. Beta 3 held 500 long headings in full (299.3 KiB on
   the X4 for a TXT of 500 60-character headings).
-- **Not yet:** the chapter of the page for the status line and the report, next/previous chapter actions, and the
-  skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.
+- The chapter of the page (status line, report), next/previous chapter and the skim screen (R6b)
+  are ported since. **Not yet:** the hosted end-to-end test waits for a document host in the harness.
 - The screen reads the reading screen's document (`View::doc_id`), never opening a second one: the X4 holds
   one open document per plugin. **X4 gates (Port Reviewer 2):** a list of 500 entries holds its titles twice
   (the entries and the items), about 100-190 KB of the 256 KiB heap (pieces or a paged read if it does not
@@ -808,15 +808,15 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   4/2/1). The action `reader.skim-book` (not `reader.skim`: the declared name) opens it from the reading
   screen (`native_plugin`, as `reader.show-annotations`), with a hand-over of `page`, `chapter`,
   `permille` and `marks`.
-- **Not yet:** the plugin gets the `Move` from `SkimView::input` and drops it: `View` has no page index
-  moves, no chapter marks, no percent jump and no `permille` / label / chapter to put in the hand-over
-  (it opens with an empty bar). To do: `View` methods for `Pages(n)` (needs the page index, R2b),
-  `Chapters(n)` (exists as `step_chapter`, private), `Permille(n)` (needs the sections' lengths, R2a's
-  `Progress`), `Back` (the place where skimming began, to keep in the screen) and `Number` (the
-  go-to-page dialog, not ported), `SkimView::update` after each move, and the marks from the table
-  of contents. `TocView` does not start the scan or show `Finding` yet. The slider's accessibility
-  description (`Role::Slider`) has no native counterpart in `Paint`. The skim bar's colour for a dark
-  focus (Beta 3's thin line) is not ported.
+- Since #486 the plugin carries the `Move` out on the reading screen (`native_view/skim.rs`):
+  `Pages(n)` goes to that page of those counted, else turns page by page; `Chapters(n)` steps
+  chapters as *Next chapter*; `Permille(n)` jumps as *Go to percent*; `Back` goes to where skimming
+  began; `Number` asks for a page as `reader.go-to-page`. The screen opens on the page label,
+  chapter and permille of the page on show and is updated after each move. **Not yet:** the
+  chapters' marks on the bar (the hand-over's `marks` stays empty); `TocView` does not start the
+  scan or show `Finding` yet. The slider's accessibility description (`Role::Slider`) has no
+  native counterpart in `Paint`. The skim bar's colour for a dark focus (Beta 3's thin line) is
+  not ported.
 - X4: the screen is one draw of up to ~25 paint operations and four chips (fonts acquired once per draw);
   no float formatting; a frame is far below 2,048 bytes. The scan holds at most 500 headings (about
   70 KB, shared with `TocView`'s list when both exist: on the measurement list) and one block's text
