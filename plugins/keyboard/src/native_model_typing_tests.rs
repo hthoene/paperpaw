@@ -11,8 +11,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use crate::keys::Layer;
-use crate::native_model::{Asked, Board, FieldButton, MAX_CHARS, Move, Pressed, Shift};
+use crate::keys::{Key, Layer};
+use crate::native_model::{Asked, Board, FieldButton, MAX_CHARS, Move, Pressed, Shift, zeroed};
 use crate::native_model_tests::{
     BOOX, Typing, X4, X4_PRO, board_with, find, label, layouts, look, own, plain,
 };
@@ -556,4 +556,48 @@ fn a_secret_keeps_the_letter_rows_of_any_text() {
     typing.tap_all("pw");
     assert_eq!(typing.text(), "pw");
     assert_eq!(typing.board.layer, Layer::Letters);
+}
+
+/// A password's buffer is zeroed whole as it ends: what was deleted from it
+/// stays in its spare room until then, and is zeroed too (#486).
+#[test]
+fn a_password_is_zeroed_with_what_was_deleted_from_it() {
+    let mut typing = Typing::new(X4, secret());
+    typing.board.typed("hunter2").unwrap();
+    for _ in 0..3 {
+        typing.board.delete();
+    }
+    assert_eq!(typing.text(), "hunt");
+    let text = core::mem::take(&mut typing.board.text);
+    let capacity = text.capacity();
+    let bytes = zeroed(text);
+    assert_eq!(bytes.len(), capacity);
+    assert!(bytes.iter().all(|byte| *byte == 0));
+}
+
+/// A password grows into larger buffers of the board's own, its text whole,
+/// and a password the question starts from is taken into the board (#486).
+#[test]
+fn a_password_grows_whole_and_starts_from_the_questions_text() {
+    let mut typing = Typing::new(X4, secret());
+    typing.board.start_with(String::from("pass")).unwrap();
+    let long = "ü".repeat(300);
+    typing.board.typed(&long).unwrap();
+    assert_eq!(typing.text(), alloc::format!("pass{long}"));
+    // Another text is taken as it is.
+    let mut plain_text = Typing::new(X4, plain());
+    plain_text.board.start_with(String::from("Notes")).unwrap();
+    assert_eq!(plain_text.text(), "Notes");
+}
+
+/// Typing that leaves the keys as they are changes the text field only: the
+/// keys show the same until Shift or a layer changes them (#486).
+#[test]
+fn a_letter_keeps_the_keys_shown_and_shift_changes_them() {
+    let mut typing = Typing::new(X4, plain());
+    let keys = typing.board.keys_shown();
+    typing.board.typed("ab").unwrap();
+    assert_eq!(typing.board.keys_shown(), keys);
+    typing.board.press(Key::Shift, 0).unwrap();
+    assert_ne!(typing.board.keys_shown(), keys);
 }

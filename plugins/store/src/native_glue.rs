@@ -96,6 +96,9 @@ pub enum Reply {
     Choice(usize),
     /// A text typed.
     Text(String),
+    /// A text typed that is longer than the store reads (a search, an
+    /// address): nothing is done with it, and the reader is told.
+    TooLong,
 }
 
 /// Reads an answer of the question `asked`.
@@ -121,10 +124,18 @@ pub fn reply(
     let mut input = buffer(REQUEST_BYTES)?;
     let mut out = buffer(SERVICE_BUFFER)?;
     let part = ui.text_read(host, answer.request().text(), 0, &mut input, &mut out)?;
-    if part.data().len() > MOST_TYPED {
-        return Err(Error::NoSpace);
+    typed(part.data())
+}
+
+/// The text typed, as read back.
+///
+/// # Errors
+/// `NoMemory`.
+fn typed(text: &str) -> Result<Reply, Error> {
+    if text.len() > MOST_TYPED {
+        return Ok(Reply::TooLong);
     }
-    Ok(Reply::Text(copy(part.data())?))
+    Ok(Reply::Text(copy(text)?))
 }
 
 /// Says `text` once.
@@ -204,4 +215,21 @@ pub fn open_reader(host: &Host<'_>, ui: &Ui, path: &str) -> Result<(), Error> {
     let handover = ui.handover(host, &params, &mut scratch, &mut out)?;
     let mut commands = [0; REQUEST_BYTES];
     CommandSender::new(host, &mut commands).open(Open::slot("core.reader")?.handover(handover))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "test assertions")]
+    use super::*;
+
+    /// #486: a search or an address longer than the store reads was an error
+    /// that left the question open and said nothing.
+    #[test]
+    fn a_text_typed_longer_than_is_read_is_told_apart() {
+        assert_eq!(typed("clock").unwrap(), Reply::Text("clock".into()));
+        let most = "a".repeat(MOST_TYPED);
+        assert_eq!(typed(&most).unwrap(), Reply::Text(most.clone()));
+        let longer = "a".repeat(MOST_TYPED + 1);
+        assert_eq!(typed(&longer).unwrap(), Reply::TooLong);
+    }
 }

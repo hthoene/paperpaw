@@ -9,11 +9,11 @@ use crate::native_model::fail::Fail;
 use crate::native_model::job::Run;
 use crate::native_model::mem::copy;
 use crate::native_model::session::Outgoing;
-use crate::native_model::store;
+use crate::native_model::store::{self, KeptDraft};
 use crate::native_model::texts::{self, Say};
 use crate::native_model::writer::{self, Part};
 use crate::native_plugin::NativeMail;
-use crate::native_values::HostValues;
+use crate::native_values::long_text;
 use crate::native_words::HostWords;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -40,6 +40,8 @@ use paperpaw_ui_kit::{
 pub(crate) const COMPOSE_TOKEN: u32 = SCREEN_TOKEN + 3;
 /// The longest address list or subject typed (the text has [`MAX_BODY`]).
 const LINE_LIMIT: usize = 2048;
+/// The signature a new mail starts with.
+const SIGNATURE: &str = "mail.signature";
 
 /// One open compose window.
 #[derive(Debug)]
@@ -157,21 +159,31 @@ impl NativeMail {
             asked: None,
         };
         if let Some(account) = writing.account().cloned() {
-            writing.draft = self.starting_draft(host, &account, folder.as_deref().zip(uid), all)?;
+            let (draft, set_aside) =
+                self.starting_draft(host, &account, folder.as_deref().zip(uid), all)?;
+            writing.draft = draft;
+            if let Some(path) = set_aside {
+                writing.status = HostWords::new(host)?.say(Say::One {
+                    key: "mail.draft.set-aside",
+                    name: "file",
+                    text: &path,
+                })?;
+            }
         }
         writing.rebuild(host)?;
         self.writers.open(instance, writing)
     }
 
     /// A reply to the mail named, else the draft kept, else a mail with the
-    /// signature only; from `account`.
+    /// signature only; from `account`. With it, where a kept draft could not
+    /// be read and was set aside, the path it was moved to.
     fn starting_draft(
         &mut self,
         host: &Host<'_>,
         account: &Account,
         reply: Option<(&str, u32)>,
         all: bool,
-    ) -> Result<Draft, Error> {
+    ) -> Result<(Draft, Option<String>), Error> {
         let storage = DataStorage::new(host);
         let letter = match reply {
             Some((folder, uid)) => {
@@ -180,6 +192,7 @@ impl NativeMail {
             }
             None => None,
         };
+        let mut set_aside = None;
         let mut draft = if let Some(letter) = letter {
             let who = writer::header_name(&letter.from)?;
             let intro = Messages::new()?.format(
@@ -191,32 +204,24 @@ impl NativeMail {
                 }],
             )?;
             compose::reply_to(&letter, &account.address, all, &intro)?
-        } else if let Some(text) = store::read_kept(
-            &storage,
-            &store::draft_file(account.number).map_err(fail_error)?,
-            MAX_BODY + 4096,
-        )
-        .map_err(fail_error)?
-        {
-            Draft::from_text(&text)?
         } else {
-            let signature = self.signature(host)?;
-            Draft {
-                body: writer::fresh_body(&signature)?,
-                ..Draft::default()
+            match store::open_draft(&storage, account.number).map_err(fail_error)? {
+                KeptDraft::Text(text) => Draft::from_text(&text)?,
+                kept => {
+                    if let KeptDraft::SetAside(path) = kept {
+                        set_aside = Some(path);
+                    }
+                    let signature = long_text(host, SIGNATURE)?;
+                    Draft {
+                        body: writer::fresh_body(&signature)?,
+                        ..Draft::default()
+                    }
+                }
             }
         };
         draft.from = copy(&account.address)?;
         draft.from_name = copy(&account.name)?;
-        Ok(draft)
-    }
-
-    /// The signature set in the settings.
-    fn signature(&mut self, host: &Host<'_>) -> Result<String, Error> {
-        use crate::native_model::account::Values;
-        self.services(host)?;
-        let secrets = self.secrets.as_ref().ok_or(Error::State)?;
-        HostValues { host, secrets }.text("mail.signature")
+        Ok((draft, set_aside))
     }
 
     /// A compose window came on top.

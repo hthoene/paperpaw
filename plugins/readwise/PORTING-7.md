@@ -56,8 +56,11 @@ missing is that the plugin does not yet *hear* the export (see "Open").
 - A sending the work run began ends when the run ends (`Reason::WorkEnded`), quietly, and the
   files keep waiting. A sending that runs by itself tells only what went well, a refused token
   only when the reader started it, as in interface 6.
-- A heap failure ends the sending with the notice *not enough memory* (new text, `readwise.no-memory`,
-  en and de); the files wait.
+- A notes file whose body does not fit in the heap counts as failed and moves to the end of
+  `waiting.txt`, so the others go on and are sent first next time. A heap failure before any file
+  (the list, the token) ends the sending with the notice *not enough memory* (new text,
+  `readwise.no-memory`, en and de) where the reader started it; one that runs by itself keeps
+  quiet. The files wait.
 
 ## Open
 

@@ -47,6 +47,8 @@ pub(crate) struct Fake {
     gone: BTreeSet<String>,
     /// What the server answers to every listing instead: a status and a body.
     answer: Option<(u32, String)>,
+    /// The host tells that it did not save that answer whole.
+    unsaved: bool,
 }
 
 impl Fake {
@@ -66,6 +68,7 @@ impl Fake {
             ignores_case: false,
             gone: BTreeSet::new(),
             answer: None,
+            unsaved: false,
         };
         fake.server_dirs.insert(String::new());
         fake.card_dirs.insert("Notes".into());
@@ -255,7 +258,7 @@ impl Fake {
         if let Some((status, body)) = &self.answer {
             self.data.write("listing.xml", body.as_bytes()).unwrap();
             return Done {
-                saved: true,
+                saved: !self.unsaved,
                 ..Self::done(*status)
             };
         }
@@ -314,40 +317,36 @@ impl Link for Fake {
     fn data(&self) -> &dyn Volume {
         &self.data
     }
-    fn list(&mut self, folder: &str, out: &mut Vec<Entry>, most: usize) -> Result<(), Error> {
+    /// The folder's entries in the card's order, the hidden names among
+    /// them, taken as the host's listing is.
+    fn list(&mut self, folder: &str, out: &mut Vec<Entry>, most: usize) -> Result<bool, Error> {
         if !self.card_dirs.contains(folder) {
             return Err(Error::NotFound);
         }
         let prefix = format!("{folder}/");
-        let mut found = Vec::new();
-        for (path, (text, t)) in &self.card {
-            if let Some(name) = path.strip_prefix(&prefix)
-                && !name.contains('/')
-            {
-                found.push(Entry {
-                    name: name.into(),
-                    folder: false,
-                    side: Side {
-                        size: text.len() as u64,
-                        stamp: *t,
-                    },
-                });
-            }
-        }
-        for dir in &self.card_dirs {
-            if let Some(name) = dir.strip_prefix(&prefix)
-                && !name.contains('/')
-            {
-                found.push(Entry {
-                    name: name.into(),
-                    folder: true,
-                    side: Side::default(),
-                });
-            }
-        }
-        found.truncate(most);
-        out.extend(found);
-        Ok(())
+        let child = |path: &String| {
+            path.strip_prefix(&prefix)
+                .filter(|name| !name.contains('/'))
+                .map(String::from)
+        };
+        let files = self.card.iter().filter_map(|(path, (text, t))| {
+            let side = Side {
+                size: text.len() as u64,
+                stamp: *t,
+            };
+            child(path).map(|name| (name, false, side))
+        });
+        let dirs = self
+            .card_dirs
+            .iter()
+            .filter_map(|dir| child(dir).map(|name| (name, true, Side::default())));
+        let rows: Vec<(String, bool, Side)> = files.chain(dirs).collect();
+        crate::native_link::take(
+            rows.iter()
+                .map(|(name, folder, side)| (name.as_str(), *folder, *side)),
+            out,
+            most,
+        )
     }
     fn stat(&mut self, path: &str) -> Result<Option<Side>, Error> {
         let path = self.on_card(path);
@@ -815,6 +814,28 @@ fn a_folder_with_more_files_than_a_sync_takes_is_left_alone() {
 }
 
 #[test]
+fn hidden_names_of_a_full_folder_crowd_out_no_file_that_would_then_be_deleted() {
+    let mut fake = Fake::new();
+    for n in 0..MOST {
+        fake.write_card(&format!("n{n:03}.md"), "x");
+    }
+    assert_eq!(sync(&mut fake, Mode::TwoWay).problem, "");
+    assert_eq!(fake.server.len(), MOST);
+    // The card lists them first, as it lists every hidden name.
+    for n in 0..8 {
+        fake.write_card(&format!(".hidden{n}"), "h");
+    }
+    let finish = sync(&mut fake, Mode::TwoWay);
+    assert_eq!(finish.problem, "");
+    assert_eq!(finish.totals.deleted, 0);
+    assert_eq!(fake.server.len(), MOST);
+    assert_eq!(
+        crate::native_look::pending(&mut fake, of(), "Notes").unwrap(),
+        0
+    );
+}
+
+#[test]
 fn a_missing_server_folder_that_was_synced_before_is_no_reason_to_empty_the_card() {
     let mut fake = two();
     fake.server.clear();
@@ -1073,4 +1094,55 @@ fn a_sync_never_removes_from_the_trash_what_it_put_there() {
     let finish = sync(&mut fake, Mode::TwoWay);
     assert_eq!(finish.totals.deleted, 160);
     assert_eq!(fake.trashed().len(), 160);
+}
+
+// --- what a review found (#486) -------------------------------------------
+
+#[test]
+fn a_listing_the_host_did_not_save_whole_deletes_nothing() {
+    let empty = "<?xml version=\"1.0\"?><d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response></d:multistatus>";
+    let mut fake = two();
+    fake.answer = Some((207, empty.into()));
+    fake.unsaved = true;
+    let finish = sync(&mut fake, Mode::TwoWay);
+    assert_eq!(finish.problem, "file-sync.failed");
+    assert_eq!(finish.totals.deleted, 0);
+    assert!(fake.trashed().is_empty(), "{:?}", fake.trashed());
+    assert_eq!(fake.card("a.md"), Some("A"));
+}
+
+#[test]
+fn a_file_the_trash_cannot_remove_now_stays_listed_to_go_later() {
+    let mut fake = two();
+    let old: Vec<String> = (0..TRASH_MAX)
+        .map(|n| format!("{TRASH_DIR}/old-{n:03}"))
+        .collect();
+    for path in &old {
+        fake.data.write(path, b"old").unwrap();
+    }
+    state::write_trash(&fake.data, &old).unwrap();
+    fake.data.stuck.borrow_mut().insert(old[0].clone());
+    fake.server.remove("a.md");
+    assert_eq!(sync(&mut fake, Mode::TwoWay).totals.deleted, 1);
+    let listed = state::trash(&fake.data).unwrap();
+    assert_eq!(listed.len(), TRASH_MAX + 1);
+    assert_eq!(listed[0], old[0]);
+    // Removable again, it goes with the next file the trash takes.
+    fake.data.stuck.borrow_mut().clear();
+    fake.server.remove("b.md");
+    assert_eq!(sync(&mut fake, Mode::TwoWay).totals.deleted, 1);
+    let listed = state::trash(&fake.data).unwrap();
+    assert_eq!(listed.len(), TRASH_MAX);
+    assert_eq!(fake.data.get(&old[0]), None);
+    assert_eq!(fake.data.get(&old[1]), None);
+}
+
+#[test]
+fn a_pair_is_synced_only_where_its_top_folder_was_compared_and_nothing_stopped_it() {
+    let mut fake = two();
+    assert!(sync(&mut fake, Mode::TwoWay).synced);
+    fake.answer = Some((401, String::new()));
+    let denied = sync(&mut fake, Mode::TwoWay);
+    assert_eq!(denied.problem, "file-sync.denied");
+    assert!(!denied.synced);
 }

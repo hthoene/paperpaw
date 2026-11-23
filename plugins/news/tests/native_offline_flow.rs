@@ -3,7 +3,10 @@
 //! ends with `Reason::Offline` (11) and asks to go online (the host's
 //! confirm); *Go online* sends `command.go_online` and fetches again, held back
 //! once more it only says it needs a network; *Not now* says so and fetches
-//! nothing; the background fetch (a due work) never asks.
+//! nothing; the background fetch (a due work) never asks, and one that comes
+//! due while the reader's fetch is under way leaves it alone. The reader's
+//! *Fetch the news* action fetches at once, and the headlines widget is drawn
+//! again once a fetch is over, not for each request that ends.
 //!
 //! The scripted host has no storage: the entry here is the plugin's own with a
 //! data folder in memory put into the host table it is made with.
@@ -12,15 +15,16 @@
 use core::ffi::c_void;
 use paperpaw_core::native_host::commands::{WireCommand, commands_decode};
 use paperpaw_core::native_host::registrations::{
-    EventHttpDone, EventScreenClosed, EventScreenOpened, EventScreenShown, EventWorkDue,
-    InputAction, Record, ServiceNetStarted, record_encode_one, records_decode,
+    EventActionRun, EventHttpDone, EventScreenClosed, EventScreenOpened, EventScreenShown,
+    EventWidgetMade, EventWorkDue, InputAction, Record, ServiceNetStarted, record_encode_one,
+    records_decode,
 };
 use paperpaw_native::host_glue::{
     ERR_NOT_FOUND, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin,
 };
 use paperpaw_plugin_news::{
     NATIVE_ENTRY,
-    declarations::{HTTP_TOKEN, SCREEN, WORK_TOKEN},
+    declarations::{FETCH_TOKEN, HTTP_TOKEN, SCREEN, WORK_TOKEN},
 };
 use paperpaw_scripted_host::{Answer, Callback, Dialogs, ScriptedHost, event_batch};
 use std::cell::RefCell;
@@ -377,4 +381,84 @@ fn the_background_fetch_held_back_never_asks() {
     assert_eq!(held.status, 0);
     assert!(dialogs.questions().is_empty(), "no question");
     assert!(says_no_network(&held));
+}
+
+#[test]
+fn work_that_comes_due_during_the_readers_fetch_leaves_it_alone() {
+    let host = ScriptedHost::new();
+    let (dialogs, sent) = world(&host);
+    let p = host.load(&entry()).unwrap();
+    fetch_the_news(&p);
+    let due = event(
+        &p,
+        WORK_TOKEN,
+        Record::EventWorkDue(EventWorkDue {
+            now_ms: 0,
+            token: WORK_TOKEN,
+            why: 3,
+            key: "news.fetch",
+        }),
+    );
+    assert_eq!(due.status, 0);
+    assert_eq!(*sent.borrow(), [GET], "not fetched again from the start");
+    // Still the reader's: held back, it offers to go online.
+    held_back(&p, 1);
+    assert_eq!(dialogs.questions().len(), 1);
+}
+
+#[test]
+fn the_readers_fetch_action_fetches_at_once() {
+    let host = ScriptedHost::new();
+    let (_, sent) = world(&host);
+    let p = host.load(&entry()).unwrap();
+    let run = event(
+        &p,
+        FETCH_TOKEN,
+        Record::EventActionRun(EventActionRun {
+            now_ms: 0,
+            action: "news.fetch",
+            flags: 0,
+        }),
+    );
+    assert_eq!(run.status, 0);
+    assert_eq!(*sent.borrow(), [GET]);
+}
+
+#[test]
+fn the_widget_is_drawn_again_once_the_fetch_is_over_not_for_an_end_of_another() {
+    let host = ScriptedHost::new();
+    world(&host);
+    let p = host.load(&entry()).unwrap();
+    let made = event(
+        &p,
+        SCREEN,
+        Record::EventWidgetMade(EventWidgetMade {
+            now_ms: 0,
+            widget: "news.widget.headlines",
+            instance: 9,
+            place: "",
+        }),
+    );
+    assert_eq!(made.status, 0);
+    fetch_the_news(&p);
+    let changed =
+        |callback: &Callback| sent(callback, |c| matches!(c, WireCommand::WidgetChanged { .. }));
+    // The end of a request that is not the fetch's: nothing changed.
+    let other = event(
+        &p,
+        HTTP_TOKEN,
+        Record::EventHttpDone(EventHttpDone {
+            now_ms: 0,
+            id: 7,
+            token: 1,
+            status: 200,
+            reason: 0,
+            flags: 0,
+            body_len: 0,
+        }),
+    );
+    assert_eq!(other.status, 0);
+    assert!(!changed(&other));
+    // The fetch's own end: it is over, the widget shows what it came to.
+    assert!(changed(&held_back(&p, 1)));
 }

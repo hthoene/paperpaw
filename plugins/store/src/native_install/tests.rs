@@ -239,7 +239,7 @@ fn a_refused_install_command_or_a_wrong_plugin_leaves_no_files() {
             Have::default(),
         )
         .unwrap();
-    assert_eq!(step, Step::Failed(Failure::Card));
+    assert_eq!(step, Step::Failed(Failure::Refused));
     assert!(!installer.busy());
     assert!(!wire.storage.exists("stage/airy-theme/plugin.ini"));
     let mut wire = Fake::new();

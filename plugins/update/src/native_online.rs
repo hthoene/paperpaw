@@ -169,6 +169,18 @@ impl Offer {
     }
 }
 
+/// The update a kept `offer.txt` names, where it is still newer than `running`;
+/// one the device reached since (installed from the card too) is none.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn kept_offer(bytes: &[u8], running: &str) -> Result<Option<Offer>, Error> {
+    let Ok(text) = core::str::from_utf8(bytes) else {
+        return Ok(None);
+    };
+    Ok(Offer::from_text(text)?.filter(|offer| compare_versions(&offer.version, running).is_gt()))
+}
+
 /// `<size> <algorithm>:<hex> <path> <url>`.
 fn read_file(rest: &str) -> Result<Option<PackageFile>, Error> {
     let mut parts = rest.splitn(4, ' ');

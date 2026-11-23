@@ -8,20 +8,20 @@ use paperpaw_sdk::native::{
     Error, Host,
     library::{Existing, Import, Library},
     settings::{self, SettingValue},
+    storage::Root,
 };
 use paperpaw_sdk::web::try_clean_name;
 use paperpaw_ui_kit::{
-    files::{Volume, read_all_on, replace_on},
+    files::{self, Volume, replace_on},
     mem::buffer,
     text,
 };
 
 use crate::native_book::Failure;
-use crate::native_books::{BOOKS_CAP, BOOKS_FILE, with as books_with};
+use crate::native_books::{BOOKS_CAP, BOOKS_FILE, find, with as books_with};
 use crate::native_convert::Converted;
 use crate::native_fetch::Shelf;
 use crate::native_news::{FETCHED_FILE, Feed, HEADLINES_CAP, HEADLINES_FILE, Mark, headlines};
-use crate::native_plugin::DataVolume;
 
 /// The folder of the news, below the library's.
 pub const FOLDER: &str = "News";
@@ -76,18 +76,34 @@ pub(crate) trait Shelving {
     fn delete(&mut self, file: &str) -> Result<(), Error>;
 }
 
-/// Puts `page` in as the book `file`, replacing the book of the last fetch.
+/// Puts `page` in as the book `file`, replacing the book of the last fetch:
+/// `last`, the name the last import of the feed took in [`FOLDER`] (kept in
+/// `books.txt`), is this plugin's own and is replaced where it is, keeping
+/// the reader's marks.
 ///
-/// A book at that name the library does not know as this plugin's import is
+/// A book at `file` the library does not know as this plugin's import is
 /// either Beta 3's (it wrote `News/<name> (<mark>).html` itself, so the
 /// library has no importer for it, #459) or one moved there: it is the page
 /// of an earlier fetch, so it is deleted and the page takes its name. Where
 /// it stays (the reader marked something in it), the new one takes a free
-/// name beside it.
+/// name beside it, which the next fetch finds as `last`.
 ///
 /// # Errors
 /// The library's refusals.
-pub(crate) fn place(shelf: &mut impl Shelving, page: &str, file: &str) -> Result<String, Error> {
+pub(crate) fn place(
+    shelf: &mut impl Shelving,
+    page: &str,
+    file: &str,
+    last: Option<&str>,
+) -> Result<String, Error> {
+    if let Some(last) = last.filter(|last| *last != file) {
+        match shelf.import(page, last, Existing::Replace) {
+            Ok(path) => return Ok(path),
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            // Gone, moved or another file now: the name of the feed.
+            Err(_) => {}
+        }
+    }
     match shelf.import(page, file, Existing::Replace) {
         Err(Error::Denied) => {}
         placed => return placed,
@@ -137,15 +153,25 @@ impl HostShelf<'_, '_> {
         self.library.as_ref().ok_or(Error::State)
     }
 
-    /// Keeps the path of the book and the headlines of the feed. A card that
-    /// does not take them costs the list and the widget this one change only.
-    fn keep(&self, feed: &Feed, path: &str, converted: &Converted) -> Result<(), Failure> {
-        let volume = DataVolume(self.host);
-        let old = lenient(read_all_on(&volume, BOOKS_FILE, BOOKS_CAP))?;
-        let old = old.as_deref().map(String::from_utf8_lossy);
-        let books = books_with(old.as_deref(), Mark::of(&feed.url).as_str(), path)?;
+    /// Keeps the path of the book of the feed marked `mark` (`books`: the
+    /// file as it was) and the headlines of the feed. A card that does not
+    /// take them costs the list and the widget this one change only.
+    fn keep(
+        &self,
+        books: Option<&str>,
+        mark: &str,
+        path: &str,
+        converted: &Converted,
+    ) -> Result<(), Failure> {
+        let volume = files::volume(self.host, Root::Data);
+        let books = books_with(books, mark, path)?;
         write(&volume, BOOKS_FILE, &books)?;
-        let old = lenient(read_all_on(&volume, HEADLINES_FILE, HEADLINES_CAP + 1))?;
+        let old = lenient(files::read_all(
+            self.host,
+            Root::Data,
+            HEADLINES_FILE,
+            HEADLINES_CAP + 1,
+        ))?;
         let lines = headlines(&converted.headlines, path, old.as_deref())?;
         write(&volume, HEADLINES_FILE, &lines)?;
         // When they were kept, for the sleep screen; without the clock, none.
@@ -184,15 +210,33 @@ impl Shelf for HostShelf<'_, '_> {
         page: &str,
         converted: &Converted,
     ) -> Result<(), Failure> {
-        let file = book_file(feed)?;
-        let path = place(self, page, &file)?;
-        self.keep(feed, &path, converted)
+        let books = lenient(files::read_all(
+            self.host,
+            Root::Data,
+            BOOKS_FILE,
+            BOOKS_CAP,
+        ))?;
+        let books = books.as_deref().map(String::from_utf8_lossy);
+        let mark = Mark::of(&feed.url);
+        let last = books
+            .as_deref()
+            .and_then(|books| find(books, mark.as_str()))
+            .and_then(name_in_folder);
+        let path = place(self, page, &book_file(feed)?, last)?;
+        self.keep(books.as_deref(), mark.as_str(), &path, converted)
     }
+}
+
+/// The name of the book at `path` (as the library answered it) where it is in
+/// [`FOLDER`].
+fn name_in_folder(path: &str) -> Option<&str> {
+    let (folder, name) = path.rsplit_once('/')?;
+    (folder.rsplit('/').next() == Some(FOLDER)).then_some(name)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Existing, Shelving, place};
+    use super::{Existing, Shelving, name_in_folder, place};
     use alloc::string::{String, ToString};
     use alloc::vec::Vec;
     use paperpaw_sdk::native::Error;
@@ -202,14 +246,17 @@ mod tests {
     struct Library {
         importer_known: bool,
         marked: bool,
+        /// A book of this plugin's own at another name than the feed's.
+        ours: Option<&'static str>,
         calls: Vec<String>,
     }
 
     impl Shelving for Library {
         fn import(&mut self, _: &str, file: &str, existing: Existing) -> Result<String, Error> {
             self.calls.push(alloc::format!("import {existing:?}"));
+            let own = self.importer_known || self.ours == Some(file);
             match existing {
-                Existing::Replace if !self.importer_known => Err(Error::Denied),
+                Existing::Replace if !own => Err(Error::Denied),
                 Existing::FreeName => Ok(alloc::format!(
                     "News/{} (2).html",
                     file.trim_end_matches(".html")
@@ -232,6 +279,7 @@ mod tests {
         Library {
             importer_known,
             marked,
+            ours: None,
             calls: Vec::new(),
         }
     }
@@ -240,7 +288,7 @@ mod tests {
     fn the_book_of_the_last_fetch_is_replaced() {
         let mut ours = library(true, false);
         assert_eq!(
-            place(&mut ours, "page", "Feed (3fa9c2).html").unwrap(),
+            place(&mut ours, "page", "Feed (3fa9c2).html", None).unwrap(),
             "News/Feed (3fa9c2).html"
         );
         assert_eq!(ours.calls, ["import Replace"]);
@@ -252,7 +300,7 @@ mod tests {
         // "(2)" book beside it for every feed.
         let mut beta3 = library(false, false);
         assert_eq!(
-            place(&mut beta3, "page", "Feed (3fa9c2).html").unwrap(),
+            place(&mut beta3, "page", "Feed (3fa9c2).html", None).unwrap(),
             "News/Feed (3fa9c2).html"
         );
         assert_eq!(
@@ -269,12 +317,46 @@ mod tests {
     fn a_book_the_reader_marked_stays_and_the_page_takes_a_free_name() {
         let mut marked = library(false, true);
         assert_eq!(
-            place(&mut marked, "page", "Feed (3fa9c2).html").unwrap(),
+            place(&mut marked, "page", "Feed (3fa9c2).html", None).unwrap(),
             "News/Feed (3fa9c2) (2).html"
         );
         assert_eq!(
             marked.calls.last().map(ToString::to_string).as_deref(),
             Some("import FreeName")
         );
+    }
+
+    #[test]
+    fn the_last_import_is_replaced_where_it_took_a_free_name() {
+        // Beta 3's book stays (the reader marked it) and the first fetch took
+        // a free name beside it: each later fetch replaces that one, it never
+        // adds a third.
+        let mut marked = library(false, true);
+        marked.ours = Some("Feed (3fa9c2) (2).html");
+        assert_eq!(
+            place(
+                &mut marked,
+                "page",
+                "Feed (3fa9c2).html",
+                Some("Feed (3fa9c2) (2).html")
+            )
+            .unwrap(),
+            "News/Feed (3fa9c2) (2).html"
+        );
+        assert_eq!(marked.calls, ["import Replace"]);
+        // Gone or moved: the name of the feed, as before.
+        let mut beta3 = library(false, false);
+        assert_eq!(
+            place(&mut beta3, "page", "Feed (3fa9c2).html", Some("Gone.html")).unwrap(),
+            "News/Feed (3fa9c2).html"
+        );
+    }
+
+    #[test]
+    fn the_name_of_the_last_import_is_taken_only_from_the_news_folder() {
+        assert_eq!(name_in_folder("News/A (2).html"), Some("A (2).html"));
+        assert_eq!(name_in_folder("Books/News/A.html"), Some("A.html"));
+        assert_eq!(name_in_folder("Books/A.html"), None);
+        assert_eq!(name_in_folder("A.html"), None);
     }
 }

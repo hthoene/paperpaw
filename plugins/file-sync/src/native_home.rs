@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::{
     Error, Host,
-    callbacks::{DrawFrame, Input},
+    callbacks::{DrawFrame, FrameRect, Input},
     commands::{CommandSender, RedrawMode},
     events::{AnswerOutcome, Answered},
     formatting::Arg,
@@ -69,6 +69,21 @@ impl Row {
 pub struct View {
     list: ItemList,
     note: String,
+    /// The screen's region in the last frame.
+    region: Option<FrameRect>,
+}
+
+impl View {
+    /// The room below the rows in the last frame, where the note is, in the
+    /// region's pixels; `None` before a frame and where the last row is on
+    /// another page.
+    fn below_rows(&self) -> Option<FrameRect> {
+        let region = self.region?;
+        let last = self.list.rect_of(self.list.items().len().checked_sub(1)?)?;
+        let top = (i32::from(last.y) + i32::from(last.height)).saturating_sub(region.y);
+        let height = u32::try_from(i64::from(region.height) - i64::from(top)).ok()?;
+        Some(FrameRect::new(0, top, region.width, height))
+    }
 }
 
 /// The footer for a note: none where it is empty.
@@ -189,6 +204,30 @@ impl NativeFileSync {
         }
     }
 
+    /// A step of the sync: only the home's note says something else, so only
+    /// the room below its rows is drawn again (they stay as they are while a
+    /// sync runs). Nothing is drawn while a pair's screen is open above it:
+    /// the home is built anew when it is shown again.
+    pub(crate) fn refresh_progress(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.home.top(HOME).is_none() || self.pair_view.top(PAIR).is_some() {
+            return Ok(());
+        }
+        let note = self.home_note(host, &mut Messages::new()?)?;
+        let Some(top) = self.home.top(HOME) else {
+            return Ok(());
+        };
+        if top.note == note {
+            return Ok(());
+        }
+        top.note = note;
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        match top.below_rows() {
+            Some(area) => sender.queue_redraw_area(RedrawMode::Fast, area),
+            None => sender.queue_redraw(RedrawMode::Partial),
+        }
+    }
+
     /// Rebuilds the rows of the open screens and asks for a redraw.
     pub(crate) fn refresh_home(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let mut changed = false;
@@ -231,7 +270,9 @@ impl NativeFileSync {
         let view = view.ok_or(Error::State)?;
         let title = Messages::new()?.copy(host, key)?;
         let footer = note(&view.note);
-        view.list.draw_with(host, frame, &title, true, footer)
+        view.list.draw_with(host, frame, &title, true, footer)?;
+        view.region = Some(frame.rect);
+        Ok(())
     }
 
     pub(crate) fn screen_input(
@@ -362,7 +403,7 @@ impl NativeFileSync {
 
     /// Keeps what was typed for `row`. An empty password keeps what was kept
     /// (the field never shows it): a confirm by mistake loses nothing; one is
-    /// taken away with a single space.
+    /// taken away with a single space. Another server takes the password away.
     fn apply(&mut self, host: &Host<'_>, row: Row, typed: &str) -> Result<(), Error> {
         let text = typed.trim();
         let n = self.editing;
@@ -383,6 +424,9 @@ impl NativeFileSync {
                     self.notice(host, &said);
                     return Ok(());
                 }
+                if !self.password_goes_with(host, text)? {
+                    return Ok(());
+                }
                 self.set_text(host, &pairs::key("server", n)?, text)?;
             }
             Row::User => self.set_text(host, &pairs::key("user", n)?, text)?,
@@ -390,7 +434,9 @@ impl NativeFileSync {
                 if typed.is_empty() {
                     return Ok(());
                 }
-                self.keep_password(host, text)?;
+                if !self.keep_password(host, pairs::password_of(typed))? {
+                    return Ok(());
+                }
             }
             Row::Mode => return Ok(()),
         }
@@ -407,8 +453,26 @@ impl NativeFileSync {
         CommandSender::new(host, &mut scratch).set_setting(key, SettingValue::Text(value))
     }
 
-    /// Keeps the password (a single space takes it away); said where it cannot be.
-    fn keep_password(&self, host: &Host<'_>, password: &str) -> Result<(), Error> {
+    /// Whether the pair being edited may take the server address `url`: the
+    /// kept password is for the server it was typed for, so an address of
+    /// another server takes it away (said). `false` where it cannot be taken
+    /// away: the address stays as it was then.
+    fn password_goes_with(&self, host: &Host<'_>, url: &str) -> Result<bool, Error> {
+        let old = pairs::read(host, self.editing)?.url;
+        if old.is_empty() || pairs::same_server(&old, url) || !self.password_kept(host)? {
+            return Ok(true);
+        }
+        if !self.keep_password(host, "")? {
+            return Ok(false);
+        }
+        let said = Messages::new()?.copy(host, "file-sync.password-dropped")?;
+        self.notice(host, &said);
+        Ok(true)
+    }
+
+    /// Keeps the password (empty takes it away); said where it cannot be.
+    /// `true` where it was kept.
+    fn keep_password(&self, host: &Host<'_>, password: &str) -> Result<bool, Error> {
         let mut say = Messages::new()?;
         let name = pairs::secret_name(self.editing)?;
         let notice = match &self.secrets {
@@ -431,11 +495,12 @@ impl NativeFileSync {
                 }
             }
         };
-        if let Some(key) = notice {
-            let text = say.copy(host, key)?;
-            self.notice(host, &text);
-        }
-        Ok(())
+        let Some(key) = notice else {
+            return Ok(true);
+        };
+        let text = say.copy(host, key)?;
+        self.notice(host, &text);
+        Ok(false)
     }
 
     /// The pair's number of the first open screen state, for a new view.

@@ -32,8 +32,8 @@ are kept and go where they are missing). Download only never changes the server 
   network is picked up where it stopped; a state lost or odd only makes the next sync ask more (a
   conflict kept twice), never delete. A cut at every request, with the sent file arriving or not, is a
   test (`native_sync_tests.rs`).
-- A folder with more than 256 files, deeper than six levels, a file over 64 MB (the host's limit for a
-  saved answer): left as it is, said. A top folder missing on the server that was synced before is an
+- A folder with more than 200 files (`MOST`), more than 64 folders in it (`MOST_DIRS`) or deeper than
+  six levels, a file over 64 MB (the host's limit for a saved answer): left as it is, said. A top folder missing on the server that was synced before is an
   error, not an empty server.
 
 ## Where it is not yet complete

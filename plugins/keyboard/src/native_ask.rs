@@ -117,7 +117,11 @@ pub(crate) struct ConfirmView {
 }
 
 /// The request the host opened this dialog for, read from its hand-over.
-fn request_of(ui: &Ui, host: &Host<'_>, handover: Option<HandoverId>) -> Result<RequestId, Error> {
+pub(crate) fn request_of(
+    ui: &Ui,
+    host: &Host<'_>,
+    handover: Option<HandoverId>,
+) -> Result<RequestId, Error> {
     let handover = handover.ok_or(Error::Invalid)?;
     let mut input = buffer(SERVICE_BUFFER)?;
     let mut output = buffer(SERVICE_BUFFER)?;
@@ -235,11 +239,14 @@ impl ChoiceView {
         match step {
             // The heading is item 0 and what the question says item 1, if it says
             // anything: the lines start after them.
-            ItemStep::Chosen(index) => {
-                let line =
-                    u32::try_from(index.saturating_sub(self.lead)).map_err(|_| Error::Invalid)?;
-                answer_and_close(ui, host, self.request, Answer::Pick(line))
-            }
+            ItemStep::Chosen(index) => match index.checked_sub(self.lead) {
+                Some(line) => {
+                    let line = u32::try_from(line).map_err(|_| Error::Invalid)?;
+                    answer_and_close(ui, host, self.request, Answer::Pick(line))
+                }
+                // The heading or the question's words: no line was chosen.
+                None => Ok(Handled::Yes),
+            },
             ItemStep::Held(_) => Ok(Handled::Yes),
             other => Ok(ItemList::handled(other)),
         }

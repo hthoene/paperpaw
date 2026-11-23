@@ -859,12 +859,13 @@ fn a_server_that_tells_no_versions_still_works() {
     let milk = reader.at("Buy milk");
     reader.store.toggle(milk, NOW).unwrap();
     assert_eq!(reader.run(&mut server).sent, 1);
+    // The list is read once more, which tells the version.
     assert_eq!(
-        reader.store.tasks[reader.at("Buy milk")].etag(),
-        "",
-        "not known"
+        server.log.last().map(String::as_str),
+        Some("REPORT /dav/calendars/anna/tasks/")
     );
-    // The next reading tells the version; nothing is a conflict.
+    assert!(!reader.store.tasks[reader.at("Buy milk")].etag().is_empty());
+    // The next run has nothing to do; nothing is a conflict.
     let report = reader.run(&mut server);
     assert_eq!((report.conflicts, report.sent), (0, 0));
     let milk = reader.at("Buy milk");
@@ -876,6 +877,30 @@ fn a_server_that_tells_no_versions_still_works() {
             .unwrap()
             .unwrap()
             .done
+    );
+}
+
+#[test]
+fn a_change_after_a_sending_without_a_version_is_still_caught_as_a_conflict() {
+    let (mut server, mut reader) = synced();
+    server.no_etags = true;
+    let milk = reader.at("Buy milk");
+    reader.store.set_title(milk, "Buy two milks").unwrap();
+    assert_eq!(reader.run(&mut server).sent, 1);
+    // Changed on the phone and on the reader again: the server's version
+    // stays, the reader's is kept beside it.
+    server.put("tasks", "milk", "SUMMARY:Buy oat milk\r\n");
+    let milk = reader.at("Buy two milks");
+    reader.store.set_title(milk, "Buy three milks").unwrap();
+    let report = reader.run(&mut server);
+    assert_eq!((report.conflicts, report.failed), (1, 0));
+    let theirs = read_todo(server.text("tasks", "milk").as_bytes(), 100)
+        .unwrap()
+        .unwrap();
+    assert_eq!(theirs.summary, "Buy oat milk");
+    assert_eq!(
+        reader.shown("Tasks"),
+        ["Buy three milks", "Buy oat milk", "Call Anna"]
     );
 }
 

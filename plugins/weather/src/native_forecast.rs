@@ -83,8 +83,7 @@ fn setup(cx: &Cx<'_>) -> Result<Setup, Error> {
 ///
 /// # Errors
 /// `NoMemory`, or what the host says.
-pub fn height(cx: &mut Cx<'_>, shown: &Shown<'_>, width: u16) -> Result<u16, Error> {
-    let _ = (shown, width);
+pub fn height(cx: &mut Cx<'_>) -> Result<u16, Error> {
     let set = setup(cx)?;
     let small = line_px(&cx.font, sane(set.small))?.saturating_mul(3);
     let digits = digits_height(set.title).saturating_mul(2);

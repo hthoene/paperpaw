@@ -21,6 +21,8 @@ use paperpaw_ui_kit::text;
 const MAX_HEADERS_LITERAL: usize = 16 * 1024;
 /// The pieces a message's second part is joined in.
 const JOIN_PIECE: usize = 4096;
+/// The flag of a mail that was read.
+pub const SEEN: &str = "\\Seen";
 
 /// What to do on the server, in this order, in one connection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -915,8 +917,19 @@ impl Imap {
                 }
                 self.finish_sync(io, storage, events)?;
             }
-            Command::FetchBody | Command::FetchPart | Command::Store => {
+            Command::FetchBody | Command::FetchPart => {
                 if !ok {
+                    return self.fail(io, events, Failure::Refused(reply));
+                }
+                self.next_task(io, events)?;
+            }
+            Command::Store => {
+                // The read mark that comes with opening a mail is the
+                // server's to refuse (a folder that is read-only): the mail
+                // fetched with it is still there to show. A star the reader
+                // set is said refused.
+                let read_mark = matches!(&self.task, Some(Task::Flag { flag: SEEN, .. }));
+                if !ok && !read_mark {
                     return self.fail(io, events, Failure::Refused(reply));
                 }
                 self.next_task(io, events)?;

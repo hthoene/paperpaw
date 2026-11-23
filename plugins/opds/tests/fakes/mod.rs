@@ -111,6 +111,8 @@ pub struct MemVault {
     pub unsupported: bool,
     /// At most this many are kept (the plugin's 32 in the host).
     pub room: Cell<Option<usize>>,
+    /// Every read fails (the service cannot be read now).
+    pub broken: bool,
 }
 
 impl MemVault {
@@ -136,6 +138,9 @@ impl Vault for MemVault {
     fn read(&self, name: &str) -> Result<Option<Secret>, Error> {
         if self.unsupported {
             return Err(Error::Unsupported);
+        }
+        if self.broken {
+            return Err(Error::Io);
         }
         self.secrets
             .borrow()

@@ -71,6 +71,7 @@ macro_rules! store {
             host: $host,
             files: $plugin.files.as_ref(),
             secrets: $plugin.secrets.as_ref(),
+            typed: $plugin.typed.as_ref(),
             extensions: &$plugin.extensions,
             folder: &$plugin.folder,
             small: $plugin.small,
@@ -122,6 +123,9 @@ pub struct NativeCalibre {
     /// The end of a character that a read cut in two.
     carry: Vec<u8>,
     asked: Option<RequestId>,
+    /// The password typed that the secrets could not keep: it counts until
+    /// the screen closes, so it is not asked for again and again.
+    typed: Option<Secret>,
     /// Offline mode: the offer to go online, for the session the reader
     /// started (what is done again is starting it again).
     online: Offer<()>,
@@ -452,6 +456,7 @@ impl NativeCalibre {
         self.reset_wire(host);
         self.session = None;
         self.asked = None;
+        self.typed = None;
         // An open offer goes with the screen: its answer starts nothing.
         self.online = Offer::new();
     }
@@ -648,7 +653,12 @@ impl NativeCalibre {
                 Some(session) => session.not_text(),
                 None => Ok(Vec::new()),
             },
-            Err(_) => Ok(Vec::new()),
+            // Larger than the free space (`Full`), or the card does not take
+            // it now (`Busy`, `Denied`, `Io`).
+            Err(error) => match &mut self.session {
+                Some(session) => session.not_received(error == Error::Full),
+                None => Ok(Vec::new()),
+            },
         }
     }
 
@@ -720,13 +730,16 @@ impl NativeCalibre {
     }
 
     /// Deletes the book at `path` (below the library folder) that Calibre
-    /// sent: through the library, with what is kept for it; a file the library
-    /// does not take for a book goes from the card.
+    /// sent: through the library, with what is kept for it, but never the
+    /// reader's highlights and notes. A book that has them (the library's
+    /// `State`), a file the library does not take for a book, or no library:
+    /// only the file goes from the card, and the notes are there again when
+    /// Calibre sends the book again (as Beta 3).
     fn delete(&mut self, host: &Host<'_>, path: &str) -> Result<(), Error> {
         let full = library_path(&self.folder, path)?;
         if let Some(library) = &self.library {
             let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-            match library.delete(host, &[&full], true, &mut input, &mut out) {
+            match library.delete(host, &[&full], false, &mut input, &mut out) {
                 Ok(report) => {
                     let status = report.rows().next().map(|row| row.status());
                     if matches!(status, Some(Ok(()) | Err(Error::NotFound))) {
@@ -737,7 +750,6 @@ impl NativeCalibre {
                 Err(_) => {}
             }
         }
-        // Not a book to the library, or no library: the file goes all the same.
         storage::remove(host, Root::Files, &full).ok();
         Ok(())
     }
@@ -1029,17 +1041,22 @@ impl NativeCalibre {
             Some(secrets) => keep::keep(secrets, host, keep::PASSWORD, &label, typed.as_str()),
             None => Err(Error::Unsupported),
         };
-        match kept {
-            Ok(()) => {}
+        self.typed = match kept {
+            Ok(()) => None,
             Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(Error::Unsupported) => {
-                // A device that keeps no secrets says so; the password counts
-                // for this connection only if it is asked for again.
-                let text = Messages::new()?.copy(host, "core.secrets-unsupported")?;
+            // Not kept (a device that keeps no secrets, a full or busy store):
+            // said, and the password counts until the screen closes.
+            Err(error) => {
+                let key = if error == Error::Unsupported {
+                    "core.secrets-unsupported"
+                } else {
+                    "calibre.not-kept"
+                };
+                let text = Messages::new()?.copy(host, key)?;
                 self.notify(host, &text)?;
+                Some(typed)
             }
-            Err(_) => {}
-        }
+        };
         // The reader starts the connection anew: it may be offered again.
         self.online.reset();
         self.restart(host)
@@ -1118,6 +1135,8 @@ impl NativeCalibre {
                 Ending::Closed => say.copy(host, "calibre.closed")?,
                 Ending::Ejected => say.copy(host, "calibre.ejected")?,
                 Ending::NotCalibre => say.copy(host, "calibre.not-calibre")?,
+                Ending::NoRoom => say.copy(host, "calibre.no-room")?,
+                Ending::NotReceived => say.copy(host, "calibre.not-received")?,
                 Ending::Failed(reason) | Ending::Error(reason) => say.format(
                     host,
                     "calibre.failed",

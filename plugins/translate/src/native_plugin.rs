@@ -369,8 +369,10 @@ impl NativeTranslate {
                 native_model::best_effort(notice(host, "core.secrets-unsupported"));
             }
             Err(Error::NoMemory) => return Err(Error::NoMemory),
-            // Not kept (the card, the list is full): used this time all the same.
-            Ok(Kept::Saved) | Err(_) => {}
+            // Not kept (the card, the list is full): used this time all the
+            // same, and the reader is told why it is asked for again.
+            Err(_) => native_model::best_effort(notice(host, "translate.not-kept")),
+            Ok(Kept::Saved) => {}
         }
         if let Some(panel) = self.panel() {
             panel.say(Note::Loading);

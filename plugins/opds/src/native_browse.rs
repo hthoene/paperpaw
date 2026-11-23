@@ -78,6 +78,12 @@ pub enum Note {
     NoFormat,
     NotABook,
     CannotSave,
+    /// The answer could not be saved: the card is full or went away.
+    CardFull,
+    /// The answer is larger than the reader takes.
+    TooLarge,
+    /// The network is busy with the reader's other requests.
+    Busy,
     Downloading(String),
     Share {
         title: String,
@@ -362,6 +368,7 @@ impl Browser {
         let note = match error {
             Error::NoMemory => return Err(Error::NoMemory),
             Error::Unsupported | Error::Denied => Note::NoNetwork,
+            Error::Busy => Note::Busy,
             _ => Note::FailedHost(copy(host(url))?),
         };
         self.say(note);
@@ -377,6 +384,8 @@ impl Browser {
             Ended::Unauthorized => Note::Unauthorized,
             Ended::NoNetwork | Ended::Offline => Note::NoNetwork,
             Ended::Unreached => Note::FailedHost(copy(host(url))?),
+            Ended::TooLarge => Note::TooLarge,
+            Ended::NotSaved => Note::CardFull,
             Ended::Untrusted => Note::CertificateUnknown,
             Ended::Status(status) => Note::Error {
                 host: copy(host(url))?,
@@ -745,6 +754,13 @@ impl Browser {
     /// # Errors
     /// `NoMemory`.
     pub fn back(&mut self, host_: &Host<'_>, web: &mut Web) -> Result<Step, Error> {
+        // A search's description still asked for is let go of first, as a
+        // download is: it would ask for the words on another feed.
+        if self.describing.take().is_some() {
+            web.cancel(host_, DESCRIPTION);
+            self.note = Note::Empty;
+            return Ok(Step::Nothing);
+        }
         let Some(previous) = self
             .trail
             .len()

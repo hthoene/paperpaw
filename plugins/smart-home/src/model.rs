@@ -453,6 +453,24 @@ impl Store {
         }
         Ok(Some(store))
     }
+
+    /// The store a read of the file gives: none where there is no file, or
+    /// one too large, damaged or foreign (the next save replaces it).
+    ///
+    /// # Errors
+    /// The read's own error (the card, memory): that is no answer about the
+    /// file, so the caller must not save over it.
+    pub fn from_file(read: Result<Option<Vec<u8>>, Error>) -> Result<Option<Self>, Error> {
+        let bytes = match read {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) | Err(Error::NoSpace) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        match core::str::from_utf8(&bytes) {
+            Ok(text) => Self::from_text(text),
+            Err(_) => Ok(None),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -604,5 +622,25 @@ mod tests {
         assert!(store.pick("nope", Kind::Value).is_none());
         assert_eq!(store.room_named("").unwrap(), "Hall");
         assert_eq!(store.room_named("hall").unwrap(), "Hall");
+    }
+
+    /// A read that failed is no answer about the file: it must not be taken
+    /// for "no entities", which the next save would write over the file.
+    #[test]
+    fn a_failed_read_is_not_an_empty_store() {
+        for error in [Error::Io, Error::NoMemory, Error::Busy] {
+            assert_eq!(Store::from_file(Err(error)).err(), Some(error));
+        }
+        assert!(Store::from_file(Ok(None)).unwrap().is_none());
+        assert!(Store::from_file(Err(Error::NoSpace)).unwrap().is_none());
+        assert!(
+            Store::from_file(Ok(Some(alloc::vec![0xff, 0xfe])))
+                .unwrap()
+                .is_none()
+        );
+        let kept = Store::from_file(Ok(Some(b"v1\t7\nlight.desk\tDesk\t\ton\t\t\n".to_vec())))
+            .unwrap()
+            .unwrap();
+        assert_eq!((kept.synced, kept.entities.len()), (7, 1));
     }
 }

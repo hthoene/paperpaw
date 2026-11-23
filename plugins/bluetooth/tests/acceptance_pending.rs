@@ -73,10 +73,7 @@ const CASES: [Case; 13] = [
     Case {
         name: "the-status-item-shows-the-sign-while-a-device-is-connected",
         golden: None,
-        blocked_by: &[
-            "status-item-stage-callback",
-            "status-item-drawn-icon-widget-toolkit",
-        ],
+        blocked_by: &["H1"],
     },
     Case {
         name: "the-plugin-is-bound-to-the-bluetooth-slot",
@@ -121,7 +118,7 @@ fn the_page_is_where_a_radio_is_and_fills_the_slot() {
 }
 
 #[test]
-#[ignore = "BLOCKED: the plugin has no callback for the host's status stage `core.status`, and drawing the sign needs the native widget toolkit"]
+#[ignore = "BLOCKED H1: status item callbacks are not qualified"]
 fn the_status_item_shows_a_connected_device() {
     CASES[10].refuse().unwrap();
 }

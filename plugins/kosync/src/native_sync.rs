@@ -154,8 +154,9 @@ pub enum Action {
         manual: bool,
     },
     /// Put the position to the server. When it cannot be made (the book
-    /// does not read) or fails, call [`Engine::not_sent`]. When a `Fetch`
-    /// cannot be made, call [`Engine::not_fetched`].
+    /// does not read), call [`Engine::not_sent`]; when it fails (the server
+    /// said no, the network, no room to start it), [`Engine::send_failed`].
+    /// When a `Fetch` cannot be made, call [`Engine::not_fetched`].
     Send(Position),
     /// Show the offer.
     Offer(Offer),
@@ -287,11 +288,39 @@ impl Engine {
         self.current.as_ref()
     }
 
-    /// The position was not sent after all (the book would not read, the
-    /// server said no): again with the next page.
+    /// The position was not sent after all (the book would not read): again
+    /// with the next page.
     pub fn not_sent(&mut self) {
         self.sent = None;
         self.last_push = None;
+    }
+
+    /// Sending `position` failed (the server said no, the network, no room to
+    /// start it): the open book's goes again with the next page; that of a
+    /// book left meanwhile waits among those not sent, to go once sending
+    /// can ([`Self::send_now`], [`Self::allowed`]).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn send_failed(&mut self, position: Position) -> Result<(), Error> {
+        if self.sent.as_ref().is_some_and(|s| s.path == position.path) {
+            self.sent = None;
+        }
+        if is(&self.current, &position.path) {
+            self.last_push = None;
+            return Ok(());
+        }
+        self.keep_unsent(position)
+    }
+
+    /// Keeps the position of a book left among those not sent, the oldest
+    /// going when there are too many.
+    fn keep_unsent(&mut self, position: Position) -> Result<(), Error> {
+        self.unsent.retain(|u| u.path != position.path);
+        push(&mut self.unsent, position)?;
+        let extra = self.unsent.len().saturating_sub(MOST_UNSENT);
+        self.unsent.drain(..extra);
+        Ok(())
     }
 
     /// The fetch of the book at `path` could not be made (it does not read):
@@ -320,12 +349,7 @@ impl Engine {
         if !ctx.may_send() {
             return Ok(());
         }
-        let open = self.current.as_ref().map(|c| c.path.as_str());
-        let mut waiting = core::mem::take(&mut self.unsent);
-        waiting.retain(|p| Some(p.path.as_str()) != open);
-        for position in waiting {
-            self.pull_left(ctx, out, position)?;
-        }
+        self.send_left(ctx, out)?;
         if let Some(path) = self.current.as_ref().map(|c| copy(&c.path)).transpose()? {
             self.pull(ctx, out, &path, false)?;
         }
@@ -351,10 +375,7 @@ impl Engine {
                 self.push(ctx, out, false)?;
             } else if let Some(last) = self.current.as_ref().map(Position::try_clone).transpose()? {
                 // Offline: sent once allowed, silently.
-                self.unsent.retain(|u| u.path != last.path);
-                push(&mut self.unsent, last)?;
-                let extra = self.unsent.len().saturating_sub(MOST_UNSENT);
-                self.unsent.drain(..extra);
+                self.keep_unsent(last)?;
             }
         }
         let path = copy(&position.path)?;
@@ -417,7 +438,20 @@ impl Engine {
     /// `NoMemory`.
     pub fn send_now(&mut self, ctx: Ctx, out: &mut Vec<Action>) -> Result<(), Error> {
         if ctx.may_send() {
+            self.send_left(ctx, out)?;
             self.push(ctx, out, false)?;
+        }
+        Ok(())
+    }
+
+    /// The books left whose position was not sent: each is fetched first and
+    /// sent unless another device is further there (see `pulled`).
+    fn send_left(&mut self, ctx: Ctx, out: &mut Vec<Action>) -> Result<(), Error> {
+        let open = self.current.as_ref().map(|c| c.path.as_str());
+        let mut waiting = core::mem::take(&mut self.unsent);
+        waiting.retain(|p| Some(p.path.as_str()) != open);
+        for position in waiting {
+            self.pull_left(ctx, out, position)?;
         }
         Ok(())
     }

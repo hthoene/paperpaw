@@ -365,15 +365,37 @@ impl NativeCalendar {
         }
     }
 
+    /// Removes source `id`, its password first: the id is given to the next
+    /// source made, which must never send this one's password. Where the
+    /// password cannot be removed the source stays, and the reader is told.
     fn remove_source(&mut self, host: &Host<'_>, id: u8) -> Result<(), Error> {
-        self.store.remove_source(id);
-        if let Ok(secrets) = self.handles.secrets(host) {
-            let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-            if let Ok(name) = paperpaw_sdk::native::secrets::SecretName::new(&secret_name(id)?) {
-                let _ = secrets.remove(host, name, &mut input, &mut out);
+        let account = self.store.source(id).is_some_and(|s| s.kind.account());
+        if account {
+            match self.forget_password(host, id) {
+                Ok(()) => {}
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {
+                    notice(host, "calendar.source.not-removed");
+                    return Ok(());
+                }
             }
         }
+        self.store.remove_source(id);
         self.changed(host)
+    }
+
+    /// Removes the password of source `id` (one that is not there is removed).
+    fn forget_password(&mut self, host: &Host<'_>, id: u8) -> Result<(), Error> {
+        let secrets = match self.handles.secrets(host) {
+            Ok(secrets) => secrets,
+            // A device that keeps no secrets kept no password.
+            Err(Error::Unsupported | Error::Denied) => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        let name = secret_name(id)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        paperpaw_sdk::native::secrets::SecretName::new(&name)
+            .and_then(|name| secrets.remove(host, name, &mut input, &mut out))
     }
 
     /// Keeps the password of source `id` with the reader's passwords.
@@ -492,12 +514,15 @@ impl NativeCalendar {
         host: &Host<'_>,
         id: u8,
         act: Act,
-        text: &str,
+        typed: &str,
     ) -> Result<(), Error> {
-        let text = text.trim();
+        let text = typed.trim();
         match act {
             Act::Password => {
-                self.keep_password(host, id, text)?;
+                let Some(password) = new_password(typed) else {
+                    return Ok(());
+                };
+                self.keep_password(host, id, password)?;
                 self.source_changed(id);
             }
             Act::Name | Act::Address | Act::User => {
@@ -520,5 +545,24 @@ impl NativeCalendar {
             _ => {}
         }
         self.changed(host)
+    }
+}
+
+/// The password an answer to the password field keeps: as typed, blanks at
+/// its ends too. `None` for an empty answer, which keeps the password there is:
+/// the field opens empty, so a confirm by mistake loses nothing.
+fn new_password(typed: &str) -> Option<&str> {
+    (!typed.is_empty()).then_some(typed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::new_password;
+
+    #[test]
+    fn an_empty_password_field_keeps_the_password_and_blanks_are_part_of_one() {
+        assert_eq!(new_password(""), None);
+        assert_eq!(new_password(" secret "), Some(" secret "));
+        assert_eq!(new_password(" "), Some(" "));
     }
 }

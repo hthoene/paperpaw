@@ -4,8 +4,9 @@
 //! radio is asked to scan and to host, the page is served when the own
 //! network is open, a request for it is answered with the networks in reach
 //! and the page's token, a form without the token chooses nothing, a path that
-//! is none is 404, a device that serves a page already is told, and closing
-//! the screen stops serving and leaves the own network. The scripted host
+//! is none is 404, a device that serves a page already is told, closing the
+//! screen stops serving and leaves the own network (also one that was asked
+//! for and opens only after the screen closed). The scripted host
 //! cannot stage Wi-Fi commands (`DEV-staging`): what the plugin sent is read
 //! from the bytes of its batches, as in `scripted_radio.rs`.
 #![cfg(feature = "linked")]
@@ -14,7 +15,7 @@ use paperpaw_core::native_host::commands::commands_decode;
 use paperpaw_core::native_host::environment::SettingValueRef;
 use paperpaw_core::native_host::registrations::{
     EventScreenClosed, EventScreenOpened, EventScreenShown, EventServedRequest, EventServer,
-    EventWifiChanged, EventWifiScanned, Record, ServiceDevDevice, ServiceDevNetwork,
+    EventWifiChanged, EventWifiDone, EventWifiScanned, Record, ServiceDevDevice, ServiceDevNetwork,
     ServiceDevWifi, ServiceEnd, ServiceSecBytes, ServiceUiScreen, record_encode_one,
     records_decode,
 };
@@ -36,6 +37,7 @@ const UI_STACK: u32 = 1;
 const PHONE: u32 = 12;
 const WIFI_SCANNED: u32 = 8;
 const WIFI_CHANGED: u32 = 6;
+const WIFI_DONE: u32 = 9;
 const SERVER_EVENT: u32 = 16;
 const SERVED_REQUEST: u32 = 17;
 const OFF: u32 = 0;
@@ -492,4 +494,44 @@ fn the_radio_off_after_the_screen_opened_asks_it_on() {
     let (status, sent) = send(&plugin, PHONE, &shown());
     assert_eq!(status, DEV_REFUSED, "{sent:?}");
     assert!(sent[0].contains("On"), "{sent:?}");
+}
+
+/// The host says how request `request` for a network ended: `status` 0 for
+/// the network up (hosting).
+fn done(request: u32, status: i32) -> Vec<u8> {
+    event_batch(&Record::EventWifiDone(EventWifiDone {
+        now_ms: 3_000,
+        request,
+        ssid: "Reader",
+        status,
+        reason: 0,
+        state: if status == 0 { HOSTING } else { OFF },
+    }))
+    .unwrap()
+}
+
+#[test]
+fn back_before_the_own_network_opened_leaves_it_once_it_opens() {
+    let (host, world) = world(true);
+    let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
+    send(&plugin, PHONE, &opened());
+    send(&plugin, PHONE, &shown());
+    // The own network is asked for (the plugin's first request)...
+    let (_, sent) = send(&plugin, WIFI_SCANNED, &scanned());
+    assert!(sent.iter().any(|c| c.contains("Host")), "{sent:?}");
+    // ...and the screen closes before it opened: left all the same.
+    let (_, sent) = send(&plugin, PHONE, &closed());
+    assert!(sent.iter().any(|c| c.contains("Leave")), "{sent:?}");
+    // The host opens it after all: left at once, not open for nobody.
+    world.radio.set(HOSTING);
+    let (_, sent) = send(&plugin, WIFI_DONE, &done(1, 0));
+    assert_eq!(sent, ["WifiLeave"]);
+}
+
+#[test]
+fn the_own_network_of_an_open_setup_is_not_left_when_it_opens() {
+    let (host, world) = world(true);
+    let plugin = serving(&host, &world);
+    let (status, sent) = send(&plugin, WIFI_DONE, &done(1, 0));
+    assert_eq!((status, sent.len()), (0, 0), "{sent:?}");
 }
