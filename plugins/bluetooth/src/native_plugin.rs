@@ -21,13 +21,13 @@ use paperpaw_sdk::{
         reply::Reply,
         settings::{self, SettingValue},
         ui::{
-            ButtonHint, Instance, Notify, Open,
+            Instance, Notify, Open,
             stages::{StatusAnswer, StatusCall},
         },
     },
 };
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages, Screens,
+    Footer, Item, ItemList, ItemStep, Messages, Screens, key_bar,
     mem::{SERVICE_BUFFER, buffer, push},
     text::{concat, copy},
 };
@@ -228,32 +228,16 @@ fn forgets(input: &Input<'_>) -> bool {
 }
 
 /// The key bar names *Forget* for the menu button while the focus is on a
-/// device, as Beta 3 did, and the button's usual name elsewhere. Sent only
-/// where that changes; a hint the host refuses leaves the bar as it was.
+/// device, as Beta 3 did, and the button's usual name elsewhere.
 fn forget_hint(host: &Host<'_>, page: &mut Page) {
     let forget = page.device_at(page.list.focus());
-    if forget == page.forget_named {
-        return;
-    }
-    let word = if forget {
-        match Messages::new().and_then(|mut say| say.copy(host, "bluetooth.forget")) {
-            Ok(word) => Some(word),
-            Err(_) => return,
-        }
-    } else {
-        None
-    };
-    let hint = match &word {
-        Some(word) => ButtonHint::words(MENU, word),
-        None => ButtonHint::usual(MENU),
-    };
-    if let Ok(hint) = hint
-        && CommandSender::new(host, &mut [0; 256])
-            .set_hint(hint)
-            .is_ok()
-    {
-        page.forget_named = forget;
-    }
+    key_bar::name_while(
+        host,
+        MENU,
+        "bluetooth.forget",
+        forget,
+        &mut page.forget_named,
+    );
 }
 
 /// The answer for the status item: drawn (the sign, `status_icon`) while a
@@ -775,7 +759,9 @@ impl NativeBluetooth {
         if self.device.is_none() {
             self.device = Some(Device::open(host)?);
         }
-        let connected = self.any_connected(host)?;
+        // The bonds as the page reads them (their few names copied): one
+        // reader of the list in the program, not two.
+        let connected = self.read_bonds(host)?.iter().any(|bond| bond.connected);
         let mut answers = [None; 1];
         for item in call.items() {
             if item == STATUS_ITEM && answers[0].is_none() {
@@ -788,34 +774,6 @@ impl NativeBluetooth {
         let mut out = [0; 512];
         let length = call.reply(&[answer], &mut out)?;
         reply.write(out.get(..length).ok_or(Error::NoSpace)?)
-    }
-
-    /// Whether a device bonded with this one is connected now, no name
-    /// copied; none where there is no radio.
-    fn any_connected(&self, host: &Host<'_>) -> Result<bool, Error> {
-        let device = self.device.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        'again: for _ in 0..2 {
-            let mut cursor = DeviceCursor::start();
-            for _ in 0..MOST_PAGES {
-                let page = match device.bonded(host, cursor, &mut input, &mut out) {
-                    Ok(page) => page,
-                    Err(Error::NotFound) => return Ok(false),
-                    // The list changed under the reading: start over.
-                    Err(Error::State) => continue 'again,
-                    Err(error) => return Err(error),
-                };
-                if page.rows().any(|bond| bond.connected()) {
-                    return Ok(true);
-                }
-                match page.end().next_cursor() {
-                    Some(next) => cursor = next,
-                    None => return Ok(false),
-                }
-            }
-            return Ok(false);
-        }
-        Err(Error::State)
     }
 
     /// A notice with the device's `name`.
