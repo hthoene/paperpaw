@@ -8,7 +8,11 @@ use paperpaw_sdk::native::{Error, ui::Instance};
 /// plugins never reach this list.
 #[derive(Debug)]
 pub struct Screens<V> {
-    open: Vec<(Instance, V)>,
+    /// The open instances, each at the place of its state in `views`: the
+    /// lookups read only these, so their code is the same for every plugin's
+    /// views and is in the program once.
+    ids: Vec<Instance>,
+    views: Vec<V>,
     /// The top instance of each screen token.
     tops: Vec<(u32, Instance)>,
 }
@@ -16,10 +20,55 @@ pub struct Screens<V> {
 impl<V> Default for Screens<V> {
     fn default() -> Self {
         Self {
-            open: Vec::new(),
+            ids: Vec::new(),
+            views: Vec::new(),
             tops: Vec::new(),
         }
     }
+}
+
+// The lookups are called from many places of every plugin: each is one
+// function, not code at every call (#493).
+
+/// Where `instance` is among `ids`.
+#[inline(never)]
+fn place(ids: &[Instance], instance: Instance) -> Option<usize> {
+    ids.iter().position(|i| *i == instance)
+}
+
+/// The instance on top for `token` in `tops`.
+#[inline(never)]
+fn top_of(tops: &[(u32, Instance)], token: u32) -> Option<Instance> {
+    tops.iter().find(|(t, _)| *t == token).map(|(_, i)| *i)
+}
+
+/// Where the instance on top for `token` is among `ids`.
+#[inline(never)]
+fn top_place(ids: &[Instance], tops: &[(u32, Instance)], token: u32) -> Option<usize> {
+    place(ids, top_of(tops, token)?)
+}
+
+/// Forgets `instance` in `ids` and `tops`: where its state was, if it was open.
+#[inline(never)]
+fn forget(
+    ids: &mut Vec<Instance>,
+    tops: &mut Vec<(u32, Instance)>,
+    instance: Instance,
+) -> Option<usize> {
+    tops.retain(|(_, i)| *i != instance);
+    let at = place(ids, instance)?;
+    ids.remove(at);
+    Some(at)
+}
+
+/// Notes in `tops` that `instance` is on top for `token`.
+#[inline(never)]
+fn show(tops: &mut Vec<(u32, Instance)>, token: u32, instance: Instance) -> Result<(), Error> {
+    if let Some((_, top)) = tops.iter_mut().find(|(t, _)| *t == token) {
+        *top = instance;
+        return Ok(());
+    }
+    crate::mem::push(tops, (token, instance))
 }
 
 impl<V> Screens<V> {
@@ -28,18 +77,23 @@ impl<V> Screens<V> {
     /// # Errors
     /// [`Error::NoMemory`] when the list cannot grow.
     pub fn open(&mut self, instance: Instance, view: V) -> Result<(), Error> {
-        if let Some((_, old)) = self.open.iter_mut().find(|(i, _)| *i == instance) {
+        if let Some(old) = self.get(instance) {
             *old = view;
             return Ok(());
         }
+        // Both lists have room before either grows: they stay in step.
+        self.ids.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
         // Exact growth: a view can be a kilobyte, and a plugin has one or two open.
-        crate::mem::push(&mut self.open, (instance, view))
+        crate::mem::push(&mut self.views, view)?;
+        self.ids.push(instance);
+        Ok(())
     }
 
     /// Forgets a closed instance.
     pub fn close(&mut self, instance: Instance) {
-        self.open.retain(|(i, _)| *i != instance);
-        self.tops.retain(|(_, i)| *i != instance);
+        if let Some(at) = forget(&mut self.ids, &mut self.tops, instance) {
+            self.views.remove(at);
+        }
     }
 
     /// Notes that `instance` is on top for `token`'s screen.
@@ -47,49 +101,41 @@ impl<V> Screens<V> {
     /// # Errors
     /// [`Error::NoMemory`] when the list cannot grow.
     pub fn shown(&mut self, token: u32, instance: Instance) -> Result<(), Error> {
-        if let Some((_, top)) = self.tops.iter_mut().find(|(t, _)| *t == token) {
-            *top = instance;
-            return Ok(());
-        }
-        crate::mem::push(&mut self.tops, (token, instance))
+        show(&mut self.tops, token, instance)
     }
 
     /// The state of the top instance of `token`'s screen.
     pub fn top(&mut self, token: u32) -> Option<&mut V> {
-        let instance = self.tops.iter().find(|(t, _)| *t == token)?.1;
-        self.get(instance)
+        let at = top_place(&self.ids, &self.tops, token)?;
+        self.views.get_mut(at)
     }
 
     /// The instance on top for `token`'s screen.
     #[must_use]
     pub fn top_instance(&self, token: u32) -> Option<Instance> {
-        self.tops.iter().find(|(t, _)| *t == token).map(|(_, i)| *i)
+        top_of(&self.tops, token)
     }
 
     /// The state of `instance`.
     pub fn get(&mut self, instance: Instance) -> Option<&mut V> {
-        self.open
-            .iter_mut()
-            .find(|(i, _)| *i == instance)
-            .map(|(_, view)| view)
+        let at = place(&self.ids, instance)?;
+        self.views.get_mut(at)
     }
 
     /// Every open instance's state.
     pub fn all(&mut self) -> impl Iterator<Item = &mut V> {
-        self.open.iter_mut().map(|(_, view)| view)
+        self.views.iter_mut()
     }
 
     /// Every open instance with its state.
     pub fn all_with_instance(&mut self) -> impl Iterator<Item = (Instance, &mut V)> {
-        self.open
-            .iter_mut()
-            .map(|(instance, view)| (*instance, view))
+        self.ids.iter().copied().zip(self.views.iter_mut())
     }
 
     /// Whether no instance is open.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.open.is_empty()
+        self.ids.is_empty()
     }
 }
 

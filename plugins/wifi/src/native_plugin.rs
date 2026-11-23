@@ -19,11 +19,11 @@ use paperpaw_sdk::native::{
     reply::Reply,
     secrets::Secrets,
     settings::{self, SettingValue},
-    ui::{ButtonHint, Instance, Notify, Open, Question, RequestId, Ui},
+    ui::{Instance, Notify, Open, Question, RequestId, Ui},
     work::Work,
 };
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages, RowsChange, Screens,
+    Footer, Item, ItemList, ItemStep, Messages, RowsChange, Screens, key_bar,
     mem::{SERVICE_BUFFER, buffer, wipe},
     text::{concat, copy},
 };
@@ -290,32 +290,10 @@ fn forgets(input: &Input<'_>) -> bool {
 }
 
 /// The key bar names *Forget* for the menu button while the focus is on a
-/// network kept, as Beta 3 did, and the button's usual name elsewhere. Sent
-/// only where that changes; a hint the host refuses leaves the bar as it was.
+/// network kept, as Beta 3 did, and the button's usual name elsewhere.
 fn forget_hint(host: &Host<'_>, view: &mut Networks) {
     let forget = view.kept(view.list.focus());
-    if forget == view.forget_named {
-        return;
-    }
-    let word = if forget {
-        match Messages::new().and_then(|mut say| say.copy(host, "wifi.forget")) {
-            Ok(word) => Some(word),
-            Err(_) => return,
-        }
-    } else {
-        None
-    };
-    let hint = match &word {
-        Some(word) => ButtonHint::words(MENU, word),
-        None => ButtonHint::usual(MENU),
-    };
-    if let Ok(hint) = hint
-        && CommandSender::new(host, &mut [0; 256])
-            .set_hint(hint)
-            .is_ok()
-    {
-        view.forget_named = forget;
-    }
+    key_bar::name_while(host, MENU, "wifi.forget", forget, &mut view.forget_named);
 }
 
 impl NativeWifi {
