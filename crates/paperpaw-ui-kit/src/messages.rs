@@ -34,6 +34,13 @@ impl Messages {
             arguments: Vec::new(),
         })
     }
+    /// Wipes and frees both buffers: for a set that formatted a secret (a
+    /// password as an argument). The next call makes them again.
+    pub fn wipe(&mut self) {
+        crate::mem::wipe_vec(&mut self.out);
+        crate::mem::wipe_vec(&mut self.arguments);
+        (self.out, self.arguments) = (Vec::new(), Vec::new());
+    }
     /// The message buffer, made at the first use.
     fn out(&mut self) -> Result<&mut Vec<u8>, Error> {
         fit(&mut self.out, FIRST_MESSAGE)?;
@@ -201,12 +208,14 @@ impl Source for Host<'_> {
     }
 }
 
-/// `bytes` holds at least `len` bytes: a smaller buffer is let go of before
-/// the larger is made, so the two are never held at once.
+/// `bytes` holds at least `len` bytes: a smaller buffer is wiped and let go
+/// of before the larger is made, so the two are never held at once and no
+/// text is left behind.
 fn fit(bytes: &mut Vec<u8>, len: usize) -> Result<(), Error> {
     if bytes.len() >= len {
         return Ok(());
     }
+    crate::mem::wipe_vec(bytes);
     *bytes = Vec::new();
     *bytes = buffer(len)?;
     Ok(())

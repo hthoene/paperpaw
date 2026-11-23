@@ -60,6 +60,8 @@ struct Server {
     cut_report: bool,
     /// Answers leave out the `ETag` header.
     no_etags: bool,
+    /// Where the principal says the lists are, if not at [`HOME`].
+    home_href: Option<String>,
     now: i64,
 }
 
@@ -161,8 +163,9 @@ xmlns:c=\"urn:ietf:params:xml:ns:caldav\" xmlns:cs=\"http://calendarserver.org/n
                 "<d:current-user-principal><d:href>{PRINCIPAL}</d:href></d:current-user-principal>"
             ))
         } else if path == PRINCIPAL {
+            let home = self.home_href.as_deref().unwrap_or(HOME);
             plain(&format!(
-                "<c:calendar-home-set><d:href>{HOME}</d:href></c:calendar-home-set>"
+                "<c:calendar-home-set><d:href>{home}</d:href></c:calendar-home-set>"
             ))
         } else if path == HOME {
             let mut inner = plain("");
@@ -916,6 +919,32 @@ fn a_refused_password_stops_the_runs_and_nothing_is_lost() {
     reader.sync.account_changed();
     server.denies = false;
     assert_eq!(reader.run(&mut server).sent, 1);
+}
+
+#[test]
+fn an_answer_pointing_to_another_server_or_to_http_is_not_followed() {
+    // The server's `answer` fails the test on any address that is not on
+    // `https://cloud.example/`: nothing, nor the password, goes there.
+    for home in [
+        "http://cloud.example/dav/calendars/anna/",
+        "https://evil.example/dav/calendars/anna/",
+        "https://cloud.example:8443/dav/calendars/anna/",
+    ] {
+        let mut server = Server::new();
+        server.home_href = Some(home.into());
+        let mut reader = Reader::default();
+        assert_eq!(reader.run(&mut server).outcome, Outcome::Foreign, "{home}");
+        assert!(reader.store.home.is_empty());
+        assert_eq!(
+            server.log,
+            ["PROPFIND /dav/", "PROPFIND /dav/principals/anna/"]
+        );
+    }
+    // A place kept from before on another server is not used either.
+    let (mut server, mut reader) = synced();
+    reader.store.home = "http://cloud.example/dav/calendars/anna/".into();
+    assert_eq!(reader.run(&mut server).outcome, Outcome::Synced);
+    assert_eq!(reader.store.home, format!("https://cloud.example{HOME}"));
 }
 
 #[test]
