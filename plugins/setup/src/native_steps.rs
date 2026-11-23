@@ -109,10 +109,20 @@ impl<'h, 'cb> Reader<'h, 'cb> {
 
     /// The steps that apply now, in their order.
     pub fn steps(&mut self) -> Result<Vec<Step>, Error> {
+        self.read(true)
+    }
+
+    /// Every step, whether it applies now or not, in their order: a step its
+    /// plugin hides for a while is still one of the guide's (#505).
+    pub fn all_steps(&mut self) -> Result<Vec<Step>, Error> {
+        self.read(false)
+    }
+
+    fn read(&mut self, applying: bool) -> Result<Vec<Step>, Error> {
         let mut found: Vec<Step> = Vec::new();
         rows!(cursor => self.registry.setup(self.host, cursor, &mut self.input, &mut self.output), |row| {
             (|| {
-            if row.flags() & APPLIES == 0 {
+            if applying && row.flags() & APPLIES == 0 {
                 return Ok(());
             }
             let page = match row.page_kind() {
