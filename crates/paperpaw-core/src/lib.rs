@@ -528,6 +528,17 @@ impl Kernel {
         if hovering(&event) {
             return self.finish();
         }
+        // Work that comes due now runs in the next call, after the frame of
+        // what the event does: a page turned at a button's release waited
+        // for a whole step of the reader's count before it was drawn (#518).
+        self.input.answering = true;
+        let effects = self.answer(now, event);
+        self.input.answering = false;
+        effects
+    }
+
+    /// [`Self::handle`] for an event that is not a hover.
+    fn answer(&mut self, now: Instant, event: InputEvent) -> Effects {
         self.shared.reader = true;
         if self.stale(now, &event) {
             return self.finish();
