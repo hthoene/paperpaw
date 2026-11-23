@@ -1,9 +1,7 @@
 ### Fixed
 
-- **Pages turn without delay again while a book's pages are counted** (#515).
-  On the X4 Pro and X4 Classic a page turn could wait a second or two for the
-  background count of the book's pages; a turn now waits for none of it, and
-  the count goes on in the quiet time after the turn. Books opened after the
-  first one are counted at the speed of these devices again, not a page a
-  second. Background work of any plugin no longer runs between pressing a
-  button and the action it makes.
+- **Books after the first are counted at the device's speed again** (#515).
+  On the X4 Pro and X4 Classic every book opened after the first one counted
+  its pages at the small X4's pace, a page a second for many minutes, and a
+  page turn often waited for one of these steps. Background work of any
+  plugin no longer runs between pressing a button and the action it makes.

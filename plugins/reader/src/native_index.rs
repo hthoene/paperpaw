@@ -27,14 +27,11 @@ pub const PAGES_PER_STEP: usize = 8;
 /// lays a page out slowly; a button waits no longer than that).
 pub const PAGES_PER_STEP_SMALL: usize = 1;
 /// How long a step lays pages out on a device that is not small, in
-/// microseconds: half of the second the host waits at least before the next
-/// step (`work.md` 1.1, work declared in a run). The next step is declared as
-/// the step begins (`NativeReader::count_step`), so a step comes every second
-/// (#506), not a second after the last one ended. A button pressed during a
-/// step waits no longer than on Beta 3's X4 (a page, half a second), where a
-/// step of the whole second held each press up to a second (#515), and the
-/// processor rests the other half.
-pub const STEP_MICROS: u64 = 500_000;
+/// microseconds: the second the host waits at least before the next step
+/// (`work.md` 1.1, work declared in a run). The next step is declared as the
+/// step begins (`NativeReader::count_step`), so the steps follow each other
+/// as Beta 3's did (2 ms apart) instead of a second apart (#506).
+pub const STEP_MICROS: u64 = 1_000_000;
 /// The wait between two steps, in milliseconds.
 pub const DELAY_MS: u32 = 2;
 /// The same on a small device.
