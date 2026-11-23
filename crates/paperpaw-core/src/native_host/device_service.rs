@@ -135,7 +135,8 @@ pub struct DeviceFacts<'a> {
     /// How this start came about: 0 unknown, 1 power on, 2 woke, 3 restart, 4
     /// after a fault (other values read as 0).
     pub start: u32,
-    /// How long the device slept before it woke last, where known.
+    /// How long the device slept before it woke last, where known. The
+    /// kernel's own figure (`Place::slept_for`) stands over it.
     pub slept_ms: Option<u64>,
 }
 
