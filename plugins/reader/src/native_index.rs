@@ -27,11 +27,14 @@ pub const PAGES_PER_STEP: usize = 8;
 /// lays a page out slowly; a button waits no longer than that).
 pub const PAGES_PER_STEP_SMALL: usize = 1;
 /// How long a step lays pages out on a device that is not small, in
-/// microseconds: the second the host waits at least before the next step
-/// (`work.md` 1.1, work declared in a run). The next step is declared as the
-/// step begins (`NativeReader::count_step`), so the steps follow each other
-/// as Beta 3's did (2 ms apart) instead of a second apart (#506).
-pub const STEP_MICROS: u64 = 1_000_000;
+/// microseconds: half of the second the host waits at least before the next
+/// step (`work.md` 1.1, work declared in a run). The next step is declared as
+/// the step begins (`NativeReader::count_step`), so a step comes every second
+/// (#506), not a second after the last one ended. A button pressed during a
+/// step waits no longer than on Beta 3's X4 (a page, half a second), where a
+/// step of the whole second held each press up to a second (#515), and the
+/// processor rests the other half.
+pub const STEP_MICROS: u64 = 500_000;
 /// The wait between two steps, in milliseconds.
 pub const DELAY_MS: u32 = 2;
 /// The same on a small device.
@@ -109,12 +112,22 @@ pub const fn pace(class: Option<DeviceClass>) -> (Pace, u32) {
 
 /// The memory class `core.device` tells, for [`pace`]; none when the host does
 /// not answer. The reply buffer is the op's whole `max_reply` (4,096 bytes,
-/// `device.md` 6.1): the host refuses a smaller one with `NoSpace`.
+/// `device.md` 6.1): the host refuses a smaller one with `NoSpace`. The handle
+/// is given back: a plugin holds one handle a service, so a handle kept made
+/// every later book's ask fail (`ERR_FULL`), and that book counted at the
+/// small device's pace, a page a second (#515).
 pub fn device_class(host: &Host<'_>) -> Option<DeviceClass> {
     let device = Device::open(host).ok()?;
-    let (mut input, mut out) = (buffer(256).ok()?, buffer(SERVICE_BUFFER).ok()?);
-    let identity = device.device(host, &mut input, &mut out).ok()?;
-    Some(identity.class())
+    let class = match (buffer(256), buffer(SERVICE_BUFFER)) {
+        (Ok(mut input), Ok(mut out)) => device
+            .device(host, &mut input, &mut out)
+            .ok()
+            .map(|identity| identity.class()),
+        _ => None,
+    };
+    // A handle that cannot be given back is no reason to lose the class.
+    device.release(host).ok();
+    class
 }
 
 /// What a layout is made of, as text: the settings (the reading font and the

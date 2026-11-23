@@ -2,7 +2,9 @@
 //! fast it counts a book's pages (`native_index::pace`). The host refuses a
 //! reply buffer smaller than the op's `max_reply` with `NoSpace`, so an
 //! undersized buffer read every device as small. A test-only plugin asks
-//! through the real host as the reader does.
+//! through the real host as the reader does, twice: the reader asks for every
+//! book it opens, and a handle it kept made every ask after the first fail
+//! (#515: books on the X4 Pro counted a page a second, as on the X4).
 #![cfg(feature = "linked")]
 #![allow(
     clippy::unwrap_used,
@@ -28,13 +30,14 @@ use std::rc::Rc;
 
 thread_local! {
     static CLASS: Cell<Option<Option<DeviceClass>>> = const { Cell::new(None) };
+    static AGAIN: Cell<Option<Option<DeviceClass>>> = const { Cell::new(None) };
 }
 
 /// The token of the extra `Started` subscription.
 const STARTED: u32 = 7_001;
 
 /// A plugin of the reader's services that only asks, at the start, what the
-/// reader asks for the pace of its count (the reader itself takes `Started`
+/// reader asks for the pace of its count, as for two books (the reader itself takes `Started`
 /// for its own token: one subscription of a kind a plugin).
 struct Asking;
 
@@ -59,6 +62,7 @@ impl native::Plugin for Asking {
     ) -> Result<(), Error> {
         if token == STARTED {
             CLASS.set(Some(native_index::device_class(host)));
+            AGAIN.set(Some(native_index::device_class(host)));
         }
         Ok(())
     }
@@ -100,8 +104,8 @@ impl DeviceHost for Large {
     }
 }
 
-#[test]
-fn the_memory_class_the_device_tells_reaches_the_page_count() {
+/// Starts the asking plugin on a device of the large class.
+fn start_on_large() {
     let setup = hosted::Setup::large().wired(|w| w.device(Rc::new(Large)));
     let mut reader = hosted::install_in(
         &setup,
@@ -119,5 +123,16 @@ fn the_memory_class_the_device_tells_reaches_the_page_count() {
     )
     .expect("the host admits the plugin");
     let _ = reader.kernel().start(Instant(0));
+}
+
+#[test]
+fn the_memory_class_the_device_tells_reaches_the_page_count() {
+    start_on_large();
     assert_eq!(CLASS.get(), Some(Some(DeviceClass::Large)));
+}
+
+#[test]
+fn the_memory_class_is_told_again_for_the_next_book() {
+    start_on_large();
+    assert_eq!(AGAIN.get(), Some(Some(DeviceClass::Large)));
 }
