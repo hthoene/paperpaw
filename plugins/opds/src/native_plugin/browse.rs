@@ -571,6 +571,9 @@ impl Opds {
     }
 
     /// The end of a request: the screen or the sync it belongs to takes it.
+    // Out of line: folded into `event` with `Screens` of two lists (#493), the
+    // frame is 2,256 B on the S3, over the 2 KiB band (#4954).
+    #[inline(never)]
     pub(super) fn http_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
         let files = DataFiles::new(host);
         let mut handled = None;
