@@ -98,6 +98,18 @@ impl crate::Kernel {
             .lease(owner)
             .is_some_and(|lease| lease.is_parked())
     }
+
+    /// Whether `owner` is parked and was asked to start (a make tried that
+    /// could not be done now, [`Self::native_ready`]): what waits for it is
+    /// woken by its start's time (`parked_start_at`), not by a pass at once.
+    /// A parked plugin nothing tried to make yet is not: the next pass makes
+    /// it (#483).
+    pub(crate) fn native_start_waits(&self, owner: u64) -> bool {
+        self.shared
+            .native_instances
+            .lease(owner)
+            .is_some_and(|lease| lease.is_parked() && lease.slot().start_asked())
+    }
 }
 
 impl crate::Kernel {
