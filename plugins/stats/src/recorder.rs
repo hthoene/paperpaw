@@ -350,11 +350,12 @@ impl Recorder {
                         .names
                         .get(session.name)
                         .map_or(("", ""), |(p, t)| (p, t));
-                    register_book(cx, path, title, unix(cx.now_ms()), session.pages)
-                        .unwrap_or_else(|error| {
+                    register_book(cx, path, title, unix(cx.now_ms()), session.pages).unwrap_or_else(
+                        |error| {
                             refused = Some(error);
                             None
-                        })
+                        },
+                    )
                 }
             };
             // A book that cannot be read is not recorded; one `books.ini`

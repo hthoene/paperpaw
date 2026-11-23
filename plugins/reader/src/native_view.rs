@@ -536,7 +536,9 @@ impl View {
                 // The page starts at the start of its first line in the new
                 // layout, as Beta 3's `relayout`: no part of a line at the top,
                 // and a start the new page count knows.
-                open.at = open.line_start(host, docs, &setup, open.at).unwrap_or(open.at);
+                open.at = open
+                    .line_start(host, docs, &setup, open.at)
+                    .unwrap_or(open.at);
                 open.ensure_counter(host, &setup);
             }
             open.announce(host, docs);
@@ -1070,7 +1072,8 @@ impl Open {
             // The place that could not be read stays; that this reading is
             // not kept is said once, as a refused write is.
             if !self.said {
-                self.said = self.say_not_saved(host, "reader.not-saved-plain", when == When::Closing);
+                self.said =
+                    self.say_not_saved(host, "reader.not-saved-plain", when == When::Closing);
             }
             return;
         }
@@ -1422,11 +1425,11 @@ mod ribbon;
 mod script_hint;
 mod setup;
 mod skim;
-pub use skim::Place as SkimPlace;
 pub(crate) use handover::{Handover, read_handover};
 use helpers::{book_language, document_error_kind, redraw, say};
 use preparing::{Preparing, open_request, publisher_styles};
 use setup::{Kept, LayoutKey, Setup, flag, integer};
+pub use skim::Place as SkimPlace;
 
 mod r3;
 mod status;

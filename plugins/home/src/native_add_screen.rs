@@ -386,7 +386,10 @@ pub fn apply(host: &Host<'_>, writes: &[Write], resets: &[String]) -> Result<boo
         say(host, "home.grid.too-big")?;
         return Ok(false);
     }
-    if !writes.iter().any(|write| matches!(write, Write::Set { .. })) {
+    if !writes
+        .iter()
+        .any(|write| matches!(write, Write::Set { .. }))
+    {
         for write in writes {
             if let Write::Notify(key) = write {
                 say(host, key)?;

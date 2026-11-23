@@ -14,8 +14,8 @@ use paperpaw_sdk::native::{
     ui::{Notify, Open, Ui},
 };
 use paperpaw_sdk::{Handled, Storage};
-use paperpaw_ui_kit::{Screens, read_event};
 use paperpaw_ui_kit::widget::LocalZone;
+use paperpaw_ui_kit::{Screens, read_event};
 
 use crate::files::DataFolder;
 use crate::native_calendar::CalendarView;
@@ -597,4 +597,3 @@ impl Surroundings for HostCx<'_, '_> {
         }
     }
 }
-

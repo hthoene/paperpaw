@@ -117,7 +117,10 @@ impl Open {
     /// The device's memory class, asked once (none where the host does not
     /// tell: the pace of a small device).
     fn device_class(&mut self, host: &Host<'_>) -> Option<DeviceClass> {
-        *self.count.class.get_or_insert_with(|| native_index::device_class(host))
+        *self
+            .count
+            .class
+            .get_or_insert_with(|| native_index::device_class(host))
     }
 
     /// The book's edition for the name of its index, its file and the packs

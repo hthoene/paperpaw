@@ -152,8 +152,8 @@ enum Next {
 }
 
 mod area;
-mod footer_status;
 mod arrange;
+mod footer_status;
 mod kept;
 mod look;
 mod names;
