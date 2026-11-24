@@ -9,6 +9,7 @@
 //! in a way that can panic.
 use alloc::string::String;
 use alloc::vec::Vec;
+use paperpaw_native::host_glue;
 use paperpaw_sdk::digest::hex;
 use paperpaw_sdk::native::{Error, Fingerprint, INTERFACE, keys::MAX_REVOKED};
 use paperpaw_ui_kit::{
@@ -464,9 +465,27 @@ pub fn encode(text: &str) -> Result<String, Error> {
     Ok(out.0)
 }
 
+/// The interface a library is asked for builds of (`abi=7.<minor>`, #528): the
+/// major and the minor of the plugin interface this store was built with. The
+/// store is linked into the firmware, so that is the firmware's own; a store
+/// built for an older minor runs on a newer firmware and asks for builds it
+/// knows to fit. Without it a library answers with the builds of an older
+/// interface (format 3), which no interface-7 firmware loads.
+///
+/// # Errors
+/// `NoMemory` when the text cannot be kept.
+pub fn interface_abi() -> Result<String, Error> {
+    let (mut major, mut minor) = ([0; 20], [0; 20]);
+    concat(&[
+        decimal_u64(u64::from(INTERFACE), &mut major),
+        ".",
+        decimal_u64(u64::from(host_glue::MINOR), &mut minor),
+    ])
+}
+
 /// The address of the list at `list` for `device` in `language`, with the
-/// community plugins where `community`, and the builds for the fingerprint
-/// `abi` (as text) of the PaperPaw that runs.
+/// community plugins where `community`, and the builds for the interface
+/// `abi` (as text, [`interface_abi`]) of the PaperPaw that runs.
 ///
 /// # Errors
 /// `NoMemory` when the address cannot be kept.

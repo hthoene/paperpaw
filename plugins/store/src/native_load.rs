@@ -36,7 +36,7 @@ use crate::native_device::Facts;
 use crate::native_index::{self, Index, MAX_LIST_FILE};
 use crate::native_item::HaveFn;
 use crate::native_list::{Hooks, Page, PageReader};
-use crate::native_model::{Revoked, join_url, list_url, plugin_url};
+use crate::native_model::{Revoked, interface_abi, join_url, list_url, plugin_url};
 use crate::native_queue::read_text;
 use crate::native_sources::{
     MAX_SIGNATURE_FILE, MAX_SIGNATURE_TEXT, MAX_SOURCE_LIST, SIGNATURE_PART, Signed, Trust,
@@ -362,7 +362,13 @@ impl Loader {
         };
         let (catalog, community) = wire.catalog()?;
         let url = concat(&[
-            &list_url(&catalog, facts.name(), facts.language(), community, None)?,
+            &list_url(
+                &catalog,
+                facts.name(),
+                facts.language(),
+                community,
+                Some(&interface_abi()?),
+            )?,
             "&order=fair",
         ])?;
         // A community source's list is smaller, and its signature is asked
@@ -704,13 +710,14 @@ fn ask_page(wire: &mut dyn Wire, id: &str, token: u32) -> Result<PageSlot, Error
         return Ok(slot);
     };
     let (catalog, community) = wire.catalog()?;
+    let abi = interface_abi()?;
     let url = match plugin_url(
         &catalog,
         facts.name(),
         facts.language(),
         id,
         community,
-        None,
+        Some(&abi),
     ) {
         Ok(url) => url,
         Err(Error::NoMemory) => return Err(Error::NoMemory),
