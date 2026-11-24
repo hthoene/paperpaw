@@ -227,8 +227,8 @@ jobs:
         # Intel ones): built for x86_64-apple-darwin there, not run.
         include:
           - { os: windows-latest, target: windows-x64, rust: "" }
-          - { os: macos-14, target: macos-arm64, rust: "" }
-          - { os: macos-14, target: macos-x64, rust: x86_64-apple-darwin }
+          - { os: macos-latest, target: macos-arm64, rust: "" }
+          - { os: macos-latest, target: macos-x64, rust: x86_64-apple-darwin }
           # Built on the oldest image we support: a binary needs at most the
           # glibc of the machine that built it (Debian 12 has 2.36, Ubuntu
           # 22.04 has 2.35). `ubuntu-latest` (24.04, 2.39) left both out (#125).
