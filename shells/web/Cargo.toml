@@ -27,3 +27,5 @@ paperpaw-x4.workspace = true
 workspace = true
 
 [dev-dependencies]
+# The interface minor the linked store names in its library requests.
+paperpaw-native.workspace = true

@@ -45,12 +45,11 @@ fn requests_get_recorded_answers_or_fail_or_go_to_the_page() {
     boox.command("run store.open", 6_000).unwrap();
     boox.advance(6_100);
     let told = boox.requests();
-    assert!(
-        told.contains(
-            r#""url":"https://paperpaw.org/api/v1/plugins.json?device=android&lang=en&order=fair""#
-        ),
-        "{told}"
+    let list_url = format!(
+        r#""url":"https://paperpaw.org/api/v1/plugins.json?device=android&lang=en&abi=7.{}&order=fair""#,
+        paperpaw_native::host_glue::MINOR
     );
+    assert!(told.contains(&list_url), "{told}");
     assert!(
         told.contains(r#""source":"fixture","status":200"#),
         "{told}"
