@@ -3159,6 +3159,7 @@ dependencies = [
  "paperpaw-default-packs",
  "paperpaw-dev",
  "paperpaw-emulator",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-x4",
 ]
