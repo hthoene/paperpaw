@@ -5396,6 +5396,22 @@ change the plugin SDK.
   the next page, down or right to the previous one, as the arrows under the
   panel do. With the focus shown (buttons used), the page buttons still step
   it.
+- **Menu page arrows on touch screens** (#520). The arrows that turn the page
+  of a menu or a settings panel (the book menu's *Font* panel, for one) were
+  tiny text characters, barely visible on the X4 Pro, and the one toward an
+  end without a page did not show at all. They are drawn as in Beta 3 again:
+  bold arrows, the one toward an end without a page in gray.
+- **Rows with an arrow in the reader's font panel open again** (#522). A
+  setting with exactly two values, such as the reading font with the book's
+  font and one other, was shown as "Book's font ›" but a tap (or Select) on
+  it did nothing. It now opens the list of its values, where more fonts are
+  offered too (menu 1.0.13).
+- **Sleeping and switching off refresh the screen once** (#523). The sleep
+  and off screen asked for its full refresh only after it had shown, so the
+  whole screen refreshed a second time right before the device slept or
+  switched off (on the X4s the picture's grays were replaced by black and
+  white). It now asks for it in the frame that opens it, as in Beta 3: one
+  clean refresh, then sleep.
 
 ## [0.6.0-beta.3] - 2026-11-05
 
