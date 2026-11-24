@@ -70,6 +70,19 @@ class LanguagePacks(unittest.TestCase):
                 language_pack.build("xx", self.root / "out")
 
 
+class Packs(unittest.TestCase):
+    """Every UI pack holds only messages a plugin or the kernel has in
+    English, once each, with English's placeholders: a renamed or removed
+    key goes in the packs too, or they keep a text nothing reads (#474)."""
+
+    def test_every_pack_passes_the_message_check(self):
+        english = language_pack.english()
+        with patch.object(language_pack, "english", return_value=english), \
+                patch("builtins.print"):
+            for pack in sorted(language_pack.LANGUAGES.glob("*.ini")):
+                with self.subTest(pack=pack.stem):
+                    self.assertEqual(language_pack.check(pack.stem, [pack]), [])
+
 class German(unittest.TestCase):
     """German is a pack made of every plugin's `de.ini` (#251)."""
 
