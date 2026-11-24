@@ -152,6 +152,26 @@ fn the_timer_choices_are_the_same() {
     }
 }
 
+/// The lines below the text by default are Beta 3's: the line of items (the
+/// page number on the right), the progress bar and none; the line of the rest
+/// of the chapter is declared for the list but not in the default rotation, so
+/// a tap never shows "Chapter: 3 pages left" unasked (#525).
+#[test]
+fn the_lines_below_by_default_are_the_ones_of_beta_3() {
+    let native = declared::native("reader", &all());
+    let lines = native
+        .specs
+        .iter()
+        .find(|s| s.starts_with("status.bottom-lines|"))
+        .unwrap();
+    assert!(
+        lines.contains(
+            "|t:core.status-line.items, reader.status-line.progress, reader.status-line.empty|"
+        ),
+        "{lines}"
+    );
+}
+
 /// Every text the declarations ask for exists in both languages.
 #[test]
 fn the_declared_texts_have_words() {

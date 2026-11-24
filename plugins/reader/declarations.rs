@@ -239,6 +239,8 @@ pub fn status_settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     extra.unit = unit;
     extra.step = step;
     d.extra(extra)?;
+    // The lines below the text by default are Beta 3's: the line of the rest
+    // of the chapter (#448) is offered in the list, not shown after a tap (#525).
     for (name, title, default, section) in [
         (
             "status.top-lines",
@@ -249,8 +251,7 @@ pub fn status_settings<F: FnMut(&[u8]) -> Result<(), i32>>(
         (
             "status.bottom-lines",
             "reader.status.bottom-lines",
-            "core.status-line.items, reader.status-line.chapter, reader.status-line.progress, \
-             reader.status-line.empty",
+            "core.status-line.items, reader.status-line.progress, reader.status-line.empty",
             SECTION_BOTTOM,
         ),
     ] {
