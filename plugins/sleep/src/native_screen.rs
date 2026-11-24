@@ -106,6 +106,9 @@ pub struct Sleeping {
     invert_cat: bool,
     /// The device woke since the screen opened.
     pub woke: bool,
+    /// The screen was shown: its first frame, refreshed fully as it opened,
+    /// is behind it.
+    pub shown: bool,
     /// Minutes between redraws while asleep (`sleep.refresh-every`); 0 never.
     refresh: u32,
     /// The widgets of `sleep.widgets`, where they show.
@@ -131,6 +134,7 @@ impl Sleeping {
             off,
             invert_cat: false,
             woke: false,
+            shown: false,
             refresh: 0,
             list: String::new(),
             over: None,
