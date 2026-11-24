@@ -5412,6 +5412,12 @@ change the plugin SDK.
   switched off (on the X4s the picture's grays were replaced by black and
   white). It now asks for it in the frame that opens it, as in Beta 3: one
   clean refresh, then sleep.
+- **The reader shows the page number below the text by default** (#525).
+  A tap on the status line below the text switched to "Chapter: 3 pages
+  left" since Beta 4; by default it now switches between the line with the
+  page number, the progress bar and no line, as in Beta 3. The line with the
+  pages left in the chapter can still be chosen in the status line settings
+  (reader 1.2.8).
 
 ## [0.6.0-beta.3] - 2026-11-05
 
