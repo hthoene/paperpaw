@@ -475,6 +475,11 @@ impl NativeSleep {
         if let Some(old) = self.screens.get(instance) {
             old.release(host);
         }
+        // Refreshed fully in the frame that opens it, the one the device
+        // sleeps or switches off on: asked once it showed, the whole screen
+        // would refresh a second time before the sleep (#523).
+        let mut scratch = [0; 64];
+        view.refresh(&mut CommandSender::new(host, &mut scratch))?;
         self.screens.open(instance, view)
     }
 
@@ -513,6 +518,10 @@ impl NativeSleep {
         // too.
         if view.woke {
             return close(host);
+        }
+        // Its first show: that frame was refreshed fully as it opened.
+        if !core::mem::replace(&mut view.shown, true) {
+            return Ok(());
         }
         let mut scratch = [0; 64];
         view.refresh(&mut CommandSender::new(host, &mut scratch))
