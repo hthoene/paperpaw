@@ -13,7 +13,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
-    Rect,
+    Color, Rect,
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose},
@@ -292,16 +292,12 @@ pub fn pager(
         bar,
         Rect::new(bar.x + bar.width - side, bar.y, side, bar.height),
     );
-    let (back, on_glyph) = if style.rtl {
-        ("\u{203a}", "\u{2039}")
-    } else {
-        ("\u{2039}", "\u{203a}")
-    };
-    for (rect, glyph, on) in [(prev, back, page > 0), (next, on_glyph, page + 1 < pages)] {
+    for (rect, on, left) in [
+        (prev, page > 0, !style.rtl),
+        (next, page + 1 < pages, style.rtl),
+    ] {
         let color = if on { style.ink } else { style.disabled };
-        let at = f32::from(rect.x)
-            + (f32::from(rect.width) - font.measure_text(style.text, glyph)?) / 2.0;
-        text::label(body, font, glyph, style.text, at, rect, color, Some(rect))?;
+        chevron(body, style, rect, left, color)?;
     }
     // The label between them does nothing.
     header.pager = Some((
@@ -314,6 +310,46 @@ pub fn pager(
         ),
         next,
     ));
+    Ok(())
+}
+
+/// A page arrow in the middle of `rect`, pointing left or right, as Beta 3's
+/// pager and the header's page arrows draw it: a chevron 0.76 of a title high
+/// and three lines thick. Drawn in stippled rows, so that the faint arrow
+/// toward an end without a page shows gray on a monochrome display.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+fn chevron(
+    body: &mut Vec<Paint>,
+    style: &Style,
+    rect: Rect,
+    left: bool,
+    color: Color,
+) -> Result<(), Error> {
+    let half = (style.title * 0.38) as i32;
+    let width = half * 4 / 5;
+    let thick = (i32::from(style.line) * 3).max(3);
+    let x = i32::from(rect.x) + i32::from(rect.width) / 2;
+    let y = i32::from(rect.y) + i32::from(rect.height) / 2;
+    for dy in -half..=half {
+        let dx = width * dy.abs() / half.max(1);
+        let start = if left {
+            x - (width + thick) / 2 + dx
+        } else {
+            x + (width + thick) / 2 - dx - thick
+        };
+        if let (Ok(row_x), Ok(row_y), Ok(thick)) = (
+            u16::try_from(start),
+            u16::try_from(y + dy),
+            u16::try_from(thick),
+        ) {
+            paint::push(
+                body,
+                Paint::Stipple(Rect::new(row_x, row_y, thick, 1), color),
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -379,6 +415,85 @@ mod tests {
         let s = geometry(&[60; 5], &m);
         assert_eq!(s.region.height, 10);
         assert!(s.list.height <= 10);
+    }
+
+    /// What `chevron` draws in an 18 by 21 pixel box with the X4 Pro's title
+    /// and lines: `#` ink, `:` gray, `.` nothing.
+    fn arrow_pixels(left: bool, color: Color) -> Vec<String> {
+        let mut style = Style::themed(Color::BLACK, Color::WHITE);
+        (style.title, style.line) = (27.0, 3);
+        let mut body = Vec::new();
+        chevron(&mut body, &style, Rect::new(0, 0, 18, 21), left, color).unwrap();
+        let mut rows = alloc::vec![alloc::vec![b'.'; 18]; 21];
+        for paint in &body {
+            let Paint::Stipple(rect, color) = paint else {
+                panic!("a chevron is drawn in stippled rows: {paint:?}");
+            };
+            let ink = if color.luma() < 128 { b'#' } else { b':' };
+            for x in rect.x..rect.x + rect.width {
+                rows[usize::from(rect.y)][usize::from(x)] = ink;
+            }
+        }
+        rows.into_iter()
+            .map(|row| String::from_utf8(row).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn page_arrows_are_beta_3s_ink_and_gray_toward_an_end() {
+        // Beta 3's pager on the X4 Pro, pixel for pixel (#520).
+        assert_eq!(
+            arrow_pixels(false, Color::BLACK),
+            [
+                "#########.........",
+                ".#########........",
+                "..#########.......",
+                "...#########......",
+                "....#########.....",
+                "....#########.....",
+                ".....#########....",
+                "......#########...",
+                ".......#########..",
+                "........#########.",
+                "........#########.",
+                "........#########.",
+                ".......#########..",
+                "......#########...",
+                ".....#########....",
+                "....#########.....",
+                "....#########.....",
+                "...#########......",
+                "..#########.......",
+                ".#########........",
+                "#########.........",
+            ]
+        );
+        assert_eq!(
+            arrow_pixels(true, Color::gray(150)),
+            [
+                ".........:::::::::",
+                "........:::::::::.",
+                ".......:::::::::..",
+                "......:::::::::...",
+                ".....:::::::::....",
+                ".....:::::::::....",
+                "....:::::::::.....",
+                "...:::::::::......",
+                "..:::::::::.......",
+                ".:::::::::........",
+                ".:::::::::........",
+                ".:::::::::........",
+                "..:::::::::.......",
+                "...:::::::::......",
+                "....:::::::::.....",
+                ".....:::::::::....",
+                ".....:::::::::....",
+                "......:::::::::...",
+                ".......:::::::::..",
+                "........:::::::::.",
+                ".........:::::::::",
+            ]
+        );
     }
 }
 
