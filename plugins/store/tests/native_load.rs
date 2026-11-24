@@ -173,6 +173,27 @@ fn another_request_ended_is_ignored() {
     assert_eq!(loader.trouble(), Trouble::Loading);
 }
 
+/// #528: the list and the pages were asked for without the interface, and the
+/// library answered with the builds of an older one (23 of 46 code plugins).
+#[test]
+fn the_list_and_the_pages_name_the_interface_the_store_runs_at() {
+    let abi = format!("&abi=7.{}", paperpaw_native::host_glue::MINOR);
+    let mut wire = Script::new();
+    let mut loader = Loader::default();
+    loader.start_list(&mut wire).unwrap();
+    loader.start_page(&mut wire, "plugin-a").unwrap();
+    loader.start_queue_page(&mut wire, "plugin-b").unwrap();
+    let urls: Vec<_> = wire.asked.iter().map(|(url, _, _)| url.as_str()).collect();
+    assert_eq!(
+        urls,
+        [
+            format!("https://lib.example/plugins.json?device=x4&lang=en{abi}&order=fair"),
+            format!("https://lib.example/plugins/plugin-a.json?device=x4&lang=en{abi}"),
+            format!("https://lib.example/plugins/plugin-b.json?device=x4&lang=en{abi}"),
+        ]
+    );
+}
+
 #[test]
 fn a_page_of_a_bad_name_is_not_asked_for_and_a_failed_one_says_so() {
     let mut wire = Script::new();
