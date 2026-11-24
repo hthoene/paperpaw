@@ -19,12 +19,12 @@ use paperpaw_sdk::{
         registrations,
         reply::Reply,
         settings::SettingValue,
-        ui::{ButtonHint, Instance, Notify, Open, Param, Question, RequestId, Ui},
+        ui::{Instance, Notify, Open, Param, Question, RequestId, Ui},
     },
 };
 use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages, Screens, Track, font_sizes,
+    Footer, Item, ItemList, ItemStep, Messages, Screens, Track, font_sizes, key_bar,
     mem::{SERVICE_BUFFER, buffer, push},
     text::{concat, copy},
     uitext,
@@ -535,46 +535,6 @@ impl Plugin for NativeSettings {
     }
 }
 
-/// The key bar while a number is changed with the buttons: *Cancel*, *Keep*,
-/// `−`, `+` (as in Beta 3); `on` false gives the buttons their usual names
-/// again. A hint the host refuses leaves the bar as it was.
-fn edit_hints(host: &Host<'_>, on: bool) {
-    const ACTIONS: [&str; 4] = ["core.back", "core.confirm", "core.left", "core.right"];
-    let mut sent = [None, None, None, None];
-    let mut said = [String::new(), String::new()];
-    if on {
-        let Ok(mut messages) = Messages::new() else {
-            return;
-        };
-        for (word, key) in said
-            .iter_mut()
-            .zip(["settings.option.cancel", "settings.edit.keep"])
-        {
-            match messages.copy(host, key) {
-                Ok(text) => *word = text,
-                Err(_) => return,
-            }
-        }
-        sent = [
-            Some(said[0].as_str()),
-            Some(said[1].as_str()),
-            Some("\u{2212}"),
-            Some("+"),
-        ];
-    }
-    for (action, word) in ACTIONS.into_iter().zip(sent) {
-        let hint = match word {
-            Some(word) => ButtonHint::words(action, word),
-            None => ButtonHint::usual(action),
-        };
-        if let Ok(hint) = hint {
-            match CommandSender::new(host, &mut [0; 256]).set_hint(hint) {
-                Ok(()) | Err(_) => {}
-            }
-        }
-    }
-}
-
 /// The `View` of an instance, mutably.
 fn group_mut(screens: &mut Screens<View>, token: u32) -> Option<&mut GroupView> {
     match screens.top(token)? {
@@ -1041,7 +1001,7 @@ impl NativeSettings {
                 now,
             });
             v.list.replace(items);
-            edit_hints(host, true);
+            key_bar::edit_hints(host, true);
         }
         Ok(())
     }
@@ -1140,7 +1100,7 @@ impl NativeSettings {
             commands.end_preview()?;
             Self::redraw(host)?;
             v.editing = None;
-            edit_hints(host, false);
+            key_bar::edit_hints(host, false);
             v.list.replace(items);
             return Ok(Some(Handled::Yes));
         }
@@ -1172,7 +1132,7 @@ impl NativeSettings {
         CommandSender::new(host, &mut [0; 64]).end_preview()?;
         Self::redraw(host)?;
         v.editing = None;
-        edit_hints(host, false);
+        key_bar::edit_hints(host, false);
         v.list.replace(items);
         Ok(())
     }

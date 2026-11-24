@@ -28,7 +28,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::read_event;
 use paperpaw_ui_kit::{
-    Item, ItemList, ItemStep, Messages, Screens, font_sizes,
+    Item, ItemList, ItemStep, Messages, Screens, font_sizes, key_bar,
     mem::{SERVICE_BUFFER, buffer, push},
     text::{concat, copy},
 };
@@ -737,6 +737,7 @@ impl NativeMenu {
                     now: before,
                 });
                 view.list.replace(items);
+                key_bar::edit_hints(host, true);
                 Ok(())
             }
         }
@@ -770,8 +771,8 @@ impl NativeMenu {
     /// The buttons while a number is being changed, as in Beta 3 and the
     /// settings: right and up raise it, left and down lower it, each step
     /// shown at once and not yet kept; *Select* keeps it, *Back* goes back to
-    /// the value before. The state changes only once what can be refused went
-    /// through.
+    /// the value before; the key bar says so ([`key_bar::edit_hints`]). The
+    /// state changes only once what can be refused went through.
     fn edit_input(
         host: &Host<'_>,
         view: &mut ListView,
@@ -830,7 +831,8 @@ impl NativeMenu {
     }
 
     /// Ends changing a number: the value `kept` is kept (its key and value),
-    /// the preview ends either way, and the rows show the values kept.
+    /// the preview ends either way, the keys get their names back and the rows
+    /// show the values kept.
     fn end_edit(
         host: &Host<'_>,
         view: &mut ListView,
@@ -845,6 +847,7 @@ impl NativeMenu {
         commands.end_preview()?;
         Self::redraw(host)?;
         view.editing = None;
+        key_bar::edit_hints(host, false);
         view.list.replace(items);
         Ok(())
     }

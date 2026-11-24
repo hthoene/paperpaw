@@ -657,7 +657,7 @@ fn settle_editing(
         (None, Some(_)) => {
             view.editing = None;
             CommandSender::new(host, &mut [0; 64]).end_preview()?;
-            super::edit_hints(host, false);
+            paperpaw_ui_kit::key_bar::edit_hints(host, false);
         }
         _ => {}
     }
