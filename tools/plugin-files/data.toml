@@ -462,7 +462,7 @@ de.name = "Japanische Schrift"
 de.description = "Bücher auf Japanisch in einer Noto-Serif-Schrift: Hiragana, Katakana und 2.998 Kanji (Jōyō und JIS X 0208 Ebene 1), in vier Größen (etwa 9 MiB auf der Karte)."
 
 [language-ar]
-version = "1.0.5"
+version = "1.0.6"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -493,7 +493,7 @@ de.name = "Deutsch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Deutsch."
 
 [language-es]
-version = "1.0.3"
+version = "1.0.4"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -507,7 +507,7 @@ de.name = "Spanisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Spanisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-cs]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -521,7 +521,7 @@ de.name = "Tschechisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Tschechisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-da]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -535,7 +535,7 @@ de.name = "Dänisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Dänisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-fi]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -549,7 +549,7 @@ de.name = "Finnisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Finnisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-fr]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -563,7 +563,7 @@ de.name = "Französisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Französisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-hu]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -577,7 +577,7 @@ de.name = "Ungarisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Ungarisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-id]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -591,7 +591,7 @@ de.name = "Indonesisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Indonesisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-it]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -605,7 +605,7 @@ de.name = "Italienisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Italienisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-nb]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -619,7 +619,7 @@ de.name = "Norwegisch (Bokmål) (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Norwegisch (Bokmål). Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-nl]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -633,7 +633,7 @@ de.name = "Niederländisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Niederländisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-pl]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -647,7 +647,7 @@ de.name = "Polnisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Polnisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-pt-br]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -661,7 +661,7 @@ de.name = "Brasilianisch-Portugiesisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Brasilianisch-Portugiesisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-sk]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -675,7 +675,7 @@ de.name = "Slowakisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Slowakisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-sv]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -689,7 +689,7 @@ de.name = "Schwedisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Schwedisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-tr]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -703,7 +703,7 @@ de.name = "Türkisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Türkisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-ro]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -720,7 +720,7 @@ how = "PaperPaw's menus and settings in Romanian.\n\nIt needs the Latin Extended
 de.how = "PaperPaws Menüs und Einstellungen auf Rumänisch.\n\nSie braucht die Erweiterte lateinische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt ș und ț. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-el]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -737,7 +737,7 @@ how = "PaperPaw's menus and settings in Greek.\n\nIt needs the Greek letters pac
 de.how = "PaperPaws Menüs und Einstellungen auf Griechisch.\n\nSie braucht die Griechische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-bg]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -754,7 +754,7 @@ how = "PaperPaw's menus and settings in Bulgarian.\n\nIt needs the Cyrillic lett
 de.how = "PaperPaws Menüs und Einstellungen auf Bulgarisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-uk]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -771,7 +771,7 @@ how = "PaperPaw's menus and settings in Ukrainian.\n\nIt needs the Cyrillic lett
 de.how = "PaperPaws Menüs und Einstellungen auf Ukrainisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-ru]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -788,7 +788,7 @@ how = "PaperPaw's menus and settings in Russian.\n\nIt needs the Cyrillic letter
 de.how = "PaperPaws Menüs und Einstellungen auf Russisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-he]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -805,7 +805,7 @@ how = "PaperPaw's menus and settings in Hebrew, running from right to left.\n\nI
 de.how = "PaperPaws Menüs und Einstellungen auf Hebräisch, von rechts nach links.\n\nSie braucht die Hebräische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-fa]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -822,7 +822,7 @@ how = "PaperPaw's menus and settings in Persian, running from right to left.\n\n
 de.how = "PaperPaws Menüs und Einstellungen auf Persisch, von rechts nach links.\n\nSie braucht die Arabische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-bn]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -839,7 +839,7 @@ how = "PaperPaw's menus and settings in Bengali (Bangla).\n\nIt needs the Bengal
 de.how = "PaperPaws Menüs und Einstellungen auf Bengalisch (Bangla).\n\nSie braucht die Bengalische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-hi]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -856,7 +856,7 @@ how = "PaperPaw's menus and settings in Hindi.\n\nIt needs the Devanagari letter
 de.how = "PaperPaws Menüs und Einstellungen auf Hindi.\n\nSie braucht die Devanagari-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-mr]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -873,7 +873,7 @@ how = "PaperPaw's menus and settings in Marathi.\n\nIt needs the Devanagari lett
 de.how = "PaperPaws Menüs und Einstellungen auf Marathi.\n\nSie braucht die Devanagari-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-ne]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -890,7 +890,7 @@ how = "PaperPaw's menus and settings in Nepali.\n\nIt needs the Devanagari lette
 de.how = "PaperPaws Menüs und Einstellungen auf Nepalesisch.\n\nSie braucht die Devanagari-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-ur]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1121,7 +1121,7 @@ de.name = "Silbentrennung (Ukrainisch)"
 de.description = "Trennmuster für Ukrainisch, für ein gleichmäßiges Schriftbild."
 
 [language-vi]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1136,7 +1136,7 @@ de.name = "Vietnamesisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Vietnamesisch. Braucht die Vietnamesische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-zh-hans]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1151,7 +1151,7 @@ de.name = "Chinesisch (vereinfacht) (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf vereinfachtem Chinesisch. Braucht die Chinesische Schrift (vereinfacht). Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-zh-hant]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1166,7 +1166,7 @@ de.name = "Chinesisch (traditionell) (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf traditionellem Chinesisch. Braucht die Chinesische Schrift (traditionell). Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-ja]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1181,7 +1181,7 @@ de.name = "Japanisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Japanisch. Braucht die Japanische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-ko]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1196,7 +1196,7 @@ de.name = "Koreanisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Koreanisch. Braucht die Koreanische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-th]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1229,7 +1229,7 @@ de.name = "Alle Zertifikate"
 de.description = "Mozillas vollständige Liste der Stammzertifikate. Installiere sie, wenn eine sichere Verbindung mit „Zertifikat unbekannt“ scheitert."
 
 [language-ca]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1243,7 +1243,7 @@ de.name = "Katalanisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Katalanisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-hr]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1257,7 +1257,7 @@ de.name = "Kroatisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Kroatisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-sr]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1274,7 +1274,7 @@ how = "PaperPaw's menus and settings in Serbian.\n\nIt needs the Cyrillic letter
 de.how = "PaperPaws Menüs und Einstellungen auf Serbisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-sl]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1288,7 +1288,7 @@ de.name = "Slowenisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Slowenisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-lt]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1302,7 +1302,7 @@ de.name = "Litauisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Litauisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-lv]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1316,7 +1316,7 @@ de.name = "Lettisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Lettisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-et]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1330,7 +1330,7 @@ de.name = "Estnisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Estnisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-ms]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1344,7 +1344,7 @@ de.name = "Malaiisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Malaiisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-fil]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1358,7 +1358,7 @@ de.name = "Filipino (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Filipino. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-sw]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1372,7 +1372,7 @@ de.name = "Suaheli (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Suaheli. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-af]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1386,7 +1386,7 @@ de.name = "Afrikaans (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Afrikaans. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-bs]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1400,7 +1400,7 @@ de.name = "Bosnisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Bosnisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-mk]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1417,7 +1417,7 @@ how = "PaperPaw's menus and settings in Macedonian.\n\nIt needs the Cyrillic let
 de.how = "PaperPaws Menüs und Einstellungen auf Mazedonisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-be]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1434,7 +1434,7 @@ how = "PaperPaw's menus and settings in Belarusian.\n\nIt needs the Cyrillic let
 de.how = "PaperPaws Menüs und Einstellungen auf Belarussisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-sq]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1448,7 +1448,7 @@ de.name = "Albanisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Albanisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-is]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1462,7 +1462,7 @@ de.name = "Isländisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Isländisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-eu]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1476,7 +1476,7 @@ de.name = "Baskisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Baskisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-gl]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1490,7 +1490,7 @@ de.name = "Galicisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Galicisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-cy]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1504,7 +1504,7 @@ de.name = "Walisisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Walisisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-ga]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1518,7 +1518,7 @@ de.name = "Irisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Irisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-kk]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1535,7 +1535,7 @@ how = "PaperPaw's menus and settings in Kazakh.\n\nIt needs the Cyrillic letters
 de.how = "PaperPaws Menüs und Einstellungen auf Kasachisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-ckb]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1552,7 +1552,7 @@ how = "PaperPaw's menus and settings in Sorani Kurdish, running from right to le
 de.how = "PaperPaws Menüs und Einstellungen auf Sorani-Kurdisch, von rechts nach links.\n\nSie braucht die Arabische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-am]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1569,7 +1569,7 @@ how = "PaperPaw's menus and settings in Amharic.\n\nIt needs the Ethiopic letter
 de.how = "PaperPaws Menüs und Einstellungen auf Amharisch.\n\nSie braucht die Äthiopische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-jv]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1583,7 +1583,7 @@ de.name = "Javanisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Javanisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-so]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1597,7 +1597,7 @@ de.name = "Somali (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Somali. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-uz]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1611,7 +1611,7 @@ de.name = "Usbekisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Usbekisch. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-zu]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1625,7 +1625,7 @@ de.name = "Zulu (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Zulu. Eine maschinelle Übersetzung, ein Entwurf."
 
 [language-ky]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1642,7 +1642,7 @@ how = "PaperPaw's menus and settings in Kyrgyz.\n\nIt needs the Cyrillic letters
 de.how = "PaperPaws Menüs und Einstellungen auf Kirgisisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-mn]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1659,7 +1659,7 @@ how = "PaperPaw's menus and settings in Mongolian, in Cyrillic letters.\n\nIt ne
 de.how = "PaperPaws Menüs und Einstellungen auf Mongolisch, in kyrillischer Schrift.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-ps]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1676,7 +1676,7 @@ how = "PaperPaw's menus and settings in Pashto, running from right to left.\n\nI
 de.how = "PaperPaws Menüs und Einstellungen auf Paschtu, von rechts nach links.\n\nSie braucht die Arabische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-az]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1693,7 +1693,7 @@ how = "PaperPaw's menus and settings in Azerbaijani.\n\nIt needs the Latin Exten
 de.how = "PaperPaws Menüs und Einstellungen auf Aserbaidschanisch.\n\nSie braucht die Erweiterte lateinische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-ha]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1710,7 +1710,7 @@ how = "PaperPaw's menus and settings in Hausa.\n\nIt needs the Latin Extended le
 de.how = "PaperPaws Menüs und Einstellungen auf Hausa.\n\nSie braucht die Erweiterte lateinische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-yo]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1727,7 +1727,7 @@ how = "PaperPaw's menus and settings in Yoruba.\n\nIt needs the Latin Extended l
 de.how = "PaperPaws Menüs und Einstellungen auf Yoruba.\n\nSie braucht die Erweiterte lateinische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-ka]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1744,7 +1744,7 @@ how = "PaperPaw's menus and settings in Georgian.\n\nIt needs the Georgian lette
 de.how = "PaperPaws Menüs und Einstellungen auf Georgisch.\n\nSie braucht die Georgische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-hy]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1761,7 +1761,7 @@ how = "PaperPaw's menus and settings in Armenian.\n\nIt needs the Armenian lette
 de.how = "PaperPaws Menüs und Einstellungen auf Armenisch.\n\nSie braucht die Armenische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-gu]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1778,7 +1778,7 @@ how = "PaperPaw's menus and settings in Gujarati.\n\nIt needs the Gujarati lette
 de.how = "PaperPaws Menüs und Einstellungen auf Gujarati.\n\nSie braucht die Gujaratische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-pa]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1795,7 +1795,7 @@ how = "PaperPaw's menus and settings in Punjabi.\n\nIt needs the Gurmukhi letter
 de.how = "PaperPaws Menüs und Einstellungen auf Panjabi.\n\nSie braucht die Gurmukhi-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-or]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1812,7 +1812,7 @@ how = "PaperPaw's menus and settings in Odia.\n\nIt needs the Odia letters pack 
 de.how = "PaperPaws Menüs und Einstellungen auf Oriya.\n\nSie braucht die Oriya-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-ta]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1829,7 +1829,7 @@ how = "PaperPaw's menus and settings in Tamil.\n\nIt needs the Tamil letters pac
 de.how = "PaperPaws Menüs und Einstellungen auf Tamil.\n\nSie braucht die Tamilische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-te]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1846,7 +1846,7 @@ how = "PaperPaw's menus and settings in Telugu.\n\nIt needs the Telugu letters p
 de.how = "PaperPaws Menüs und Einstellungen auf Telugu.\n\nSie braucht die Telugu-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-kn]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1863,7 +1863,7 @@ how = "PaperPaw's menus and settings in Kannada.\n\nIt needs the Kannada letters
 de.how = "PaperPaws Menüs und Einstellungen auf Kannada.\n\nSie braucht die Kannada-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-ml]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1880,7 +1880,7 @@ how = "PaperPaw's menus and settings in Malayalam.\n\nIt needs the Malayalam let
 de.how = "PaperPaws Menüs und Einstellungen auf Malayalam.\n\nSie braucht die Malayalam-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-si]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -1897,7 +1897,7 @@ how = "PaperPaw's menus and settings in Sinhala.\n\nIt needs the Sinhala letters
 de.how = "PaperPaws Menüs und Einstellungen auf Singhalesisch.\n\nSie braucht die Singhalesische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-my]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
