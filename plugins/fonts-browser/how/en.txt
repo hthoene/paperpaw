@@ -10,7 +10,7 @@ Next to More fonts, the same list has Your own fonts, which shows this part of t
 
 On Android and other devices that draw font files: copy the file into the fonts folder (on Android: PaperPaw/fonts in the shared storage), restart PaperPaw and choose the font in Settings, under Reading, as Font.
 
-On the Xteink X4 and X4 Pro: these readers read font packs, not font files, because font files would not fit in their memory. Make a pack on a computer with paperpaw-fontgen, for each style you have (regular is needed):
+On the Xteink X4 and X4 Pro: these readers read font packs, not font files, because font files would not fit in their memory. The easy way: on a computer, open paperpaw.org/own-fonts, choose your font files and download the finished folder. The pack is made in your browser and nothing is uploaded. Or make a pack with paperpaw-fontgen on the command line, for each style you have (regular is needed):
 
 paperpaw-fontgen --family "My Font" --regular MyFont-Regular.ttf --bold MyFont-Bold.ttf --italic MyFont-Italic.ttf plugins
 
